@@ -104,35 +104,25 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: 'NOMUS_API_KEY not configured' }, 500);
     }
 
-    const NOMUS_PROXY_URL = Deno.env.get('NOMUS_PROXY_URL');
-    if (!NOMUS_PROXY_URL) {
-      return jsonResponse({ error: 'NOMUS_PROXY_URL not configured. Deploy the Cloudflare Worker proxy first.' }, 500);
+    const NOMUS_API_URL = Deno.env.get('NOMUS_API_URL');
+    if (!NOMUS_API_URL) {
+      return jsonResponse({ error: 'NOMUS_API_URL not configured' }, 500);
     }
-
-    const NOMUS_PROXY_SECRET = Deno.env.get('NOMUS_PROXY_SECRET') || '';
 
     const body = await req.json();
     const nomusPayload = buildNomusPayload(body);
 
-    console.log("Nomus payload:", JSON.stringify(nomusPayload));
-
-    // Send via Cloudflare Worker proxy (bypasses Deno TLS issue)
-    const proxyHeaders: Record<string, string> = {
-      "Content-Type": "application/json",
-      "Accept": "application/json",
-      "X-Nomus-Api-Key": NOMUS_API_KEY,
-    };
-    if (NOMUS_PROXY_SECRET) {
-      proxyHeaders["X-Proxy-Secret"] = NOMUS_PROXY_SECRET;
-    }
-
-    const proxyResponse = await fetch(NOMUS_PROXY_URL, {
+    const nomusResponse = await fetch(`${NOMUS_API_URL}/rest/pedidos`, {
       method: "POST",
-      headers: proxyHeaders,
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Authorization": `Basic ${NOMUS_API_KEY}`,
+      },
       body: JSON.stringify(nomusPayload),
     });
 
-    const responseText = await proxyResponse.text();
+    const responseText = await nomusResponse.text();
     let nomusData: any = {};
     try {
       nomusData = JSON.parse(responseText);
@@ -140,9 +130,7 @@ Deno.serve(async (req) => {
       nomusData = { raw: responseText };
     }
 
-    console.log("Nomus proxy response:", proxyResponse.status, JSON.stringify(nomusData));
-
-    if (proxyResponse.status === 429) {
+    if (nomusResponse.status === 429) {
       const waitSecs = Number(nomusData?.tempoAteLiberar) || 30;
       return jsonResponse({
         error: `API Nomus em throttling. Aguarde ${waitSecs} segundos e tente novamente.`,
@@ -151,11 +139,11 @@ Deno.serve(async (req) => {
       }, 429);
     }
 
-    if (proxyResponse.status < 200 || proxyResponse.status >= 300) {
+    if (nomusResponse.status < 200 || nomusResponse.status >= 300) {
       return jsonResponse({
-        error: `Erro na API Nomus [${proxyResponse.status}]`,
+        error: `Erro na API Nomus [${nomusResponse.status}]`,
         details: nomusData,
-      }, proxyResponse.status > 0 ? proxyResponse.status : 502);
+      }, nomusResponse.status > 0 ? nomusResponse.status : 502);
     }
 
     return jsonResponse({
