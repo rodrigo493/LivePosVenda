@@ -122,7 +122,7 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <Sonner />
-      <BrowserRouter basename="/LivePosVenda/dist">
+      <BrowserRouter basename={import.meta.env.VITE_BASE_PATH || "/"}>
         <AuthProvider>
           <AppRoutes />
         </AuthProvider>
