@@ -1,0 +1,1 @@
+ALTER TABLE public.model_maintenance_templates ALTER COLUMN model_id DROP NOT NULL;

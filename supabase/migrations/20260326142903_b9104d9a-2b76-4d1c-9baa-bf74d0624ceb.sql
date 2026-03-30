@@ -1,0 +1,1 @@
+ALTER TABLE public.tickets ALTER COLUMN equipment_id DROP NOT NULL;

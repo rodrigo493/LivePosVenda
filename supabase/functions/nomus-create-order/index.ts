@@ -1,0 +1,172 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
+};
+
+function jsonResponse(body: Record<string, unknown>, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
+function buildNomusPayload(body: Record<string, any>): Record<string, any> {
+  const {
+    order_code, items, notes, client_name,
+    dataEmissao: dataEmissaoInput,
+    dataEntregaPadrao, cfop,
+    idTipoPedido, idEmpresa, idCliente, idTipoMovimentacao,
+    idSetorSaida, idTabelaPreco, idContato, pedidoCompraCliente,
+    idCondicaoPagamento, idFormaPagamento, idPessoaVendedor,
+    idUnidadeMedida,
+  } = body;
+
+  const movimentacaoId = idTipoMovimentacao || 127;
+
+  const itensPedido = (items || []).map((item: any, idx: number) => ({
+    idProduto: item.product_id_nomus || item.product_code || item.description || `Item ${idx + 1}`,
+    item: String(idx + 1),
+    quantidade: String(item.quantity || 1),
+    valorUnitario: String(Number(item.unit_price || 0).toFixed(2)),
+    observacoes: item.description || "",
+    informacoesAdicionaisProduto: "",
+    percentualAcrescimo: "0",
+    percentualDesconto: "0",
+    valorAcrescimo: "0",
+    valorDesconto: "0",
+    status: 1,
+    idTipoMovimentacao: movimentacaoId,
+    ...(idUnidadeMedida ? { idUnidadeMedida } : {}),
+    ...(idTabelaPreco ? { idTabelaPreco } : {}),
+    ...(dataEntregaPadrao ? { dataEntrega: dataEntregaPadrao } : {}),
+  }));
+
+  const today = new Date();
+  const fallbackDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
+
+  const payload: Record<string, any> = {
+    dataEmissao: dataEmissaoInput || fallbackDate,
+    idCondicaoPagamento: idCondicaoPagamento || 28,
+    idEmpresa: idEmpresa || 1,
+    idFormaPagamento: idFormaPagamento || 10,
+    idTipoMovimentacao: movimentacaoId,
+    idTipoPedido: idTipoPedido || 1,
+    observacoes: notes || `Pedido de Acessório - ${client_name || ''}`,
+    observacoesInternas: `Gerado automaticamente pelo Live Care - ${order_code || ''}`,
+    itensPedido: itensPedido.length > 0 ? itensPedido : [{
+      item: "1", quantidade: "1", valorUnitario: "0",
+      observacoes: order_code || "",
+      informacoesAdicionaisProduto: "",
+      percentualAcrescimo: "0", percentualDesconto: "0",
+      valorAcrescimo: "0", valorDesconto: "0",
+      status: 1, idTipoMovimentacao: movimentacaoId,
+    }],
+  };
+
+  if (order_code) payload.codigoPedido = order_code;
+  if (idCliente) payload.idPessoaCliente = idCliente;
+  if (idPessoaVendedor) payload.idPessoaVendedor = idPessoaVendedor;
+  if (idSetorSaida) payload.idSetorSaida = idSetorSaida;
+  if (idContato) payload.idContato = idContato;
+  if (pedidoCompraCliente) payload.pedidoCompraCliente = pedidoCompraCliente;
+  if (cfop) payload.cfop = cfop;
+
+  return payload;
+}
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
+      return jsonResponse({ error: 'Unauthorized' }, 401);
+    }
+
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_ANON_KEY')!,
+      { global: { headers: { Authorization: authHeader } } }
+    );
+
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+    if (userError || !user) {
+      return jsonResponse({ error: 'Unauthorized' }, 401);
+    }
+
+    const NOMUS_API_KEY = Deno.env.get('NOMUS_API_KEY');
+    if (!NOMUS_API_KEY) {
+      return jsonResponse({ error: 'NOMUS_API_KEY not configured' }, 500);
+    }
+
+    const NOMUS_PROXY_URL = Deno.env.get('NOMUS_PROXY_URL');
+    if (!NOMUS_PROXY_URL) {
+      return jsonResponse({ error: 'NOMUS_PROXY_URL not configured. Deploy the Cloudflare Worker proxy first.' }, 500);
+    }
+
+    const NOMUS_PROXY_SECRET = Deno.env.get('NOMUS_PROXY_SECRET') || '';
+
+    const body = await req.json();
+    const nomusPayload = buildNomusPayload(body);
+
+    console.log("Nomus payload:", JSON.stringify(nomusPayload));
+
+    // Send via Cloudflare Worker proxy (bypasses Deno TLS issue)
+    const proxyHeaders: Record<string, string> = {
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+      "X-Nomus-Api-Key": NOMUS_API_KEY,
+    };
+    if (NOMUS_PROXY_SECRET) {
+      proxyHeaders["X-Proxy-Secret"] = NOMUS_PROXY_SECRET;
+    }
+
+    const proxyResponse = await fetch(NOMUS_PROXY_URL, {
+      method: "POST",
+      headers: proxyHeaders,
+      body: JSON.stringify(nomusPayload),
+    });
+
+    const responseText = await proxyResponse.text();
+    let nomusData: any = {};
+    try {
+      nomusData = JSON.parse(responseText);
+    } catch {
+      nomusData = { raw: responseText };
+    }
+
+    console.log("Nomus proxy response:", proxyResponse.status, JSON.stringify(nomusData));
+
+    if (proxyResponse.status === 429) {
+      const waitSecs = Number(nomusData?.tempoAteLiberar) || 30;
+      return jsonResponse({
+        error: `API Nomus em throttling. Aguarde ${waitSecs} segundos e tente novamente.`,
+        throttled: true,
+        wait_seconds: waitSecs,
+      }, 429);
+    }
+
+    if (proxyResponse.status < 200 || proxyResponse.status >= 300) {
+      return jsonResponse({
+        error: `Erro na API Nomus [${proxyResponse.status}]`,
+        details: nomusData,
+      }, proxyResponse.status > 0 ? proxyResponse.status : 502);
+    }
+
+    return jsonResponse({
+      success: true,
+      nomus_response: nomusData,
+      message: 'Pedido enviado ao ERP com sucesso',
+    });
+
+  } catch (error: unknown) {
+    console.error("Error:", error);
+    const msg = error instanceof Error ? error.message : "Unknown error";
+    return jsonResponse({ error: msg }, 500);
+  }
+});

@@ -1,0 +1,16 @@
+project_id = "fmwmlxwaerdhsosdyzzn"
+
+[functions.ai-daily-report]
+verify_jwt = false
+
+[functions.whatsapp-intake]
+verify_jwt = false
+
+[functions.maintenance-reminders]
+verify_jwt = false
+
+[functions.send-whatsapp]
+verify_jwt = false
+
+[functions.whatsapp-webhook]
+verify_jwt = false

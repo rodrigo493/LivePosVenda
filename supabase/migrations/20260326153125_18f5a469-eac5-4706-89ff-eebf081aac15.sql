@@ -1,0 +1,1 @@
+ALTER TABLE public.client_service_history ADD COLUMN IF NOT EXISTS history_notes text;
