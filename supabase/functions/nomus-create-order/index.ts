@@ -12,6 +12,26 @@ function jsonResponse(body: Record<string, unknown>, status = 200) {
   });
 }
 
+const nomusHeaders = (apiKey: string) => ({
+  "Content-Type": "application/json",
+  "Accept": "application/json",
+  "Authorization": `Basic ${apiKey}`,
+});
+
+async function resolveClientId(name: string, apiUrl: string, apiKey: string): Promise<number | null> {
+  try {
+    const res = await fetch(`${apiUrl}/rest/pessoas?query=nome==*${encodeURIComponent(name)}*`, {
+      headers: nomusHeaders(apiKey),
+    });
+    if (!res.ok) return null;
+    const people = await res.json();
+    if (Array.isArray(people) && people.length > 0) return people[0].id;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 async function resolveProductId(code: string, apiUrl: string, apiKey: string): Promise<number | null> {
   try {
     const res = await fetch(`${apiUrl}/rest/produtos?query=codigo==${code}`, {
@@ -94,7 +114,12 @@ async function buildNomusPayload(body: Record<string, any>, apiUrl: string, apiK
   };
 
   if (order_code) payload.codigoPedido = order_code;
-  if (idCliente) payload.idPessoaCliente = idCliente;
+  if (idCliente) {
+    payload.idPessoaCliente = idCliente;
+  } else if (client_name) {
+    const resolvedClientId = await resolveClientId(client_name, apiUrl, apiKey);
+    if (resolvedClientId) payload.idPessoaCliente = resolvedClientId;
+  }
   if (idPessoaVendedor) payload.idPessoaVendedor = idPessoaVendedor;
   if (idSetorSaida) payload.idSetorSaida = idSetorSaida;
   if (idContato) payload.idContato = idContato;
