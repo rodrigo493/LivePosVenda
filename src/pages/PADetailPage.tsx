@@ -379,7 +379,7 @@ const PADetailPage = () => {
           idProduto,
           item: String(idx + 1),
           quantidade: String(Number(erpData?.quantidade || item.quantity || 1)),
-          valorUnitario: String(Number(erpData?.valorUnitario || item.unit_price || 0).toFixed(2)),
+          valorUnitario: String(Number(String(erpData?.valorUnitario || item.unit_price || 0).replace(/\./g, "").replace(",", ".")).toFixed(2)),
           observacoes: item.description || "",
           informacoesAdicionaisProduto: "",
           percentualAcrescimo: "0",
@@ -392,11 +392,12 @@ const PADetailPage = () => {
         };
       }));
 
+      const empresaMap: Record<string, number> = { "TS": 2, "LIVE": 1, "YZ": 3 };
       const nomusPayload = {
         codigoPedido: nomusFields.pedido || requestNumber,
         dataEmissao: nomusFields.dataEmissao || fallbackDate,
         idCondicaoPagamento: 28,
-        idEmpresa: 1,
+        idEmpresa: empresaMap[nomusFields.empresa] || 2,
         idFormaPagamento: 10,
         idPessoaCliente: nomusClientId,
         idTipoMovimentacao: 60,
