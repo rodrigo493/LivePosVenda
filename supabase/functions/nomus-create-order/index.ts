@@ -12,7 +12,25 @@ function jsonResponse(body: Record<string, unknown>, status = 200) {
   });
 }
 
-function buildNomusPayload(body: Record<string, any>): Record<string, any> {
+async function resolveProductId(code: string, apiUrl: string, apiKey: string): Promise<number | null> {
+  try {
+    const res = await fetch(`${apiUrl}/rest/produtos?query=codigo==${code}`, {
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Authorization": `Basic ${apiKey}`,
+      },
+    });
+    if (!res.ok) return null;
+    const products = await res.json();
+    if (Array.isArray(products) && products.length > 0) return products[0].id;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function buildNomusPayload(body: Record<string, any>, apiUrl: string, apiKey: string): Promise<Record<string, any>> {
   const {
     order_code, items, notes, client_name,
     dataEmissao: dataEmissaoInput,
@@ -25,22 +43,32 @@ function buildNomusPayload(body: Record<string, any>): Record<string, any> {
 
   const movimentacaoId = idTipoMovimentacao || 127;
 
-  const itensPedido = (items || []).map((item: any, idx: number) => ({
-    idProduto: item.product_id_nomus || item.product_code || item.description || `Item ${idx + 1}`,
-    item: String(idx + 1),
-    quantidade: String(item.quantity || 1),
-    valorUnitario: String(Number(item.unit_price || 0).toFixed(2)),
-    observacoes: item.description || "",
-    informacoesAdicionaisProduto: "",
-    percentualAcrescimo: "0",
-    percentualDesconto: "0",
-    valorAcrescimo: "0",
-    valorDesconto: "0",
-    status: 1,
-    idTipoMovimentacao: movimentacaoId,
-    ...(idUnidadeMedida ? { idUnidadeMedida } : {}),
-    ...(idTabelaPreco ? { idTabelaPreco } : {}),
-    ...(dataEntregaPadrao ? { dataEntrega: dataEntregaPadrao } : {}),
+  const itensPedido = await Promise.all((items || []).map(async (item: any, idx: number) => {
+    let idProduto: number | string = item.product_id_nomus || "";
+    const productCode = item.product_code || "";
+
+    if (!idProduto && productCode) {
+      const resolved = await resolveProductId(productCode, apiUrl, apiKey);
+      if (resolved) idProduto = resolved;
+    }
+
+    return {
+      idProduto,
+      item: String(idx + 1),
+      quantidade: String(item.quantity || 1),
+      valorUnitario: String(Number(item.unit_price || 0).toFixed(2)),
+      observacoes: item.description || "",
+      informacoesAdicionaisProduto: "",
+      percentualAcrescimo: "0",
+      percentualDesconto: "0",
+      valorAcrescimo: "0",
+      valorDesconto: "0",
+      status: 1,
+      idTipoMovimentacao: movimentacaoId,
+      ...(idUnidadeMedida ? { idUnidadeMedida } : {}),
+      ...(idTabelaPreco ? { idTabelaPreco } : {}),
+      ...(dataEntregaPadrao ? { dataEntrega: dataEntregaPadrao } : {}),
+    };
   }));
 
   const today = new Date();
@@ -110,7 +138,7 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    const nomusPayload = buildNomusPayload(body);
+    const nomusPayload = await buildNomusPayload(body, NOMUS_API_URL, NOMUS_API_KEY);
 
     const nomusResponse = await fetch(`${NOMUS_API_URL}/rest/pedidos`, {
       method: "POST",
