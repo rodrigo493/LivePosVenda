@@ -98,7 +98,6 @@ const PADetailPage = () => {
     cfop: "",
   });
   const [nomusClientId, setNomusClientId] = useState<number | null>(null);
-  const [nomusClientSearch, setNomusClientSearch] = useState("");
   const [nomusClientResults, setNomusClientResults] = useState<{ id: number; nome: string }[]>([]);
   const [nomusClientLoading, setNomusClientLoading] = useState(false);
   const [nomusClientOpen, setNomusClientOpen] = useState(false);
@@ -120,27 +119,30 @@ const PADetailPage = () => {
   };
 
   const searchNomusClients = async (query: string) => {
-    setNomusClientSearch(query);
     updateNomusField("cliente", query);
     setNomusClientId(null);
     if (query.length < 2) { setNomusClientResults([]); setNomusClientOpen(false); return; }
     setNomusClientLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke("nomus-search", {
-        body: { type: "clientes", query },
+      const searchTerm = query.trim().split(/\s+/)[0];
+      const res = await fetch(`https://live.nomus.com.br/live/rest/pessoas?query=nome==*${encodeURIComponent(searchTerm)}*`, {
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Basic REDACTED_NOMUS_KEY=",
+        },
       });
-      if (error) { if (import.meta.env.DEV) console.error("Nomus search error:", error); setNomusClientResults([]); setNomusClientOpen(false); setNomusClientLoading(false); return; }
-      const results = data?.results || [];
+      if (!res.ok) { setNomusClientResults([]); setNomusClientOpen(false); setNomusClientLoading(false); return; }
+      const people = await res.json();
+      const results = Array.isArray(people) ? people.slice(0, 20).map((p: any) => ({ id: p.id, nome: p.nome })) : [];
       setNomusClientResults(results);
       setNomusClientOpen(results.length > 0);
-    } catch (e) { if (import.meta.env.DEV) console.error("Nomus search catch:", e); setNomusClientResults([]); }
+    } catch (e) { if (import.meta.env.DEV) console.error("Nomus search error:", e); setNomusClientResults([]); }
     setNomusClientLoading(false);
   };
 
   const selectNomusClient = (client: { id: number; nome: string }) => {
     setNomusClientId(client.id);
     updateNomusField("cliente", client.nome);
-    setNomusClientSearch(client.nome);
     setNomusClientOpen(false);
   };
 
