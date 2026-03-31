@@ -69,7 +69,7 @@ export function useMovePipelineStage() {
       } else {
         const { error } = await supabase
           .from("tickets")
-          .update({ pipeline_stage: stage, last_interaction_at: now, updated_at: now })
+          .update({ pipeline_stage: stage, updated_at: now })
           .eq("id", id);
         if (error) throw error;
       }
