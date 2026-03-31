@@ -20,13 +20,16 @@ const nomusHeaders = (apiKey: string) => ({
 
 async function resolveClientId(name: string, apiUrl: string, apiKey: string): Promise<number | null> {
   try {
-    const res = await fetch(`${apiUrl}/rest/pessoas?query=nome==*${encodeURIComponent(name)}*`, {
+    const firstName = name.trim().split(/\s+/)[0];
+    const res = await fetch(`${apiUrl}/rest/pessoas?query=nome==*${encodeURIComponent(firstName)}*`, {
       headers: nomusHeaders(apiKey),
     });
     if (!res.ok) return null;
     const people = await res.json();
-    if (Array.isArray(people) && people.length > 0) return people[0].id;
-    return null;
+    if (!Array.isArray(people) || people.length === 0) return null;
+    const exact = people.find((p: any) => p.nome?.toLowerCase() === name.toLowerCase());
+    if (exact) return exact.id;
+    return people[0].id;
   } catch {
     return null;
   }
@@ -117,7 +120,11 @@ async function buildNomusPayload(body: Record<string, any>, apiUrl: string, apiK
     payload.idPessoaCliente = idCliente;
   } else if (client_name) {
     const resolvedClientId = await resolveClientId(client_name, apiUrl, apiKey);
-    if (resolvedClientId) payload.idPessoaCliente = resolvedClientId;
+    if (resolvedClientId) {
+      payload.idPessoaCliente = resolvedClientId;
+    } else {
+      return { error: true, message: `Cliente "${client_name}" não encontrado no ERP Nomus. Cadastre o cliente no Nomus primeiro.` };
+    }
   }
   if (idPessoaVendedor) payload.idPessoaVendedor = idPessoaVendedor;
   if (idSetorSaida) payload.idSetorSaida = idSetorSaida;
@@ -163,6 +170,10 @@ Deno.serve(async (req) => {
 
     const body = await req.json();
     const nomusPayload = await buildNomusPayload(body, NOMUS_API_URL, NOMUS_API_KEY);
+
+    if (nomusPayload.error) {
+      return jsonResponse({ error: nomusPayload.message }, 400);
+    }
 
     const nomusResponse = await fetch(`${NOMUS_API_URL}/rest/pedidos`, {
       method: "POST",
