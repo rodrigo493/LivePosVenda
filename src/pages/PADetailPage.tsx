@@ -379,7 +379,7 @@ const PADetailPage = () => {
           idProduto,
           item: String(idx + 1),
           quantidade: String(Number(erpData?.quantidade || item.quantity || 1)),
-          valorUnitario: String(Number(String(erpData?.valorUnitario || item.unit_price || 0).replace(/\./g, "").replace(",", ".")).toFixed(2)),
+          valorUnitario: (() => { const v = String(erpData?.valorUnitario || item.unit_price || 0); return v.includes(",") ? Number(v.replace(/\./g, "").replace(",", ".")).toFixed(2) : Number(v).toFixed(2); })(),
           observacoes: item.description || "",
           informacoesAdicionaisProduto: "",
           percentualAcrescimo: "0",
