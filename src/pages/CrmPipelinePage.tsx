@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Kanban,
@@ -9,6 +9,23 @@ import {
   Search,
   FileSpreadsheet,
 } from "lucide-react";
+import {
+  DndContext,
+  DragOverlay,
+  closestCorners,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  useDroppable,
+  type DragStartEvent,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { CrmSyncImportDialog } from "@/components/crm/CrmSyncImportDialog";
 import { CrmBatchSyncDialog } from "@/components/crm/CrmBatchSyncDialog";
 import { PipelineExcelImportDialog } from "@/components/crm/PipelineExcelImportDialog";
@@ -17,7 +34,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/StatusBadge";
-import { usePipelineTickets, useMovePipelineStage, PIPELINE_STAGES, PipelineStage } from "@/hooks/usePipeline";
+import { usePipelineTickets, useMovePipelineStage, PIPELINE_STAGES } from "@/hooks/usePipeline";
 import { usePipelineSettings, getDelayMap } from "@/hooks/usePipelineSettings";
 import { useAuth } from "@/hooks/useAuth";
 import { useCreateTask } from "@/hooks/useTasks";
@@ -26,7 +43,6 @@ import { useCreateTicket } from "@/hooks/useTickets";
 import { useEquipments } from "@/hooks/useEquipments";
 import { CrudDialog } from "@/components/shared/CrudDialog";
 import { supabase } from "@/integrations/supabase/client";
-import { motion } from "framer-motion";
 import { toast } from "sonner";
 
 function daysSince(dateStr: string | null) {
@@ -53,7 +69,7 @@ const CrmPipelinePage = () => {
   const createClient = useCreateClient();
   const createTicket = useCreateTicket();
   const { data: equipments } = useEquipments();
-  const [dragOverStage, setDragOverStage] = useState<string | null>(null);
+  const [activeTicket, setActiveTicket] = useState<any>(null);
   const [taskDialog, setTaskDialog] = useState<{ open: boolean; ticketId?: string; clientId?: string }>({ open: false });
   const [clientDialog, setClientDialog] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
@@ -64,6 +80,10 @@ const CrmPipelinePage = () => {
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const [isGrabbing, setIsGrabbing] = useState(false);
   const grabState = React.useRef({ isDown: false, startX: 0, scrollLeft: 0 });
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+  );
 
   useEffect(() => {
     const openTicketId = searchParams.get("open_ticket");
@@ -111,19 +131,69 @@ const CrmPipelinePage = () => {
     return map;
   }, [tickets, delayMap, searchTerm]);
 
-  const handleDrop = (stage: string, ticketId: string, position?: number) => {
-    const stageItems = grouped[stage] || [];
-    const finalPosition = position ?? stageItems.length + 1;
-    moveStage.mutate(
-      { id: ticketId, stage, position: finalPosition },
-      {
-        onSuccess: () => toast.success("Pipeline atualizado"),
+  const findStageForTicket = useCallback(
+    (ticketId: string): string | null => {
+      for (const [stage, items] of Object.entries(grouped)) {
+        if (items.some((t: any) => t.id === ticketId)) return stage;
       }
-    );
-    setDragOverStage(null);
-    setDropIndex(null);
-  };
-  const [dropIndex, setDropIndex] = useState<{ stage: string; index: number } | null>(null);
+      return null;
+    },
+    [grouped]
+  );
+
+  const handleDragStart = useCallback(
+    (event: DragStartEvent) => {
+      const { active } = event;
+      const ticket = tickets?.find((t: any) => t.id === active.id);
+      if (ticket) setActiveTicket(ticket);
+    },
+    [tickets]
+  );
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      setActiveTicket(null);
+
+      if (!over) return;
+
+      const ticketId = active.id as string;
+      const overId = over.id as string;
+
+      // Determine target stage and position
+      let targetStage: string;
+      let position: number;
+
+      // Check if dropped on a stage column (droppable id = stage key)
+      const isStage = PIPELINE_STAGES.some((s) => s.key === overId);
+      if (isStage) {
+        targetStage = overId;
+        position = (grouped[targetStage] || []).length + 1;
+      } else {
+        // Dropped on another ticket — find which stage it belongs to
+        const overStage = findStageForTicket(overId);
+        if (!overStage) return;
+        targetStage = overStage;
+        const stageItems = grouped[targetStage] || [];
+        const overIndex = stageItems.findIndex((t: any) => t.id === overId);
+        position = overIndex + 1;
+      }
+
+      const sourceStage = findStageForTicket(ticketId);
+      if (sourceStage === targetStage) {
+        // Same stage reorder
+        const stageItems = grouped[targetStage] || [];
+        const oldIndex = stageItems.findIndex((t: any) => t.id === ticketId);
+        if (oldIndex === position - 1) return; // no change
+      }
+
+      moveStage.mutate(
+        { id: ticketId, stage: targetStage, position },
+        { onSuccess: () => toast.success("Pipeline atualizado") }
+      );
+    },
+    [grouped, findStageForTicket, moveStage]
+  );
 
   const handleQuickTask = (ticketId: string, clientId: string) => {
     setTaskDialog({ open: true, ticketId, clientId });
@@ -189,94 +259,57 @@ const CrmPipelinePage = () => {
       {isLoading ? (
         <div className="p-8 text-center text-muted-foreground text-sm">Carregando pipeline...</div>
       ) : (
-        <div
-          ref={scrollRef}
-          className={`flex gap-3 overflow-x-auto pb-4 select-none ${isGrabbing ? "cursor-grabbing" : "cursor-grab"}`}
-          style={{ minHeight: "calc(100vh - 200px)" }}
-          onMouseDown={(e) => {
-            if (!scrollRef.current) return;
-            grabState.current = { isDown: true, startX: e.pageX - scrollRef.current.offsetLeft, scrollLeft: scrollRef.current.scrollLeft };
-            setIsGrabbing(true);
-          }}
-          onMouseLeave={() => { grabState.current.isDown = false; setIsGrabbing(false); }}
-          onMouseUp={() => { grabState.current.isDown = false; setIsGrabbing(false); }}
-          onMouseMove={(e) => {
-            if (!grabState.current.isDown || !scrollRef.current) return;
-            e.preventDefault();
-            const x = e.pageX - scrollRef.current.offsetLeft;
-            const walk = (x - grabState.current.startX) * 1.5;
-            scrollRef.current.scrollLeft = grabState.current.scrollLeft - walk;
-          }}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCorners}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
         >
-          {(stageConfigs || PIPELINE_STAGES).map((stage) => {
-            const items = grouped[stage.key] || [];
-            const totalValue = items.reduce((s: number, t: any) => s + Number(t.estimated_value || 0), 0);
-            const delayedCount = items.filter((t: any) => t._isDelayed).length;
+          <div
+            ref={scrollRef}
+            className={`flex gap-3 overflow-x-auto pb-4 select-none ${isGrabbing ? "cursor-grabbing" : "cursor-grab"}`}
+            style={{ minHeight: "calc(100vh - 200px)" }}
+            onMouseDown={(e) => {
+              if (activeTicket) return;
+              if (!scrollRef.current) return;
+              grabState.current = { isDown: true, startX: e.pageX - scrollRef.current.offsetLeft, scrollLeft: scrollRef.current.scrollLeft };
+              setIsGrabbing(true);
+            }}
+            onMouseLeave={() => { grabState.current.isDown = false; setIsGrabbing(false); }}
+            onMouseUp={() => { grabState.current.isDown = false; setIsGrabbing(false); }}
+            onMouseMove={(e) => {
+              if (!grabState.current.isDown || !scrollRef.current) return;
+              e.preventDefault();
+              const x = e.pageX - scrollRef.current.offsetLeft;
+              const walk = (x - grabState.current.startX) * 1.5;
+              scrollRef.current.scrollLeft = grabState.current.scrollLeft - walk;
+            }}
+          >
+            {(stageConfigs || PIPELINE_STAGES).map((stage) => {
+              const items = grouped[stage.key] || [];
+              const totalValue = items.reduce((s: number, t: any) => s + Number(t.estimated_value || 0), 0);
 
-            return (
-              <div
-                key={stage.key}
-                className={`flex-shrink-0 w-[280px] rounded-xl border bg-card flex flex-col transition-all ${
-                  dragOverStage === stage.key ? "ring-2 ring-primary/50" : ""
-                }`}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setDragOverStage(stage.key);
-                }}
-                onDragLeave={() => setDragOverStage(null)}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  const ticketId = e.dataTransfer.getData("ticketId");
-                  if (ticketId) handleDrop(stage.key, ticketId);
-                }}
-              >
-                <div className="p-3 border-b">
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: stage.color }} />
-                      <span className="text-xs font-semibold">{stage.label}</span>
-                    </div>
-                    <Badge variant="secondary" className="text-[10px] h-5">
-                      {items.length}
-                    </Badge>
-                  </div>
-                  {totalValue > 0 && (
-                    <span className="text-[10px] text-muted-foreground">
-                      R$ {totalValue.toLocaleString("pt-BR", { minimumFractionDigits: 0 })}
-                    </span>
-                  )}
-                </div>
+              return (
+                <StageColumn
+                  key={stage.key}
+                  stage={stage}
+                  items={items}
+                  totalValue={totalValue}
+                  onQuickTask={handleQuickTask}
+                  onClickTicket={setDetailTicket}
+                />
+              );
+            })}
+          </div>
 
-                <div className="flex-1 overflow-y-auto p-2 space-y-0">
-                  {items.map((ticket: any, idx: number) => (
-                    <div key={ticket.id}>
-                      <div
-                        className={`h-1 rounded transition-all ${dropIndex?.stage === stage.key && dropIndex?.index === idx ? "bg-primary my-1" : ""}`}
-                        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropIndex({ stage: stage.key, index: idx }); setDragOverStage(stage.key); }}
-                        onDrop={(e) => { e.preventDefault(); e.stopPropagation(); const tid = e.dataTransfer.getData("ticketId"); if (tid) handleDrop(stage.key, tid, idx + 1); }}
-                      />
-                      <div className="py-1">
-                        <PipelineCard
-                          ticket={ticket}
-                          onQuickTask={() => handleQuickTask(ticket.id, ticket.client_id)}
-                          onClick={() => setDetailTicket(ticket)}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                  <div
-                    className={`h-8 rounded transition-all ${dropIndex?.stage === stage.key && dropIndex?.index === items.length ? "bg-primary/20" : ""}`}
-                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropIndex({ stage: stage.key, index: items.length }); setDragOverStage(stage.key); }}
-                    onDrop={(e) => { e.preventDefault(); e.stopPropagation(); const tid = e.dataTransfer.getData("ticketId"); if (tid) handleDrop(stage.key, tid, items.length + 1); }}
-                  />
-                  {items.length === 0 && (
-                    <p className="text-[11px] text-muted-foreground text-center py-8">Nenhum atendimento</p>
-                  )}
-                </div>
+          <DragOverlay>
+            {activeTicket ? (
+              <div className="opacity-90 w-[260px]">
+                <PipelineCard ticket={activeTicket} onQuickTask={() => {}} onClick={() => {}} />
               </div>
-            );
-          })}
-        </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
       )}
 
       <CrudDialog
@@ -432,24 +465,94 @@ function getLatestQuoteRef(quotes: any[] | null) {
   return `Orç ${quotes[0].quote_number}`;
 }
 
-function summarizeProblem(title: string | null) {
-  if (!title) return "";
-  const words = title.trim().split(/\s+/).slice(0, 2).join(" ");
-  return words;
+function StageColumn({
+  stage,
+  items,
+  totalValue,
+  onQuickTask,
+  onClickTicket,
+}: {
+  stage: { key: string; label: string; color: string };
+  items: any[];
+  totalValue: number;
+  onQuickTask: (ticketId: string, clientId: string) => void;
+  onClickTicket: (ticket: any) => void;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: stage.key });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`flex-shrink-0 w-[280px] rounded-xl border bg-card flex flex-col transition-all ${
+        isOver ? "ring-2 ring-primary/50" : ""
+      }`}
+    >
+      <div className="p-3 border-b">
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: stage.color }} />
+            <span className="text-xs font-semibold">{stage.label}</span>
+          </div>
+          <Badge variant="secondary" className="text-[10px] h-5">
+            {items.length}
+          </Badge>
+        </div>
+        {totalValue > 0 && (
+          <span className="text-[10px] text-muted-foreground">
+            R$ {totalValue.toLocaleString("pt-BR", { minimumFractionDigits: 0 })}
+          </span>
+        )}
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-2 space-y-1">
+        <SortableContext items={items.map((t: any) => t.id)} strategy={verticalListSortingStrategy}>
+          {items.map((ticket: any) => (
+            <SortableCard
+              key={ticket.id}
+              ticket={ticket}
+              onQuickTask={() => onQuickTask(ticket.id, ticket.client_id)}
+              onClick={() => onClickTicket(ticket)}
+            />
+          ))}
+        </SortableContext>
+        {items.length === 0 && (
+          <p className="text-[11px] text-muted-foreground text-center py-8">Nenhum atendimento</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SortableCard({ ticket, onQuickTask, onClick }: { ticket: any; onQuickTask: () => void; onClick: () => void }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: ticket.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      <PipelineCard ticket={ticket} onQuickTask={onQuickTask} onClick={onClick} />
+    </div>
+  );
 }
 
 function PipelineCard({ ticket, onQuickTask, onClick }: { ticket: any; onQuickTask: () => void; onClick: () => void }) {
   const typeInfo = TICKET_TYPE_LABELS[ticket.ticket_type] || { label: ticket.ticket_type, color: "bg-muted text-muted-foreground" };
   const quoteRef = getLatestQuoteRef(ticket.quotes);
-  const problemSummary = summarizeProblem(ticket.title);
 
   return (
-    <motion.div
-      draggable
-      onDragStart={(e: any) => e.dataTransfer.setData("ticketId", ticket.id)}
+    <div
       onClick={onClick}
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
       className="bg-background rounded-lg border p-3 cursor-pointer hover:shadow-md transition-shadow"
     >
       <div className="flex items-center justify-between mb-1.5">
@@ -485,7 +588,7 @@ function PipelineCard({ ticket, onQuickTask, onClick }: { ticket: any; onQuickTa
           <ListTodo className="h-3 w-3" />
         </Button>
       </div>
-    </motion.div>
+    </div>
   );
 }
 
