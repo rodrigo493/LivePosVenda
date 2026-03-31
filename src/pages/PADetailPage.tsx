@@ -125,7 +125,7 @@ const PADetailPage = () => {
     setNomusClientLoading(true);
     try {
       const searchTerm = query.trim().split(/\s+/)[0];
-      const res = await fetch(`https://live.nomus.com.br/live/rest/pessoas?query=nome==*${encodeURIComponent(searchTerm)}*`, {
+      const res = await fetch(`/api/nomus/rest/pessoas?query=nome==*${encodeURIComponent(searchTerm)}*`, {
         headers: {
           "Content-Type": "application/json",
           "Authorization": "Basic REDACTED_NOMUS_KEY=",
