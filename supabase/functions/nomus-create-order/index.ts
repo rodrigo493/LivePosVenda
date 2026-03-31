@@ -61,7 +61,9 @@ async function buildNomusPayload(body: Record<string, any>, apiUrl: string, apiK
     idUnidadeMedida,
   } = body;
 
-  const movimentacaoId = idTipoMovimentacao || 127;
+  const movimentacaoId = idTipoMovimentacao || 60;
+  const today = new Date();
+  const fallbackDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
 
   const itensPedido = await Promise.all((items || []).map(async (item: any, idx: number) => {
     let idProduto: number | string = item.product_id_nomus || "";
@@ -87,12 +89,9 @@ async function buildNomusPayload(body: Record<string, any>, apiUrl: string, apiK
       idTipoMovimentacao: movimentacaoId,
       ...(idUnidadeMedida ? { idUnidadeMedida } : {}),
       ...(idTabelaPreco ? { idTabelaPreco } : {}),
-      ...(dataEntregaPadrao ? { dataEntrega: dataEntregaPadrao } : {}),
+      dataEntrega: dataEntregaPadrao || dataEmissaoInput || fallbackDate,
     };
   }));
-
-  const today = new Date();
-  const fallbackDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
 
   const payload: Record<string, any> = {
     dataEmissao: dataEmissaoInput || fallbackDate,
