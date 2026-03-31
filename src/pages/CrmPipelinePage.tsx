@@ -203,7 +203,7 @@ const CrmPipelinePage = () => {
 
   const handleDragOver = useCallback((event: DragOverEvent) => {
     const { active, over } = event;
-    if (!over) return;
+    if (!over || active.id === over.id) return;
 
     setColumns((prev) => {
       const activeContainer = findContainer(prev, active.id as string);
@@ -221,6 +221,7 @@ const CrmPipelinePage = () => {
 
       const [movedItem] = activeItems.splice(activeIndex, 1);
 
+      // If over is a stage key (empty column), append; otherwise insert at card position
       const overIndex = overItems.findIndex((t) => t.id === over.id);
       const insertIndex = overIndex === -1 ? overItems.length : overIndex;
 
@@ -236,59 +237,54 @@ const CrmPipelinePage = () => {
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
+    const source = dragSourceRef.current;
 
-    if (!over) {
+    if (!over || !source) {
       setActiveId(null);
       setColumns(grouped);
       dragSourceRef.current = null;
       return;
     }
 
-    // Read the latest columns state via setter to avoid stale closure
     setColumns((currentColumns) => {
-      const activeContainer = findContainer(currentColumns, active.id as string);
-      const overContainer = findContainer(currentColumns, over.id as string);
+      const ticketId = active.id as string;
+      const overId = over.id as string;
 
-      if (!activeContainer || !overContainer) {
+      // Where is the card NOW? (dragOver may have already moved it)
+      const currentContainer = findContainer(currentColumns, ticketId);
+      if (!currentContainer) {
         dragSourceRef.current = null;
-        // schedule setActiveId outside of setState
         setTimeout(() => setActiveId(null), 0);
         return grouped;
       }
 
-      const ticketId = active.id as string;
       let finalColumns = currentColumns;
+      let targetStage = currentContainer;
+      const items = currentColumns[currentContainer];
+      let position = items.findIndex((t: any) => t.id === ticketId) + 1; // 1-indexed
 
-      if (activeContainer === overContainer) {
-        // Same column reorder
-        const items = currentColumns[activeContainer];
-        const oldIndex = items.findIndex((t: any) => t.id === active.id);
-        const newIndex = items.findIndex((t: any) => t.id === over.id);
-
-        if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
-          const reordered = arrayMove(items, oldIndex, newIndex);
-          finalColumns = { ...currentColumns, [activeContainer]: reordered };
-
-          isMutatingRef.current = true;
-          moveStage.mutate(
-            { id: ticketId, stage: activeContainer, position: newIndex + 1 },
-            {
-              onSuccess: () => toast.success("Pipeline atualizado"),
-              onSettled: () => { isMutatingRef.current = false; },
-            }
-          );
+      // Handle same-container reorder (only if over is another card in the same container)
+      if (!stageKeySet.has(overId) && overId !== ticketId) {
+        const overContainer = findContainer(currentColumns, overId);
+        if (overContainer === currentContainer) {
+          const oldIndex = items.findIndex((t: any) => t.id === ticketId);
+          const newIndex = items.findIndex((t: any) => t.id === overId);
+          if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
+            const reordered = arrayMove(items, oldIndex, newIndex);
+            finalColumns = { ...currentColumns, [currentContainer]: reordered };
+            position = newIndex + 1;
+          }
         }
-      } else {
-        // Cross-column move — columns already updated in onDragOver
-        const targetItems = currentColumns[overContainer];
-        const newIndex = targetItems.findIndex((t: any) => t.id === ticketId);
-        const position = newIndex === -1 ? targetItems.length : newIndex + 1;
+      }
 
-        finalColumns = currentColumns;
+      // Check if anything actually changed from original
+      const stageChanged = targetStage !== source.stage;
+      const positionChanged = position !== source.index + 1;
 
+      if (stageChanged || positionChanged) {
         isMutatingRef.current = true;
         moveStage.mutate(
-          { id: ticketId, stage: overContainer, position },
+          { id: ticketId, stage: targetStage, position },
           {
             onSuccess: () => toast.success("Pipeline atualizado"),
             onSettled: () => { isMutatingRef.current = false; },
@@ -297,7 +293,6 @@ const CrmPipelinePage = () => {
       }
 
       dragSourceRef.current = null;
-      // schedule setActiveId outside of setState
       setTimeout(() => setActiveId(null), 0);
       return finalColumns;
     });
