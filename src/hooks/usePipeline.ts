@@ -15,6 +15,8 @@ export type PipelineStage = (typeof PIPELINE_STAGES)[number]["key"];
 export function usePipelineTickets(userId?: string) {
   return useQuery({
     queryKey: ["pipeline-tickets", userId],
+    staleTime: 0,
+    refetchOnMount: "always",
     queryFn: async () => {
       let q = supabase
         .from("tickets")

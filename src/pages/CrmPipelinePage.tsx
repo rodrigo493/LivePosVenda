@@ -535,7 +535,7 @@ const CrmPipelinePage = () => {
             created_by: user?.id,
           } as any);
 
-          await qc.invalidateQueries({ queryKey: ["pipeline-tickets"] });
+          await qc.refetchQueries({ queryKey: ["pipeline-tickets"] });
           toast.success(client.name === clientData.name ? "Card adicionado ao pipeline" : `Card vinculado ao cliente existente: ${client.name}`);
 
           if (serial_number && equipment_id) {
