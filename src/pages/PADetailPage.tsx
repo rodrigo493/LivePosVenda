@@ -126,10 +126,7 @@ const PADetailPage = () => {
     try {
       const searchTerm = query.trim().split(/\s+/)[0];
       const res = await fetch(`/api/nomus/rest/pessoas?query=nome==*${encodeURIComponent(searchTerm)}*`, {
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Basic REDACTED_NOMUS_KEY=",
-        },
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
       });
       if (!res.ok) { setNomusClientResults([]); setNomusClientOpen(false); setNomusClientLoading(false); return; }
       const people = await res.json();
@@ -353,52 +350,85 @@ const PADetailPage = () => {
     }
   };
 
+  const resolveNomusProductId = async (code: string): Promise<number | null> => {
+    try {
+      const res = await fetch(`/api/nomus/rest/produtos?query=codigo==${encodeURIComponent(code)}`, {
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      });
+      if (!res.ok) return null;
+      const products = await res.json();
+      return Array.isArray(products) && products.length > 0 ? products[0].id : null;
+    } catch { return null; }
+  };
+
   const handleApprove = async () => {
+    if (!nomusClientId) { toast.error("Selecione um cliente do ERP Nomus antes de criar o pedido."); return; }
+    if (!nomusFields.dataEntregaPadrao) { toast.error("Preencha a Data de Entrega Padrão."); return; }
+
     setApproving(true);
     try {
-      const orderItems = items.map((item: any) => {
+      const today = new Date();
+      const fallbackDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
+
+      const itensPedido = await Promise.all(items.map(async (item: any, idx: number) => {
         const erpData = itemErpData[item.id];
+        const productCode = erpData?.produto || item.products?.code || "";
+        const idProduto = await resolveNomusProductId(productCode);
+        if (!idProduto) throw new Error(`Produto "${productCode}" não encontrado no ERP Nomus.`);
         return {
-          product_code: erpData?.produto || item.products?.code || "",
-          description: item.description,
-          quantity: Number(erpData?.quantidade || item.quantity || 1),
-          unit_price: Number(erpData?.valorUnitario || item.unit_price || 0),
+          idProduto,
+          item: String(idx + 1),
+          quantidade: String(Number(erpData?.quantidade || item.quantity || 1)),
+          valorUnitario: String(Number(erpData?.valorUnitario || item.unit_price || 0).toFixed(2)),
+          observacoes: item.description || "",
+          informacoesAdicionaisProduto: "",
+          percentualAcrescimo: "0",
+          percentualDesconto: "0",
+          valorAcrescimo: "0",
+          valorDesconto: "0",
+          status: 1,
+          idTipoMovimentacao: 60,
+          dataEntrega: nomusFields.dataEntregaPadrao || fallbackDate,
         };
-      });
+      }));
 
-      const res = await supabase.functions.invoke("nomus-create-order", {
-        body: {
-          order_code: nomusFields.pedido || requestNumber,
-          items: orderItems,
-          notes: currentNotes,
-          client_name: nomusFields.cliente || clientName,
-          idCliente: nomusClientId || undefined,
-          empresa: nomusFields.empresa,
-          tipoMovimentacao: nomusFields.tipoMovimentacao,
-          dataEmissao: nomusFields.dataEmissao || undefined,
-          dataEntregaPadrao: nomusFields.dataEntregaPadrao || undefined,
-          cfop: nomusFields.cfop || undefined,
+      const nomusPayload = {
+        codigoPedido: nomusFields.pedido || requestNumber,
+        dataEmissao: nomusFields.dataEmissao || fallbackDate,
+        idCondicaoPagamento: 28,
+        idEmpresa: 1,
+        idFormaPagamento: 10,
+        idPessoaCliente: nomusClientId,
+        idTipoMovimentacao: 60,
+        idTipoPedido: 1,
+        observacoes: currentNotes || `Pedido de Acessório - ${nomusFields.cliente || clientName}`,
+        observacoesInternas: `Gerado pelo Live Care - ${nomusFields.pedido || requestNumber}`,
+        itensPedido,
+        ...(nomusFields.cfop ? { cfop: nomusFields.cfop } : {}),
+      };
+
+      const nomusRes = await fetch("/api/nomus/rest/pedidos", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
         },
+        body: JSON.stringify(nomusPayload),
       });
 
-      if (res.error) throw new Error(res.error.message || "Erro ao enviar ao ERP");
+      const nomusData = await nomusRes.json();
 
-      // Check for throttling in the response data
-      const resData = res.data;
-      if (resData?.throttled) {
-        toast.error(`API Nomus em throttling. Aguarde ${resData.wait_seconds || 30}s e tente novamente.`);
+      if (nomusRes.status === 429) {
+        toast.error(`API Nomus em throttling. Aguarde ${nomusData?.tempoAteLiberar || 30}s e tente novamente.`);
         return;
       }
-      if (resData?.pending) {
-        toast.warning(resData.message || "Pedido enviado para processamento no ERP. Confirme no Nomus em alguns minutos.");
-        return;
+      if (!nomusRes.ok) {
+        const erros = nomusData?.erros?.map((e: any) => e.mensagem).join(", ") || nomusData?.descricao || "Erro desconhecido";
+        throw new Error(`Erro Nomus: ${erros}`);
       }
-      if (!resData?.success) {
-        throw new Error(resData?.error || "Erro desconhecido ao enviar ao ERP");
-      }
-      
+
       await supabase.from("service_requests").update({ status: "resolvido" as any }).eq("id", id!);
-      toast.success("Pedido criado no ERP com sucesso!");
+      toast.success(`Pedido ${nomusData.codigoPedido || ""} criado no ERP com sucesso!`);
       qc.invalidateQueries({ queryKey: ["service_request_detail", id] });
     } catch (err: any) {
       if (import.meta.env.DEV) console.error("Approve error:", err);
