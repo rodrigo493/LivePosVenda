@@ -20,6 +20,7 @@ export function usePipelineTickets(userId?: string) {
         .from("tickets")
         .select("*, clients(name), equipments(serial_number, equipment_models(name)), quotes(quote_number, status)")
         .not("status", "eq", "fechado")
+        .order("pipeline_position", { ascending: true })
         .order("last_interaction_at", { ascending: true });
       if (userId) q = q.eq("assigned_to", userId);
       const { data, error } = await q;
@@ -32,16 +33,44 @@ export function usePipelineTickets(userId?: string) {
 export function useMovePipelineStage() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, stage }: { id: string; stage: string }) => {
+    mutationFn: async ({ id, stage, position }: { id: string; stage: string; position: number }) => {
       const now = new Date().toISOString();
+
+      // Get all tickets in the target stage to reorder
+      const { data: stageTickets } = await (supabase as any)
+        .from("tickets")
+        .select("id, pipeline_position")
+        .eq("pipeline_stage", stage)
+        .neq("id", id)
+        .order("pipeline_position", { ascending: true });
+
+      // Build new positions: insert the moved ticket at the target position
+      const others = stageTickets || [];
+      const updates: { id: string; pipeline_position: number }[] = [];
+      let pos = 1;
+      let inserted = false;
+
+      for (const t of others) {
+        if (pos === position && !inserted) {
+          updates.push({ id, pipeline_position: pos });
+          pos++;
+          inserted = true;
+        }
+        updates.push({ id: t.id, pipeline_position: pos });
+        pos++;
+      }
+      if (!inserted) {
+        updates.push({ id, pipeline_position: pos });
+      }
 
       // If moving to "concluido", close the ticket
       if (stage === "concluido") {
-        const { error } = await supabase
+        const { error } = await (supabase as any)
           .from("tickets")
           .update({
             pipeline_stage: stage,
-            status: "fechado" as any,
+            pipeline_position: position,
+            status: "fechado",
             closed_at: now,
             last_interaction_at: now,
             updated_at: now,
@@ -49,7 +78,6 @@ export function useMovePipelineStage() {
           .eq("id", id);
         if (error) throw error;
 
-        // Create history record for the client
         const { data: ticket } = await supabase
           .from("tickets")
           .select("client_id, title, description, internal_notes")
@@ -67,11 +95,18 @@ export function useMovePipelineStage() {
           });
         }
       } else {
-        const { error } = await supabase
+        const { error } = await (supabase as any)
           .from("tickets")
-          .update({ pipeline_stage: stage, updated_at: now })
+          .update({ pipeline_stage: stage, pipeline_position: position, updated_at: now })
           .eq("id", id);
         if (error) throw error;
+      }
+
+      // Update positions of other tickets in the stage
+      for (const u of updates) {
+        if (u.id !== id) {
+          await (supabase as any).from("tickets").update({ pipeline_position: u.pipeline_position }).eq("id", u.id);
+        }
       }
 
       // Log in technical_history if equipment exists

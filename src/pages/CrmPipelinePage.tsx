@@ -111,15 +111,19 @@ const CrmPipelinePage = () => {
     return map;
   }, [tickets, delayMap, searchTerm]);
 
-  const handleDrop = (stage: string, ticketId: string) => {
+  const handleDrop = (stage: string, ticketId: string, position?: number) => {
+    const stageItems = grouped[stage] || [];
+    const finalPosition = position ?? stageItems.length + 1;
     moveStage.mutate(
-      { id: ticketId, stage },
+      { id: ticketId, stage, position: finalPosition },
       {
         onSuccess: () => toast.success("Pipeline atualizado"),
       }
     );
     setDragOverStage(null);
+    setDropIndex(null);
   };
+  const [dropIndex, setDropIndex] = useState<{ stage: string; index: number } | null>(null);
 
   const handleQuickTask = (ticketId: string, clientId: string) => {
     setTaskDialog({ open: true, ticketId, clientId });
@@ -243,15 +247,28 @@ const CrmPipelinePage = () => {
                   )}
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-2 space-y-2">
-                  {items.map((ticket: any) => (
-                    <PipelineCard
-                      key={ticket.id}
-                      ticket={ticket}
-                      onQuickTask={() => handleQuickTask(ticket.id, ticket.client_id)}
-                      onClick={() => setDetailTicket(ticket)}
-                    />
+                <div className="flex-1 overflow-y-auto p-2 space-y-0">
+                  {items.map((ticket: any, idx: number) => (
+                    <div key={ticket.id}>
+                      <div
+                        className={`h-1 rounded transition-all ${dropIndex?.stage === stage.key && dropIndex?.index === idx ? "bg-primary my-1" : ""}`}
+                        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropIndex({ stage: stage.key, index: idx }); setDragOverStage(stage.key); }}
+                        onDrop={(e) => { e.preventDefault(); e.stopPropagation(); const tid = e.dataTransfer.getData("ticketId"); if (tid) handleDrop(stage.key, tid, idx + 1); }}
+                      />
+                      <div className="py-1">
+                        <PipelineCard
+                          ticket={ticket}
+                          onQuickTask={() => handleQuickTask(ticket.id, ticket.client_id)}
+                          onClick={() => setDetailTicket(ticket)}
+                        />
+                      </div>
+                    </div>
                   ))}
+                  <div
+                    className={`h-8 rounded transition-all ${dropIndex?.stage === stage.key && dropIndex?.index === items.length ? "bg-primary/20" : ""}`}
+                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropIndex({ stage: stage.key, index: items.length }); setDragOverStage(stage.key); }}
+                    onDrop={(e) => { e.preventDefault(); e.stopPropagation(); const tid = e.dataTransfer.getData("ticketId"); if (tid) handleDrop(stage.key, tid, items.length + 1); }}
+                  />
                   {items.length === 0 && (
                     <p className="text-[11px] text-muted-foreground text-center py-8">Nenhum atendimento</p>
                   )}
