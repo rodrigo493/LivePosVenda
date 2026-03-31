@@ -13,6 +13,8 @@ import {
   DndContext,
   DragOverlay,
   closestCorners,
+  rectIntersection,
+  pointerWithin,
   PointerSensor,
   useSensor,
   useSensors,
@@ -20,6 +22,7 @@ import {
   type DragStartEvent,
   type DragEndEvent,
   type DragOverEvent,
+  type CollisionDetection,
 } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -58,10 +61,30 @@ function normalizePhone(value?: string | null) {
 
 const priorityOrder: Record<string, number> = { urgente: 0, alta: 1, media: 2, baixa: 3 };
 
+const stageKeySet = new Set<string>(PIPELINE_STAGES.map((s) => s.key));
+
+// Custom collision: try sortable items first (closestCorners), then fall back
+// to droppable containers (rectIntersection) so empty columns are reachable.
+const multiContainerCollision: CollisionDetection = (args) => {
+  // First check pointer-within for precise hits
+  const pointerCollisions = pointerWithin(args);
+  if (pointerCollisions.length > 0) {
+    // Prefer sortable items (tickets) over droppable containers (stages)
+    const itemHit = pointerCollisions.find((c) => !stageKeySet.has(c.id as string));
+    if (itemHit) return [itemHit];
+    return pointerCollisions;
+  }
+
+  // Fall back to rect intersection (catches empty columns)
+  const rectCollisions = rectIntersection(args);
+  if (rectCollisions.length > 0) return rectCollisions;
+
+  // Last resort
+  return closestCorners(args);
+};
+
 function findContainer(columns: Record<string, any[]>, id: string): string | null {
-  // Check if id is a stage key
   if (id in columns) return id;
-  // Find which column contains this ticket
   for (const [stage, items] of Object.entries(columns)) {
     if (items.some((t: any) => t.id === id)) return stage;
   }
@@ -346,7 +369,7 @@ const CrmPipelinePage = () => {
       ) : (
         <DndContext
           sensors={sensors}
-          collisionDetection={closestCorners}
+          collisionDetection={multiContainerCollision}
           onDragStart={handleDragStart}
           onDragOver={handleDragOver}
           onDragEnd={handleDragEnd}
