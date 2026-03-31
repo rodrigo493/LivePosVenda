@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from "react";
+import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Kanban,
@@ -19,11 +19,13 @@ import {
   useDroppable,
   type DragStartEvent,
   type DragEndEvent,
+  type DragOverEvent,
 } from "@dnd-kit/core";
 import {
   SortableContext,
   verticalListSortingStrategy,
   useSortable,
+  arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { CrmSyncImportDialog } from "@/components/crm/CrmSyncImportDialog";
@@ -56,6 +58,16 @@ function normalizePhone(value?: string | null) {
 
 const priorityOrder: Record<string, number> = { urgente: 0, alta: 1, media: 2, baixa: 3 };
 
+function findContainer(columns: Record<string, any[]>, id: string): string | null {
+  // Check if id is a stage key
+  if (id in columns) return id;
+  // Find which column contains this ticket
+  for (const [stage, items] of Object.entries(columns)) {
+    if (items.some((t: any) => t.id === id)) return stage;
+  }
+  return null;
+}
+
 const CrmPipelinePage = () => {
   const { user, roles } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -69,7 +81,7 @@ const CrmPipelinePage = () => {
   const createClient = useCreateClient();
   const createTicket = useCreateTicket();
   const { data: equipments } = useEquipments();
-  const [activeTicket, setActiveTicket] = useState<any>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [taskDialog, setTaskDialog] = useState<{ open: boolean; ticketId?: string; clientId?: string }>({ open: false });
   const [clientDialog, setClientDialog] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
@@ -77,9 +89,13 @@ const CrmPipelinePage = () => {
   const [excelImportOpen, setExcelImportOpen] = useState(false);
   const [detailTicket, setDetailTicket] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState("");
-  const scrollRef = React.useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [isGrabbing, setIsGrabbing] = useState(false);
-  const grabState = React.useRef({ isDown: false, startX: 0, scrollLeft: 0 });
+  const grabState = useRef({ isDown: false, startX: 0, scrollLeft: 0 });
+
+  // Local columns state for smooth drag — synced from server data
+  const [columns, setColumns] = useState<Record<string, any[]>>({});
+  const dragSourceRef = useRef<{ stage: string; index: number } | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -96,6 +112,7 @@ const CrmPipelinePage = () => {
     }
   }, [searchParams, tickets, setSearchParams]);
 
+  // Build grouped data from server tickets
   const grouped = useMemo(() => {
     const map: Record<string, any[]> = {};
     PIPELINE_STAGES.forEach((s) => (map[s.key] = []));
@@ -131,69 +148,121 @@ const CrmPipelinePage = () => {
     return map;
   }, [tickets, delayMap, searchTerm]);
 
-  const findStageForTicket = useCallback(
-    (ticketId: string): string | null => {
-      for (const [stage, items] of Object.entries(grouped)) {
-        if (items.some((t: any) => t.id === ticketId)) return stage;
+  // Sync columns from grouped when not dragging
+  useEffect(() => {
+    if (!activeId) {
+      setColumns(grouped);
+    }
+  }, [grouped, activeId]);
+
+  const activeTicket = useMemo(() => {
+    if (!activeId) return null;
+    for (const items of Object.values(columns)) {
+      const found = items.find((t: any) => t.id === activeId);
+      if (found) return found;
+    }
+    return null;
+  }, [activeId, columns]);
+
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    const id = event.active.id as string;
+    setActiveId(id);
+    // Remember source position for cancel
+    for (const [stage, items] of Object.entries(columns)) {
+      const idx = items.findIndex((t: any) => t.id === id);
+      if (idx !== -1) {
+        dragSourceRef.current = { stage, index: idx };
+        break;
       }
-      return null;
-    },
-    [grouped]
-  );
+    }
+  }, [columns]);
 
-  const handleDragStart = useCallback(
-    (event: DragStartEvent) => {
-      const { active } = event;
-      const ticket = tickets?.find((t: any) => t.id === active.id);
-      if (ticket) setActiveTicket(ticket);
-    },
-    [tickets]
-  );
+  const handleDragOver = useCallback((event: DragOverEvent) => {
+    const { active, over } = event;
+    if (!over) return;
 
-  const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const { active, over } = event;
-      setActiveTicket(null);
+    const activeContainer = findContainer(columns, active.id as string);
+    const overContainer = findContainer(columns, over.id as string);
 
-      if (!over) return;
+    if (!activeContainer || !overContainer) return;
 
-      const ticketId = active.id as string;
-      const overId = over.id as string;
+    if (activeContainer !== overContainer) {
+      setColumns((prev) => {
+        const activeItems = [...prev[activeContainer]];
+        const overItems = [...prev[overContainer]];
 
-      // Determine target stage and position
-      let targetStage: string;
-      let position: number;
+        const activeIndex = activeItems.findIndex((t) => t.id === active.id);
+        if (activeIndex === -1) return prev;
 
-      // Check if dropped on a stage column (droppable id = stage key)
-      const isStage = PIPELINE_STAGES.some((s) => s.key === overId);
-      if (isStage) {
-        targetStage = overId;
-        position = (grouped[targetStage] || []).length + 1;
-      } else {
-        // Dropped on another ticket — find which stage it belongs to
-        const overStage = findStageForTicket(overId);
-        if (!overStage) return;
-        targetStage = overStage;
-        const stageItems = grouped[targetStage] || [];
-        const overIndex = stageItems.findIndex((t: any) => t.id === overId);
-        position = overIndex + 1;
+        const [movedItem] = activeItems.splice(activeIndex, 1);
+
+        // Find insertion index
+        const overIndex = overItems.findIndex((t) => t.id === over.id);
+        const insertIndex = overIndex === -1 ? overItems.length : overIndex;
+
+        overItems.splice(insertIndex, 0, movedItem);
+
+        return {
+          ...prev,
+          [activeContainer]: activeItems,
+          [overContainer]: overItems,
+        };
+      });
+    }
+  }, [columns]);
+
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    setActiveId(null);
+
+    if (!over) {
+      // Cancelled — reset to server state
+      setColumns(grouped);
+      dragSourceRef.current = null;
+      return;
+    }
+
+    const activeContainer = findContainer(columns, active.id as string);
+    const overContainer = findContainer(columns, over.id as string);
+
+    if (!activeContainer || !overContainer) {
+      setColumns(grouped);
+      dragSourceRef.current = null;
+      return;
+    }
+
+    const ticketId = active.id as string;
+
+    if (activeContainer === overContainer) {
+      // Same column reorder
+      const items = columns[activeContainer];
+      const oldIndex = items.findIndex((t: any) => t.id === active.id);
+      const newIndex = items.findIndex((t: any) => t.id === over.id);
+
+      if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
+        const reordered = arrayMove(items, oldIndex, newIndex);
+        setColumns((prev) => ({ ...prev, [activeContainer]: reordered }));
+
+        // Position is 1-indexed
+        moveStage.mutate(
+          { id: ticketId, stage: activeContainer, position: newIndex + 1 },
+          { onSuccess: () => toast.success("Pipeline atualizado") }
+        );
       }
-
-      const sourceStage = findStageForTicket(ticketId);
-      if (sourceStage === targetStage) {
-        // Same stage reorder
-        const stageItems = grouped[targetStage] || [];
-        const oldIndex = stageItems.findIndex((t: any) => t.id === ticketId);
-        if (oldIndex === position - 1) return; // no change
-      }
+    } else {
+      // Cross-column move — columns already updated in onDragOver
+      const targetItems = columns[overContainer];
+      const newIndex = targetItems.findIndex((t: any) => t.id === ticketId);
+      const position = newIndex === -1 ? targetItems.length : newIndex + 1;
 
       moveStage.mutate(
-        { id: ticketId, stage: targetStage, position },
+        { id: ticketId, stage: overContainer, position },
         { onSuccess: () => toast.success("Pipeline atualizado") }
       );
-    },
-    [grouped, findStageForTicket, moveStage]
-  );
+    }
+
+    dragSourceRef.current = null;
+  }, [columns, grouped, moveStage]);
 
   const handleQuickTask = (ticketId: string, clientId: string) => {
     setTaskDialog({ open: true, ticketId, clientId });
@@ -263,6 +332,7 @@ const CrmPipelinePage = () => {
           sensors={sensors}
           collisionDetection={closestCorners}
           onDragStart={handleDragStart}
+          onDragOver={handleDragOver}
           onDragEnd={handleDragEnd}
         >
           <div
@@ -270,7 +340,7 @@ const CrmPipelinePage = () => {
             className={`flex gap-3 overflow-x-auto pb-4 select-none ${isGrabbing ? "cursor-grabbing" : "cursor-grab"}`}
             style={{ minHeight: "calc(100vh - 200px)" }}
             onMouseDown={(e) => {
-              if (activeTicket) return;
+              if (activeId) return;
               if (!scrollRef.current) return;
               grabState.current = { isDown: true, startX: e.pageX - scrollRef.current.offsetLeft, scrollLeft: scrollRef.current.scrollLeft };
               setIsGrabbing(true);
@@ -286,7 +356,7 @@ const CrmPipelinePage = () => {
             }}
           >
             {(stageConfigs || PIPELINE_STAGES).map((stage) => {
-              const items = grouped[stage.key] || [];
+              const items = columns[stage.key] || [];
               const totalValue = items.reduce((s: number, t: any) => s + Number(t.estimated_value || 0), 0);
 
               return (
@@ -302,9 +372,9 @@ const CrmPipelinePage = () => {
             })}
           </div>
 
-          <DragOverlay>
+          <DragOverlay dropAnimation={null}>
             {activeTicket ? (
-              <div className="opacity-90 w-[260px]">
+              <div className="w-[260px] rotate-2 shadow-lg">
                 <PipelineCard ticket={activeTicket} onQuickTask={() => {}} onClick={() => {}} />
               </div>
             ) : null}
@@ -504,7 +574,7 @@ function StageColumn({
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-2 space-y-1">
+      <div className="flex-1 overflow-y-auto p-2 space-y-1 min-h-[60px]">
         <SortableContext items={items.map((t: any) => t.id)} strategy={verticalListSortingStrategy}>
           {items.map((ticket: any) => (
             <SortableCard
@@ -536,7 +606,7 @@ function SortableCard({ ticket, onQuickTask, onClick }: { ticket: any; onQuickTa
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.4 : 1,
+    opacity: isDragging ? 0.3 : 1,
   };
 
   return (
