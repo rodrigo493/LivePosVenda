@@ -47,7 +47,8 @@ Deno.serve(async (req) => {
 
     let url = '';
     if (type === 'clientes') {
-      url = `${NOMUS_API_URL}/rest/pessoas?query=nome==*${encodeURIComponent(query)}*`;
+      const searchTerm = query.trim().split(/\s+/)[0];
+      url = `${NOMUS_API_URL}/rest/pessoas?query=nome==*${encodeURIComponent(searchTerm)}*`;
     } else if (type === 'produtos') {
       url = `${NOMUS_API_URL}/rest/produtos?query=codigo==*${encodeURIComponent(query)}*`;
     } else {
