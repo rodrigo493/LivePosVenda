@@ -39,6 +39,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { useQueryClient } from "@tanstack/react-query";
 import { usePipelineTickets, useMovePipelineStage, PIPELINE_STAGES } from "@/hooks/usePipeline";
 import { usePipelineSettings, getDelayMap } from "@/hooks/usePipelineSettings";
 import { useAuth } from "@/hooks/useAuth";
@@ -92,6 +93,7 @@ function findContainer(columns: Record<string, any[]>, id: string): string | nul
 }
 
 const CrmPipelinePage = () => {
+  const qc = useQueryClient();
   const { user, roles } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const isAdmin = roles.includes("admin");
@@ -533,6 +535,7 @@ const CrmPipelinePage = () => {
             created_by: user?.id,
           } as any);
 
+          await qc.invalidateQueries({ queryKey: ["pipeline-tickets"] });
           toast.success(client.name === clientData.name ? "Card adicionado ao pipeline" : `Card vinculado ao cliente existente: ${client.name}`);
 
           if (serial_number && equipment_id) {
