@@ -96,6 +96,7 @@ const CrmPipelinePage = () => {
   // Local columns state for smooth drag — synced from server data
   const [columns, setColumns] = useState<Record<string, any[]>>({});
   const dragSourceRef = useRef<{ stage: string; index: number } | null>(null);
+  const isMutatingRef = useRef(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -148,9 +149,9 @@ const CrmPipelinePage = () => {
     return map;
   }, [tickets, delayMap, searchTerm]);
 
-  // Sync columns from grouped when not dragging
+  // Sync columns from grouped when not dragging and not mutating
   useEffect(() => {
-    if (!activeId) {
+    if (!activeId && !isMutatingRef.current) {
       setColumns(grouped);
     }
   }, [grouped, activeId]);
@@ -181,88 +182,103 @@ const CrmPipelinePage = () => {
     const { active, over } = event;
     if (!over) return;
 
-    const activeContainer = findContainer(columns, active.id as string);
-    const overContainer = findContainer(columns, over.id as string);
+    setColumns((prev) => {
+      const activeContainer = findContainer(prev, active.id as string);
+      const overContainer = findContainer(prev, over.id as string);
 
-    if (!activeContainer || !overContainer) return;
+      if (!activeContainer || !overContainer || activeContainer === overContainer) {
+        return prev;
+      }
 
-    if (activeContainer !== overContainer) {
-      setColumns((prev) => {
-        const activeItems = [...prev[activeContainer]];
-        const overItems = [...prev[overContainer]];
+      const activeItems = [...prev[activeContainer]];
+      const overItems = [...prev[overContainer]];
 
-        const activeIndex = activeItems.findIndex((t) => t.id === active.id);
-        if (activeIndex === -1) return prev;
+      const activeIndex = activeItems.findIndex((t) => t.id === active.id);
+      if (activeIndex === -1) return prev;
 
-        const [movedItem] = activeItems.splice(activeIndex, 1);
+      const [movedItem] = activeItems.splice(activeIndex, 1);
 
-        // Find insertion index
-        const overIndex = overItems.findIndex((t) => t.id === over.id);
-        const insertIndex = overIndex === -1 ? overItems.length : overIndex;
+      const overIndex = overItems.findIndex((t) => t.id === over.id);
+      const insertIndex = overIndex === -1 ? overItems.length : overIndex;
 
-        overItems.splice(insertIndex, 0, movedItem);
+      overItems.splice(insertIndex, 0, movedItem);
 
-        return {
-          ...prev,
-          [activeContainer]: activeItems,
-          [overContainer]: overItems,
-        };
-      });
-    }
-  }, [columns]);
+      return {
+        ...prev,
+        [activeContainer]: activeItems,
+        [overContainer]: overItems,
+      };
+    });
+  }, []);
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
-    setActiveId(null);
 
     if (!over) {
-      // Cancelled — reset to server state
+      setActiveId(null);
       setColumns(grouped);
       dragSourceRef.current = null;
       return;
     }
 
-    const activeContainer = findContainer(columns, active.id as string);
-    const overContainer = findContainer(columns, over.id as string);
+    // Read the latest columns state via setter to avoid stale closure
+    setColumns((currentColumns) => {
+      const activeContainer = findContainer(currentColumns, active.id as string);
+      const overContainer = findContainer(currentColumns, over.id as string);
 
-    if (!activeContainer || !overContainer) {
-      setColumns(grouped);
-      dragSourceRef.current = null;
-      return;
-    }
+      if (!activeContainer || !overContainer) {
+        dragSourceRef.current = null;
+        // schedule setActiveId outside of setState
+        setTimeout(() => setActiveId(null), 0);
+        return grouped;
+      }
 
-    const ticketId = active.id as string;
+      const ticketId = active.id as string;
+      let finalColumns = currentColumns;
 
-    if (activeContainer === overContainer) {
-      // Same column reorder
-      const items = columns[activeContainer];
-      const oldIndex = items.findIndex((t: any) => t.id === active.id);
-      const newIndex = items.findIndex((t: any) => t.id === over.id);
+      if (activeContainer === overContainer) {
+        // Same column reorder
+        const items = currentColumns[activeContainer];
+        const oldIndex = items.findIndex((t: any) => t.id === active.id);
+        const newIndex = items.findIndex((t: any) => t.id === over.id);
 
-      if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
-        const reordered = arrayMove(items, oldIndex, newIndex);
-        setColumns((prev) => ({ ...prev, [activeContainer]: reordered }));
+        if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
+          const reordered = arrayMove(items, oldIndex, newIndex);
+          finalColumns = { ...currentColumns, [activeContainer]: reordered };
 
-        // Position is 1-indexed
+          isMutatingRef.current = true;
+          moveStage.mutate(
+            { id: ticketId, stage: activeContainer, position: newIndex + 1 },
+            {
+              onSuccess: () => toast.success("Pipeline atualizado"),
+              onSettled: () => { isMutatingRef.current = false; },
+            }
+          );
+        }
+      } else {
+        // Cross-column move — columns already updated in onDragOver
+        const targetItems = currentColumns[overContainer];
+        const newIndex = targetItems.findIndex((t: any) => t.id === ticketId);
+        const position = newIndex === -1 ? targetItems.length : newIndex + 1;
+
+        finalColumns = currentColumns;
+
+        isMutatingRef.current = true;
         moveStage.mutate(
-          { id: ticketId, stage: activeContainer, position: newIndex + 1 },
-          { onSuccess: () => toast.success("Pipeline atualizado") }
+          { id: ticketId, stage: overContainer, position },
+          {
+            onSuccess: () => toast.success("Pipeline atualizado"),
+            onSettled: () => { isMutatingRef.current = false; },
+          }
         );
       }
-    } else {
-      // Cross-column move — columns already updated in onDragOver
-      const targetItems = columns[overContainer];
-      const newIndex = targetItems.findIndex((t: any) => t.id === ticketId);
-      const position = newIndex === -1 ? targetItems.length : newIndex + 1;
 
-      moveStage.mutate(
-        { id: ticketId, stage: overContainer, position },
-        { onSuccess: () => toast.success("Pipeline atualizado") }
-      );
-    }
-
-    dragSourceRef.current = null;
-  }, [columns, grouped, moveStage]);
+      dragSourceRef.current = null;
+      // schedule setActiveId outside of setState
+      setTimeout(() => setActiveId(null), 0);
+      return finalColumns;
+    });
+  }, [grouped, moveStage]);
 
   const handleQuickTask = (ticketId: string, clientId: string) => {
     setTaskDialog({ open: true, ticketId, clientId });
