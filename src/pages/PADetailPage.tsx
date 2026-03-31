@@ -126,13 +126,14 @@ const PADetailPage = () => {
     if (query.length < 2) { setNomusClientResults([]); setNomusClientOpen(false); return; }
     setNomusClientLoading(true);
     try {
-      const { data } = await supabase.functions.invoke("nomus-search", {
+      const { data, error } = await supabase.functions.invoke("nomus-search", {
         body: { type: "clientes", query },
       });
+      if (error) { if (import.meta.env.DEV) console.error("Nomus search error:", error); setNomusClientResults([]); setNomusClientOpen(false); setNomusClientLoading(false); return; }
       const results = data?.results || [];
       setNomusClientResults(results);
       setNomusClientOpen(results.length > 0);
-    } catch { setNomusClientResults([]); }
+    } catch (e) { if (import.meta.env.DEV) console.error("Nomus search catch:", e); setNomusClientResults([]); }
     setNomusClientLoading(false);
   };
 
