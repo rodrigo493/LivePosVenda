@@ -119,11 +119,15 @@ async function buildNomusPayload(body: Record<string, any>, apiUrl: string, apiK
   if (idCliente) {
     payload.idPessoaCliente = idCliente;
   } else if (client_name) {
-    const resolvedClientId = await resolveClientId(client_name, apiUrl, apiKey);
-    if (resolvedClientId) {
-      payload.idPessoaCliente = resolvedClientId;
+    if (/^\d+$/.test(client_name.trim())) {
+      payload.idPessoaCliente = Number(client_name.trim());
     } else {
-      return { error: true, message: `Cliente "${client_name}" não encontrado no ERP Nomus. Cadastre o cliente no Nomus primeiro.` };
+      const resolvedClientId = await resolveClientId(client_name, apiUrl, apiKey);
+      if (resolvedClientId) {
+        payload.idPessoaCliente = resolvedClientId;
+      } else {
+        return { error: true, message: `Cliente "${client_name}" não encontrado no ERP Nomus. Use o ID numérico do cliente ou cadastre-o no Nomus primeiro.` };
+      }
     }
   }
   if (idPessoaVendedor) payload.idPessoaVendedor = idPessoaVendedor;

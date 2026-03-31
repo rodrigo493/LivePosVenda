@@ -97,6 +97,11 @@ const PADetailPage = () => {
     dataEntregaPadrao: "",
     cfop: "",
   });
+  const [nomusClientId, setNomusClientId] = useState<number | null>(null);
+  const [nomusClientSearch, setNomusClientSearch] = useState("");
+  const [nomusClientResults, setNomusClientResults] = useState<{ id: number; nome: string }[]>([]);
+  const [nomusClientLoading, setNomusClientLoading] = useState(false);
+  const [nomusClientOpen, setNomusClientOpen] = useState(false);
 
   // Pre-fill fields from quote data when loaded
   useEffect(() => {
@@ -112,6 +117,30 @@ const PADetailPage = () => {
 
   const updateNomusField = (field: string, value: string) => {
     setNomusFields(prev => ({ ...prev, [field]: value }));
+  };
+
+  const searchNomusClients = async (query: string) => {
+    setNomusClientSearch(query);
+    updateNomusField("cliente", query);
+    setNomusClientId(null);
+    if (query.length < 2) { setNomusClientResults([]); setNomusClientOpen(false); return; }
+    setNomusClientLoading(true);
+    try {
+      const { data } = await supabase.functions.invoke("nomus-search", {
+        body: { type: "clientes", query },
+      });
+      const results = data?.results || [];
+      setNomusClientResults(results);
+      setNomusClientOpen(results.length > 0);
+    } catch { setNomusClientResults([]); }
+    setNomusClientLoading(false);
+  };
+
+  const selectNomusClient = (client: { id: number; nome: string }) => {
+    setNomusClientId(client.id);
+    updateNomusField("cliente", client.nome);
+    setNomusClientSearch(client.nome);
+    setNomusClientOpen(false);
   };
 
   const items = linkedQuote?.quote_items || [];
@@ -340,6 +369,7 @@ const PADetailPage = () => {
           items: orderItems,
           notes: currentNotes,
           client_name: nomusFields.cliente || clientName,
+          idCliente: nomusClientId || undefined,
           empresa: nomusFields.empresa,
           tipoMovimentacao: nomusFields.tipoMovimentacao,
           dataEmissao: nomusFields.dataEmissao || undefined,
@@ -691,9 +721,33 @@ const PADetailPage = () => {
                   </SelectContent>
                 </Select>
               </div>
-              <div>
-                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Cliente</Label>
-                <Input value={nomusFields.cliente} onChange={e => updateNomusField("cliente", e.target.value)} placeholder="Nome do cliente" className="mt-1 h-9 text-xs" />
+              <div className="relative">
+                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Cliente (ERP Nomus)</Label>
+                <Input
+                  value={nomusFields.cliente}
+                  onChange={e => searchNomusClients(e.target.value)}
+                  onFocus={() => nomusClientResults.length > 0 && setNomusClientOpen(true)}
+                  onBlur={() => setTimeout(() => setNomusClientOpen(false), 200)}
+                  placeholder="Digite para buscar na Nomus..."
+                  className={`mt-1 h-9 text-xs ${nomusClientId ? "border-green-500" : ""}`}
+                />
+                {nomusClientLoading && <span className="absolute right-3 top-8 text-[10px] text-muted-foreground">Buscando...</span>}
+                {nomusClientId && <span className="absolute right-3 top-8 text-[10px] text-green-600">ID: {nomusClientId}</span>}
+                {nomusClientOpen && (
+                  <div className="absolute z-50 mt-1 w-full bg-popover border rounded-md shadow-lg max-h-48 overflow-auto">
+                    {nomusClientResults.map(c => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onMouseDown={() => selectNomusClient(c)}
+                        className="w-full text-left px-3 py-2 text-xs hover:bg-muted transition-colors"
+                      >
+                        <span className="font-medium">{c.nome}</span>
+                        <span className="text-muted-foreground ml-2">ID: {c.id}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <div>
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Tipo de Movimentação</Label>
