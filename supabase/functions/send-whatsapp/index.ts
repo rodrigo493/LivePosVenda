@@ -14,9 +14,9 @@ Deno.serve(async (req) => {
   try {
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const UAZAPI_API_KEY = Deno.env.get("UAZAPI_API_KEY") || "ZaW1qwTEkuq7Ub1cBUuyMiK5bNSu3nnMQ9lh7klElc2clSRV8t";
-    const UAZAPI_INSTANCE_TOKEN = Deno.env.get("UAZAPI_INSTANCE_TOKEN") || "858c27a6-cfbe-486b-aee7-91f84dd68876";
-    const UAZAPI_BASE_URL = Deno.env.get("UAZAPI_BASE_URL") || "https://free.uazapi.com";
+    const UAZAPI_API_KEY = Deno.env.get("UAZAPI_API_KEY") || "PWg73Y06OxF9GKxl9pmhDvqhbEtQZfzyqs8hGUJKCKcgrRUzzD";
+    const UAZAPI_INSTANCE_TOKEN = Deno.env.get("UAZAPI_INSTANCE_TOKEN") || "c6a355b6-c741-47c1-b1e6-c48938dd477b";
+    const UAZAPI_BASE_URL = Deno.env.get("UAZAPI_BASE_URL") || "https://liveuni.uazapi.com";
 
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
@@ -53,11 +53,11 @@ Deno.serve(async (req) => {
     }
 
     const sendRes = await fetch(
-      `${UAZAPI_BASE_URL}/message/sendText/${UAZAPI_INSTANCE_TOKEN}`,
+      `${UAZAPI_BASE_URL}/send/text`,
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${UAZAPI_API_KEY}`,
+          token: UAZAPI_INSTANCE_TOKEN,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ number: cleanPhone, text: message }),

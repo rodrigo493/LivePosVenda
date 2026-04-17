@@ -24,7 +24,16 @@ Deno.serve(async (req) => {
     let senderName: string | null = null;
     let waMessageId: string | null = null;
 
-    if (body?.data?.key) {
+    // Uazapi format: { event, instance, data: { sender, senderName, text, messageid, chatid, phone } }
+    if (body?.event && body?.data) {
+      const d = body.data;
+      if (d.fromMe === true || d.key?.fromMe === true) return new Response("OK", { status: 200 });
+      senderPhone = (d.phone || d.sender || d.chatid || "").toString().replace("@s.whatsapp.net", "").replace(/\D/g, "");
+      messageText = d.text || d.message || d.body || null;
+      senderName = d.senderName || d.pushName || null;
+      waMessageId = d.messageid || d.key?.id || null;
+    } else if (body?.data?.key) {
+      // Evolution API format
       const key = body.data.key;
       if (key.fromMe === true) return new Response("OK", { status: 200 });
       senderPhone = (key.remoteJid || "").replace("@s.whatsapp.net", "").replace(/\D/g, "");
@@ -32,6 +41,7 @@ Deno.serve(async (req) => {
       senderName = body.data.pushName || null;
       waMessageId = key.id || null;
     } else if (body?.phone && body?.message) {
+      // Simple format
       senderPhone = String(body.phone).replace(/\D/g, "");
       messageText = String(body.message);
       senderName = body.name || null;
@@ -39,8 +49,8 @@ Deno.serve(async (req) => {
     }
 
     if (!senderPhone || !messageText) {
-      console.log("Ignoring: no phone or message");
-      return new Response("OK", { status: 200 });
+      console.log("Ignoring: no phone or message. Raw body:", JSON.stringify(body));
+      return new Response(JSON.stringify({ ignored: true, body }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
 
     const localPhone = senderPhone.startsWith("55") ? senderPhone.slice(2) : senderPhone;
@@ -81,7 +91,7 @@ Deno.serve(async (req) => {
 
       if (clientErr || !newClient) {
         console.error("Failed to create client:", clientErr);
-        return new Response("OK", { status: 200 });
+        return new Response(JSON.stringify({ error: "client", detail: clientErr }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
 
       clientId = newClient.id;
@@ -106,20 +116,23 @@ Deno.serve(async (req) => {
       ticketId = newTicket?.id || null;
     }
 
-    await admin.from("whatsapp_messages").insert({
+    const { error: msgErr } = await admin.from("whatsapp_messages").insert({
       client_id: clientId,
       ticket_id: ticketId,
       direction: "inbound",
       message_text: messageText,
       sender_name: senderName,
       sender_phone: senderPhone,
-      wa_message_id: waMessageId,
       status: "received",
     });
 
-    return new Response("OK", { status: 200 });
+    if (msgErr) {
+      return new Response(JSON.stringify({ error: "msg_insert", detail: msgErr }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+
+    return new Response(JSON.stringify({ ok: true, client_id: clientId }), { status: 200, headers: { "Content-Type": "application/json" } });
   } catch (error) {
     console.error("Webhook error:", error);
-    return new Response("OK", { status: 200 });
+    return new Response(JSON.stringify({ error: String(error) }), { status: 200, headers: { "Content-Type": "application/json" } });
   }
 });
