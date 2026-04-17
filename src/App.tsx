@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { AppLayout } from "@/components/layout/AppLayout";
 import AuthPage from "./pages/AuthPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
 
 // Lazy-loaded pages
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -78,6 +79,9 @@ function AppRoutes() {
   }
 
   if (!user) {
+    if (window.location.pathname === "/reset-password") {
+      return <ResetPasswordPage />;
+    }
     return <AuthPage />;
   }
 

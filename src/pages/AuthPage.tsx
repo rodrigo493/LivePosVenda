@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,12 +10,30 @@ import { Eye, EyeOff } from "lucide-react";
 
 export default function AuthPage() {
   const [isLogin, setIsLogin] = useState(true);
+  const [isForgot, setIsForgot] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [fullName, setFullName] = useState("");
   const [loading, setLoading] = useState(false);
   const { signIn, signUp } = useAuth();
+
+  const handleForgot = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      if (error) throw error;
+      toast.success("Email enviado!", { description: "Verifique sua caixa de entrada para redefinir a senha." });
+      setIsForgot(false);
+    } catch (err: any) {
+      toast.error(err.message || "Erro ao enviar email");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,30 +90,51 @@ export default function AuthPage() {
             </button>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {!isLogin && (
+          {isForgot ? (
+            <form onSubmit={handleForgot} className="space-y-4">
+              <p className="text-sm text-muted-foreground">Informe seu email e enviaremos um link para redefinir sua senha.</p>
               <div className="space-y-1.5">
-                <Label htmlFor="fullName" className="text-xs">Nome completo</Label>
-                <Input id="fullName" value={fullName} onChange={(e) => setFullName(e.target.value)} required={!isLogin} placeholder="Seu nome" />
+                <Label htmlFor="email" className="text-xs">Email</Label>
+                <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="seu@email.com" />
               </div>
-            )}
-            <div className="space-y-1.5">
-              <Label htmlFor="email" className="text-xs">Email</Label>
-              <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="seu@email.com" />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="password" className="text-xs">Senha</Label>
-              <div className="relative">
-                <Input id="password" type={showPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••" minLength={6} className="pr-10" />
-                <button type="button" tabIndex={-1} onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading ? "Enviando..." : "Enviar link de redefinição"}
+              </Button>
+              <button type="button" onClick={() => setIsForgot(false)} className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors">
+                Voltar ao login
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {!isLogin && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="fullName" className="text-xs">Nome completo</Label>
+                  <Input id="fullName" value={fullName} onChange={(e) => setFullName(e.target.value)} required={!isLogin} placeholder="Seu nome" />
+                </div>
+              )}
+              <div className="space-y-1.5">
+                <Label htmlFor="email" className="text-xs">Email</Label>
+                <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="seu@email.com" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="password" className="text-xs">Senha</Label>
+                <div className="relative">
+                  <Input id="password" type={showPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••" minLength={6} className="pr-10" />
+                  <button type="button" tabIndex={-1} onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading ? "Carregando..." : isLogin ? "Entrar" : "Criar Conta"}
+              </Button>
+              {isLogin && (
+                <button type="button" onClick={() => setIsForgot(true)} className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors">
+                  Esqueci minha senha
                 </button>
-              </div>
-            </div>
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Carregando..." : isLogin ? "Entrar" : "Criar Conta"}
-            </Button>
-          </form>
+              )}
+            </form>
+          )}
         </div>
       </motion.div>
     </div>
