@@ -86,50 +86,22 @@ Deno.serve(async (req) => {
 
       const isImage = media_mime_type.startsWith("image/");
       const isAudio = media_mime_type.startsWith("audio/");
+      const mediatype = isAudio ? "audio" : isImage ? "image" : "document";
+      const caption = message || "";
 
-      if (isAudio) {
-        sendRes = await fetch(`${UAZAPI_BASE_URL}/send/audio`, {
-          method: "POST",
-          headers: apiHeaders,
-          body: JSON.stringify({ number: cleanPhone, url: mediaUrl }),
-        });
-        if (!sendRes.ok) {
-          sendRes = await fetch(`${UAZAPI_BASE_URL}/send/media`, {
-            method: "POST",
-            headers: apiHeaders,
-            body: JSON.stringify({ number: cleanPhone, mediatype: "audio", url: mediaUrl }),
-          });
-        }
-        savedText = `🎵 ${media_filename || "áudio"}`;
-      } else if (isImage) {
-        sendRes = await fetch(`${UAZAPI_BASE_URL}/send/image`, {
-          method: "POST",
-          headers: apiHeaders,
-          body: JSON.stringify({ number: cleanPhone, url: mediaUrl, caption: message || "" }),
-        });
-        if (!sendRes.ok) {
-          sendRes = await fetch(`${UAZAPI_BASE_URL}/send/media`, {
-            method: "POST",
-            headers: apiHeaders,
-            body: JSON.stringify({ number: cleanPhone, mediatype: "image", url: mediaUrl, caption: message || "" }),
-          });
-        }
-        savedText = `🖼️ ${media_filename || "imagem"}`;
-      } else {
-        sendRes = await fetch(`${UAZAPI_BASE_URL}/send/document`, {
-          method: "POST",
-          headers: apiHeaders,
-          body: JSON.stringify({ number: cleanPhone, url: mediaUrl, fileName: media_filename || "arquivo", caption: message || "" }),
-        });
-        if (!sendRes.ok) {
-          sendRes = await fetch(`${UAZAPI_BASE_URL}/send/media`, {
-            method: "POST",
-            headers: apiHeaders,
-            body: JSON.stringify({ number: cleanPhone, mediatype: "document", url: mediaUrl, fileName: media_filename || "arquivo" }),
-          });
-        }
-        savedText = `📎 ${media_filename || "arquivo"}`;
-      }
+      sendRes = await fetch(`${UAZAPI_BASE_URL}/send/media`, {
+        method: "POST",
+        headers: apiHeaders,
+        body: JSON.stringify({
+          number: cleanPhone,
+          mediatype,
+          url: mediaUrl,
+          caption,
+          fileName: !isAudio && !isImage ? (media_filename || "arquivo") : undefined,
+        }),
+      });
+
+      savedText = isAudio ? `🎵 ${media_filename || "áudio"}` : isImage ? `🖼️ ${media_filename || "imagem"}` : `📎 ${media_filename || "arquivo"}`;
     } else {
       sendRes = await fetch(`${UAZAPI_BASE_URL}/send/text`, {
         method: "POST",
