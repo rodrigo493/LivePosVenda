@@ -141,14 +141,39 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
       mr.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       mr.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(audioChunksRef.current, { type: mimeType });
-        const ext = mimeType.includes("webm") ? "webm" : "ogg";
-        const reader = new FileReader();
-        reader.onload = () => setMediaFile({ base64: reader.result as string, mime: mimeType, name: `audio_${Date.now()}.${ext}` });
-        reader.readAsDataURL(blob);
         if (recordTimerRef.current) clearInterval(recordTimerRef.current);
         setRecordSecs(0);
         setRecording(false);
+        // Use mp4 mime for broader Uazapi compatibility; fallback to original
+        const sendMime = "audio/mp4";
+        const blob = new Blob(audioChunksRef.current, { type: mimeType });
+        const ext = mimeType.includes("ogg") ? "ogg" : mimeType.includes("mp4") ? "mp4" : "webm";
+        const reader = new FileReader();
+        reader.onload = () => {
+          const base64 = reader.result as string;
+          // Auto-send directly
+          (async () => {
+            if (!clientPhone) return;
+            setSending(true);
+            try {
+              const { data: sessionData } = await supabase.auth.getSession();
+              const token = sessionData?.session?.access_token;
+              const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-whatsapp`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ client_id: clientId, ticket_id: ticketId, phone: clientPhone, media_base64: base64, media_mime_type: mimeType, media_filename: `audio_${Date.now()}.${ext}` }),
+              });
+              const result = await res.json();
+              if (!res.ok) throw new Error(result.error || "Erro ao enviar áudio");
+              supabase.from("whatsapp_messages").select("id").then(() => qc.invalidateQueries({ queryKey: ["whatsapp-messages", clientId] }));
+            } catch (err: any) {
+              toast.error(err.message || "Erro ao enviar áudio");
+            } finally {
+              setSending(false);
+            }
+          })();
+        };
+        reader.readAsDataURL(blob);
       };
       mr.start();
       mediaRecorderRef.current = mr;

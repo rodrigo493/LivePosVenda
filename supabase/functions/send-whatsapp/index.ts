@@ -89,16 +89,14 @@ Deno.serve(async (req) => {
       const mediatype = isAudio ? "audio" : isImage ? "image" : "document";
       const caption = message || "";
 
+      const mediaBody: Record<string, unknown> = { number: cleanPhone, mediatype, url: mediaUrl, caption };
+      if (isAudio) { mediaBody.ptt = true; mediaBody.audio = mediaUrl; }
+      if (!isAudio && !isImage) mediaBody.fileName = media_filename || "arquivo";
+
       sendRes = await fetch(`${UAZAPI_BASE_URL}/send/media`, {
         method: "POST",
         headers: apiHeaders,
-        body: JSON.stringify({
-          number: cleanPhone,
-          mediatype,
-          url: mediaUrl,
-          caption,
-          fileName: !isAudio && !isImage ? (media_filename || "arquivo") : undefined,
-        }),
+        body: JSON.stringify(mediaBody),
       });
 
       savedText = isAudio ? `🎵 ${media_filename || "áudio"}` : isImage ? `🖼️ ${media_filename || "imagem"}` : `📎 ${media_filename || "arquivo"}`;
