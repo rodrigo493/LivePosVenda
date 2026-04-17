@@ -8,6 +8,7 @@ import {
   UserPlus,
   Search,
   FileSpreadsheet,
+  MessageSquare,
 } from "lucide-react";
 import {
   DndContext,
@@ -41,6 +42,7 @@ import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePipelineTickets, useMovePipelineStage, PIPELINE_STAGES } from "@/hooks/usePipeline";
+import { useWhatsAppConversations } from "@/hooks/useWhatsAppConversations";
 import { usePipelineSettings, getDelayMap } from "@/hooks/usePipelineSettings";
 import { useAuth } from "@/hooks/useAuth";
 import { useCreateTask } from "@/hooks/useTasks";
@@ -99,8 +101,14 @@ const CrmPipelinePage = () => {
   const isAdmin = roles.includes("admin");
   const [viewAll, setViewAll] = useState(isAdmin);
   const { data: tickets, isLoading } = usePipelineTickets(viewAll ? undefined : user?.id);
+  const { data: conversations } = useWhatsAppConversations();
   const { data: stageConfigs } = usePipelineSettings();
   const delayMap = useMemo(() => getDelayMap(stageConfigs), [stageConfigs]);
+  const whatsappUnread = useMemo(() => {
+    const map = new Map<string, number>();
+    conversations?.forEach((c) => { if (c.unread_count > 0) map.set(c.client_id, c.unread_count); });
+    return map;
+  }, [conversations]);
   const moveStage = useMovePipelineStage();
   const createTask = useCreateTask();
   const createClient = useCreateClient();
@@ -159,6 +167,7 @@ const CrmPipelinePage = () => {
         _daysSinceInteraction: days,
         _isDelayed: days >= stageDelay,
         _isNoContact: t.pipeline_stage === "sem_atendimento",
+        _unreadWhatsapp: whatsappUnread.get(t.client_id) || 0,
       };
       const target = map[t.pipeline_stage] ? t.pipeline_stage : "sem_atendimento";
       map[target].push(enriched);
@@ -166,6 +175,7 @@ const CrmPipelinePage = () => {
 
     Object.values(map).forEach((arr) =>
       arr.sort((a: any, b: any) => {
+        if (!!a._unreadWhatsapp !== !!b._unreadWhatsapp) return a._unreadWhatsapp ? -1 : 1;
         if (a._isDelayed !== b._isDelayed) return a._isDelayed ? -1 : 1;
         return (priorityOrder[a.priority] ?? 2) - (priorityOrder[b.priority] ?? 2);
       })
@@ -656,15 +666,26 @@ function SortableCard({ ticket, onQuickTask, onClick }: { ticket: any; onQuickTa
 function PipelineCard({ ticket, onQuickTask, onClick }: { ticket: any; onQuickTask: () => void; onClick: () => void }) {
   const typeInfo = TICKET_TYPE_LABELS[ticket.ticket_type] || { label: ticket.ticket_type, color: "bg-muted text-muted-foreground" };
   const quoteRef = getLatestQuoteRef(ticket.quotes);
+  const unreadWpp = ticket._unreadWhatsapp || 0;
 
   return (
     <div
       onClick={onClick}
-      className="bg-background rounded-lg border p-3 cursor-pointer hover:shadow-md transition-shadow"
+      className={`bg-background rounded-lg border p-3 cursor-pointer hover:shadow-md transition-shadow ${
+        unreadWpp > 0 ? "border-emerald-400 ring-1 ring-emerald-300" : ""
+      }`}
     >
       <div className="flex items-center justify-between mb-1.5">
         <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded ${typeInfo.color}`}>{typeInfo.label}</span>
-        <StatusBadge status={ticket.priority} />
+        <div className="flex items-center gap-1">
+          {unreadWpp > 0 && (
+            <span className="flex items-center gap-0.5 bg-emerald-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">
+              <MessageSquare className="h-2.5 w-2.5" />
+              {unreadWpp}
+            </span>
+          )}
+          <StatusBadge status={ticket.priority} />
+        </div>
       </div>
 
       <p className="text-xs font-semibold line-clamp-1">{ticket.clients?.name || "—"}</p>

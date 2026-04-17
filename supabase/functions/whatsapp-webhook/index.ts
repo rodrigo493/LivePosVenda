@@ -84,6 +84,9 @@ Deno.serve(async (req) => {
         .limit(1);
 
       ticketId = tickets?.[0]?.id || null;
+      if (ticketId) {
+        await admin.from("tickets").update({ last_interaction_at: new Date().toISOString() }).eq("id", ticketId);
+      }
     } else {
       const { data: newClient, error: clientErr } = await admin
         .from("clients")

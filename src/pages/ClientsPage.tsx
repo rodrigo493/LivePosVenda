@@ -244,6 +244,7 @@ const ClientsPage = () => {
                   status: "aberto",
                   ticket_number: "",
                   created_by: user?.id,
+                  assigned_to: user?.id,
                 } as any);
                 toast.success(`Card criado para ${ticketClient.name}`);
                 setTicketClient(null);
