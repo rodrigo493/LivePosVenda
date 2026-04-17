@@ -124,6 +124,21 @@ Deno.serve(async (req) => {
       ticketId = newTicket?.id || null;
     }
 
+    // Deduplication: skip if same message was received in the last 30s
+    const dedupeWindow = new Date(Date.now() - 30000).toISOString();
+    const { data: existing } = await admin
+      .from("whatsapp_messages")
+      .select("id")
+      .eq("client_id", clientId)
+      .eq("message_text", messageText)
+      .eq("direction", "inbound")
+      .gte("created_at", dedupeWindow)
+      .limit(1);
+
+    if (existing?.length) {
+      return new Response(JSON.stringify({ duplicate: true }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+
     const { error: msgErr } = await admin.from("whatsapp_messages").insert({
       client_id: clientId,
       ticket_id: ticketId,
