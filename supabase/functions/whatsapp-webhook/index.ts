@@ -27,6 +27,7 @@ Deno.serve(async (req) => {
     // Uazapi actual format: { EventType, message: { fromMe, sender_pn, chatid, text, senderName, messageid }, chat }
     if (body?.EventType && body?.message) {
       const m = body.message;
+      console.log("MSG_DEBUG keys:", Object.keys(m).join(","), "| text:", m.text, "| content type:", typeof m.content, "| PTT:", m.PTT, "| EventType:", body.EventType);
       if (m.fromMe === true || m.wasSentByApi === true) return new Response("OK", { status: 200 });
       senderPhone = (m.sender_pn || m.chatid || m.sender || "").toString().replace("@s.whatsapp.net", "").replace(/\D/g, "");
       const rawContent = m.text || m.content || null;
