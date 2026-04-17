@@ -90,7 +90,6 @@ Deno.serve(async (req) => {
       const caption = message || "";
 
       const mediaBody: Record<string, unknown> = { number: cleanPhone, mediatype, url: mediaUrl, caption };
-      if (isAudio) { mediaBody.ptt = true; mediaBody.audio = mediaUrl; }
       if (!isAudio && !isImage) mediaBody.fileName = media_filename || "arquivo";
 
       sendRes = await fetch(`${UAZAPI_BASE_URL}/send/media`, {
@@ -98,6 +97,16 @@ Deno.serve(async (req) => {
         headers: apiHeaders,
         body: JSON.stringify(mediaBody),
       });
+
+      // Fallback: send audio as document if audio mediatype rejected
+      if (!sendRes.ok && isAudio) {
+        const ext = (media_filename || "audio.webm").split(".").pop() || "webm";
+        sendRes = await fetch(`${UAZAPI_BASE_URL}/send/media`, {
+          method: "POST",
+          headers: apiHeaders,
+          body: JSON.stringify({ number: cleanPhone, mediatype: "document", url: mediaUrl, fileName: `audio.${ext}`, caption }),
+        });
+      }
 
       savedText = isAudio ? `🎵 ${media_filename || "áudio"}` : isImage ? `🖼️ ${media_filename || "imagem"}` : `📎 ${media_filename || "arquivo"}`;
     } else {
