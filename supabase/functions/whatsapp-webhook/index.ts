@@ -30,31 +30,29 @@ Deno.serve(async (req) => {
       console.log("MSG_DEBUG keys:", Object.keys(m).join(","), "| text:", m.text, "| content type:", typeof m.content, "| PTT:", m.PTT, "| EventType:", body.EventType);
       if (m.fromMe === true || m.wasSentByApi === true) return new Response("OK", { status: 200 });
       senderPhone = (m.sender_pn || m.chatid || m.sender || "").toString().replace("@s.whatsapp.net", "").replace(/\D/g, "");
-      const rawContent = m.text || m.content || null;
-      if (rawContent && rawContent.trim().startsWith("{") && rawContent.includes("mimetype")) {
-        try {
-          const media = JSON.parse(rawContent);
-          const mime: string = media.mimetype || "";
-          if (mime.startsWith("image/")) messageText = "📷 Imagem";
-          else if (mime.startsWith("video/")) messageText = "🎥 Vídeo";
-          else if (mime.startsWith("audio/")) messageText = "🎵 Áudio";
-          else messageText = "📎 Arquivo";
-        } catch { messageText = "📎 Mídia"; }
-      } else if (!rawContent) {
-        // Detect media-only messages (PTT audio, images) without text/content field
-        if (m.PTT === true || m.audioMessage) messageText = "🎵 Áudio";
-        else if (m.imageMessage) messageText = "📷 Imagem";
-        else if (m.videoMessage) messageText = "🎥 Vídeo";
-        else if (m.documentMessage) messageText = "📎 Arquivo";
-        else if (m.mediatype) {
-          const mt = String(m.mediatype).toLowerCase();
-          if (mt === "audio") messageText = "🎵 Áudio";
-          else if (mt === "image") messageText = "📷 Imagem";
-          else if (mt === "video") messageText = "🎥 Vídeo";
-          else messageText = "📎 Arquivo";
-        }
+      const resolveMediaText = (mime: string) => {
+        if (mime.startsWith("image/")) return "📷 Imagem";
+        if (mime.startsWith("video/")) return "🎥 Vídeo";
+        if (mime.startsWith("audio/")) return "🎵 Áudio";
+        return "📎 Arquivo";
+      };
+
+      if (typeof m.content === "object" && m.content !== null) {
+        messageText = resolveMediaText((m.content as any).mimetype || "");
       } else {
-        messageText = rawContent;
+        const rawContent: string | null = (typeof m.text === "string" && m.text) ? m.text
+          : (typeof m.content === "string" && m.content) ? m.content : null;
+        if (rawContent && rawContent.trim().startsWith("{") && rawContent.includes("mimetype")) {
+          try { messageText = resolveMediaText(JSON.parse(rawContent).mimetype || ""); }
+          catch { messageText = "📎 Mídia"; }
+        } else if (!rawContent) {
+          if (m.PTT === true || m.audioMessage) messageText = "🎵 Áudio";
+          else if (m.imageMessage) messageText = "📷 Imagem";
+          else if (m.videoMessage) messageText = "🎥 Vídeo";
+          else if (m.documentMessage) messageText = "📎 Arquivo";
+        } else {
+          messageText = rawContent;
+        }
       }
       senderName = m.senderName || body.chat?.name || null;
       waMessageId = m.messageid || null;
