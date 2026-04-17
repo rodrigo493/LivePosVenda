@@ -15,7 +15,7 @@ Deno.serve(async (req) => {
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const UAZAPI_API_KEY = Deno.env.get("UAZAPI_API_KEY") || "ZaW1qwTEkuq7Ub1cBUuyMiK5bNSu3nnMQ9lh7klElc2clSRV8t";
-    const UAZAPI_INSTANCE_TOKEN = Deno.env.get("UAZAPI_INSTANCE_TOKEN") || "81a82558-de29-480b-8649-fe4155209fee";
+    const UAZAPI_INSTANCE_TOKEN = Deno.env.get("UAZAPI_INSTANCE_TOKEN") || "858c27a6-cfbe-486b-aee7-91f84dd68876";
     const UAZAPI_BASE_URL = Deno.env.get("UAZAPI_BASE_URL") || "https://free.uazapi.com";
 
     const authHeader = req.headers.get("Authorization");
