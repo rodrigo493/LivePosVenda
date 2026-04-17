@@ -14,7 +14,6 @@ Deno.serve(async (req) => {
   try {
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const UAZAPI_API_KEY = Deno.env.get("UAZAPI_API_KEY") || "PWg73Y06OxF9GKxl9pmhDvqhbEtQZfzyqs8hGUJKCKcgrRUzzD";
     const UAZAPI_INSTANCE_TOKEN = Deno.env.get("UAZAPI_INSTANCE_TOKEN") || "c6a355b6-c741-47c1-b1e6-c48938dd477b";
     const UAZAPI_BASE_URL = Deno.env.get("UAZAPI_BASE_URL") || "https://liveuni.uazapi.com";
 
@@ -38,11 +37,18 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { client_id, ticket_id, message, phone } = await req.json();
+    const { client_id, ticket_id, message, phone, media_base64, media_mime_type, media_filename } = await req.json();
 
-    if (!client_id || !message || !phone) {
+    if (!client_id || !phone) {
       return new Response(
-        JSON.stringify({ error: "client_id, message, and phone are required" }),
+        JSON.stringify({ error: "client_id and phone are required" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (!message && !media_base64) {
+      return new Response(
+        JSON.stringify({ error: "message or media_base64 is required" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -52,20 +58,30 @@ Deno.serve(async (req) => {
       cleanPhone = "55" + cleanPhone;
     }
 
-    const sendRes = await fetch(
-      `${UAZAPI_BASE_URL}/send/text`,
-      {
+    const headers = { token: UAZAPI_INSTANCE_TOKEN, "Content-Type": "application/json" };
+    let sendRes: Response;
+    let savedText: string;
+
+    if (media_base64 && media_mime_type) {
+      const isImage = media_mime_type.startsWith("image/");
+      const endpoint = isImage ? `${UAZAPI_BASE_URL}/send/image` : `${UAZAPI_BASE_URL}/send/document`;
+
+      const body = isImage
+        ? { number: cleanPhone, image: media_base64, caption: message || "" }
+        : { number: cleanPhone, document: media_base64, fileName: media_filename || "arquivo", caption: message || "" };
+
+      sendRes = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(body) });
+      savedText = isImage ? `🖼️ ${media_filename || "imagem"}` : `📎 ${media_filename || "arquivo"}`;
+    } else {
+      sendRes = await fetch(`${UAZAPI_BASE_URL}/send/text`, {
         method: "POST",
-        headers: {
-          token: UAZAPI_INSTANCE_TOKEN,
-          "Content-Type": "application/json",
-        },
+        headers,
         body: JSON.stringify({ number: cleanPhone, text: message }),
-      }
-    );
+      });
+      savedText = message;
+    }
 
     const sendData = await sendRes.json();
-
     if (!sendRes.ok) {
       throw new Error(`Uazapi error [${sendRes.status}]: ${JSON.stringify(sendData)}`);
     }
@@ -75,7 +91,7 @@ Deno.serve(async (req) => {
       client_id,
       ticket_id: ticket_id || null,
       direction: "outbound",
-      message_text: message,
+      message_text: savedText,
       sender_phone: cleanPhone,
       status: "sent",
     });

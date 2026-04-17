@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Send, MessageSquare } from "lucide-react";
+import { Send, MessageSquare, Paperclip, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -37,8 +37,10 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName }: Wh
   const { data: messages, isLoading } = useWhatsAppMessages(clientId);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [mediaFile, setMediaFile] = useState<{ base64: string; mime: string; name: string } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Realtime subscription
   useEffect(() => {
@@ -70,27 +72,44 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName }: Wh
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setMediaFile({ base64: reader.result as string, mime: file.type, name: file.name });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
   const sendMessage = async () => {
-    if (!draft.trim() || !clientPhone) return;
+    if (!mediaFile && !draft.trim()) return;
+    if (!clientPhone) return;
     setSending(true);
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token;
 
+      const body: Record<string, any> = {
+        client_id: clientId,
+        ticket_id: ticketId,
+        phone: clientPhone,
+        message: draft.trim() || undefined,
+      };
+
+      if (mediaFile) {
+        body.media_base64 = mediaFile.base64;
+        body.media_mime_type = mediaFile.mime;
+        body.media_filename = mediaFile.name;
+      }
+
       const res = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-whatsapp`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            client_id: clientId,
-            ticket_id: ticketId,
-            message: draft.trim(),
-            phone: clientPhone,
-          }),
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify(body),
         }
       );
 
@@ -98,6 +117,7 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName }: Wh
       if (!res.ok) throw new Error(result.error || "Erro ao enviar");
 
       setDraft("");
+      setMediaFile(null);
       qc.invalidateQueries({ queryKey: ["whatsapp-messages", clientId] });
     } catch (err: any) {
       toast.error(err.message || "Erro ao enviar mensagem");
@@ -107,7 +127,7 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName }: Wh
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey && !mediaFile) {
       e.preventDefault();
       sendMessage();
     }
@@ -214,18 +234,44 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName }: Wh
 
       {/* Input area */}
       <div className="border-t pt-3 mt-2">
+        {mediaFile && (
+          <div className="flex items-center gap-2 mb-2 px-2 py-1.5 bg-muted rounded-lg text-xs">
+            <Paperclip className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <span className="flex-1 truncate text-muted-foreground">{mediaFile.name}</span>
+            <button onClick={() => setMediaFile(null)} className="shrink-0 text-muted-foreground hover:text-foreground">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
         <div className="flex items-end gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt,.zip"
+            onChange={handleFileSelect}
+            className="hidden"
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-10 w-10 shrink-0 text-muted-foreground hover:text-foreground"
+            onClick={() => fileInputRef.current?.click()}
+            title="Anexar arquivo"
+          >
+            <Paperclip className="h-4 w-4" />
+          </Button>
           <Textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Digite sua mensagem..."
+            placeholder={mediaFile ? "Adicionar legenda (opcional)..." : "Digite sua mensagem..."}
             className="min-h-[44px] max-h-[120px] resize-none text-sm"
             rows={1}
           />
           <Button
             onClick={sendMessage}
-            disabled={sending || !draft.trim()}
+            disabled={sending || (!draft.trim() && !mediaFile)}
             size="icon"
             className="h-10 w-10 shrink-0 bg-emerald-600 hover:bg-emerald-700"
           >
