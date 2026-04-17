@@ -247,7 +247,7 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName }: Wh
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt,.zip"
+            accept="image/*,audio/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt,.zip"
             onChange={handleFileSelect}
             className="hidden"
           />
