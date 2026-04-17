@@ -310,16 +310,15 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
           ) : (
             <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={handleKeyDown} placeholder={mediaFile ? "Adicionar legenda (opcional)..." : "Digite sua mensagem..."} className="min-h-[44px] max-h-[120px] resize-none text-sm" rows={1} />
           )}
-          {!recording && (
-            <Button onClick={startRecording} size="icon" variant="ghost" className="h-10 w-10 shrink-0 text-muted-foreground hover:text-emerald-600" title="Gravar áudio" disabled={!!draft.trim() || !!mediaFile}>
-              <Mic className="h-4 w-4" />
+          {!recording && !draft.trim() && !mediaFile ? (
+            <Button onClick={startRecording} size="icon" variant="ghost" className="h-10 w-10 shrink-0 text-emerald-600 hover:bg-emerald-50" title="Gravar áudio">
+              <Mic className="h-5 w-5" />
             </Button>
-          )}
-          {!recording && (
-            <Button onClick={sendMessage} disabled={sending || (!draft.trim() && !mediaFile)} size="icon" className="h-10 w-10 shrink-0 bg-emerald-600 hover:bg-emerald-700">
+          ) : !recording ? (
+            <Button onClick={sendMessage} disabled={sending} size="icon" className="h-10 w-10 shrink-0 bg-emerald-600 hover:bg-emerald-700">
               <Send className="h-4 w-4" />
             </Button>
-          )}
+          ) : null}
         </div>
         <p className="text-[10px] text-muted-foreground mt-1.5">Enter para enviar · Shift+Enter para nova linha</p>
       </div>
