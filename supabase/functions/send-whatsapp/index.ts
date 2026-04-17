@@ -70,21 +70,22 @@ Deno.serve(async (req) => {
       throw new Error(`Uazapi error [${sendRes.status}]: ${JSON.stringify(sendData)}`);
     }
 
-    const waMessageId = sendData?.key?.id || sendData?.id || null;
-
     const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-    await adminClient.from("whatsapp_messages").insert({
+    const { error: insertErr } = await adminClient.from("whatsapp_messages").insert({
       client_id,
       ticket_id: ticket_id || null,
       direction: "outbound",
       message_text: message,
       sender_phone: cleanPhone,
-      wa_message_id: waMessageId,
       status: "sent",
     });
 
+    if (insertErr) {
+      console.error("Failed to save outbound message:", insertErr);
+    }
+
     return new Response(
-      JSON.stringify({ success: true, message_id: waMessageId }),
+      JSON.stringify({ success: true }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
