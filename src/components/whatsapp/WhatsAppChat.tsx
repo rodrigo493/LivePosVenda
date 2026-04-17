@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Send, MessageSquare, Paperclip, X } from "lucide-react";
+import { Send, MessageSquare, Paperclip, X, Mic, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -39,6 +39,11 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [mediaFile, setMediaFile] = useState<{ base64: string; mime: string; name: string } | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [recordSecs, setRecordSecs] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -125,6 +130,38 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
     } finally {
       setSending(false);
     }
+  };
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/ogg";
+      const mr = new MediaRecorder(stream, { mimeType });
+      audioChunksRef.current = [];
+      mr.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      mr.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(audioChunksRef.current, { type: mimeType });
+        const ext = mimeType.includes("webm") ? "webm" : "ogg";
+        const reader = new FileReader();
+        reader.onload = () => setMediaFile({ base64: reader.result as string, mime: mimeType, name: `audio_${Date.now()}.${ext}` });
+        reader.readAsDataURL(blob);
+        if (recordTimerRef.current) clearInterval(recordTimerRef.current);
+        setRecordSecs(0);
+        setRecording(false);
+      };
+      mr.start();
+      mediaRecorderRef.current = mr;
+      setRecording(true);
+      setRecordSecs(0);
+      recordTimerRef.current = setInterval(() => setRecordSecs((s) => s + 1), 1000);
+    } catch {
+      toast.error("Permissão de microfone negada");
+    }
+  };
+
+  const stopRecording = () => {
+    mediaRecorderRef.current?.stop();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -264,32 +301,65 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
             onChange={handleFileSelect}
             className="hidden"
           />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-10 w-10 shrink-0 text-muted-foreground hover:text-foreground"
-            onClick={() => fileInputRef.current?.click()}
-            title="Anexar arquivo"
-          >
-            <Paperclip className="h-4 w-4" />
-          </Button>
-          <Textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={mediaFile ? "Adicionar legenda (opcional)..." : "Digite sua mensagem..."}
-            className="min-h-[44px] max-h-[120px] resize-none text-sm"
-            rows={1}
-          />
-          <Button
-            onClick={sendMessage}
-            disabled={sending || (!draft.trim() && !mediaFile)}
-            size="icon"
-            className="h-10 w-10 shrink-0 bg-emerald-600 hover:bg-emerald-700"
-          >
-            <Send className="h-4 w-4" />
-          </Button>
+          {!recording && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-10 w-10 shrink-0 text-muted-foreground hover:text-foreground"
+              onClick={() => fileInputRef.current?.click()}
+              title="Anexar arquivo"
+            >
+              <Paperclip className="h-4 w-4" />
+            </Button>
+          )}
+          {recording ? (
+            <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg">
+              <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+              <span className="text-sm text-red-600 font-medium">
+                {String(Math.floor(recordSecs / 60)).padStart(2, "0")}:{String(recordSecs % 60).padStart(2, "0")}
+              </span>
+              <span className="text-xs text-red-400">Gravando...</span>
+            </div>
+          ) : (
+            <Textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={mediaFile ? "Adicionar legenda (opcional)..." : "Digite sua mensagem..."}
+              className="min-h-[44px] max-h-[120px] resize-none text-sm"
+              rows={1}
+            />
+          )}
+          {recording ? (
+            <Button
+              onClick={stopRecording}
+              size="icon"
+              className="h-10 w-10 shrink-0 bg-red-500 hover:bg-red-600"
+              title="Parar gravação"
+            >
+              <Square className="h-4 w-4 fill-white" />
+            </Button>
+          ) : !draft.trim() && !mediaFile ? (
+            <Button
+              onClick={startRecording}
+              size="icon"
+              variant="ghost"
+              className="h-10 w-10 shrink-0 text-muted-foreground hover:text-emerald-600"
+              title="Gravar áudio"
+            >
+              <Mic className="h-4 w-4" />
+            </Button>
+          ) : (
+            <Button
+              onClick={sendMessage}
+              disabled={sending || (!draft.trim() && !mediaFile)}
+              size="icon"
+              className="h-10 w-10 shrink-0 bg-emerald-600 hover:bg-emerald-700"
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          )}
         </div>
         <p className="text-[10px] text-muted-foreground mt-1.5">
           Enter para enviar · Shift+Enter para nova linha
