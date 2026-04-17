@@ -22,8 +22,11 @@ export default function AuthPage() {
     e.preventDefault();
     setLoading(true);
     try {
+      const origin = window.location.hostname === "localhost"
+        ? "https://posvenda.liveuni.com.br"
+        : window.location.origin;
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/reset-password`,
+        redirectTo: `${origin}/reset-password`,
       });
       if (error) throw error;
       toast.success("Email enviado!", { description: "Verifique sua caixa de entrada para redefinir a senha." });
