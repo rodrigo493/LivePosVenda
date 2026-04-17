@@ -866,6 +866,21 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                                     qc.invalidateQueries({ queryKey: ["client-quotes"] });
                                     if (val === "aprovado") {
                                       setApprovalPrompt({ quoteId: q.id, ticketId: ticket.id, quoteNumber: q.quote_number });
+                                      const squadUrl = import.meta.env.VITE_SQUAD_API_URL;
+                                      const squadKey = import.meta.env.VITE_SQUAD_WORKFLOW_API_KEY;
+                                      const templateId = import.meta.env.VITE_SQUAD_POSVENDA_TEMPLATE_ID;
+                                      if (squadUrl && squadKey && templateId) {
+                                        fetch(`${squadUrl}/api/workflow-items`, {
+                                          method: "POST",
+                                          headers: { "Content-Type": "application/json", "x-api-key": squadKey },
+                                          body: JSON.stringify({
+                                            reference: q.quote_number,
+                                            title: equipName ? `${q.quote_number} — ${equipName}` : q.quote_number,
+                                            template_id: templateId,
+                                            initial_note: `Aprovado no LivePosVenda em ${new Date().toLocaleDateString("pt-BR")}`,
+                                          }),
+                                        }).catch(() => null);
+                                      }
                                     }
                                   }}
                                 >
