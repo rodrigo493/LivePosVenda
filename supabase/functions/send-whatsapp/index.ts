@@ -90,10 +90,9 @@ Deno.serve(async (req) => {
         sendRes = await fetch(`${UAZAPI_BASE_URL}/send/image`, {
           method: "POST",
           headers: apiHeaders,
-          body: JSON.stringify({ number: cleanPhone, image: mediaUrl, caption: message || "" }),
+          body: JSON.stringify({ number: cleanPhone, url: mediaUrl, caption: message || "" }),
         });
-        // Fallback: try /send/media if /send/image returns 405
-        if (sendRes.status === 405) {
+        if (!sendRes.ok) {
           sendRes = await fetch(`${UAZAPI_BASE_URL}/send/media`, {
             method: "POST",
             headers: apiHeaders,
@@ -104,9 +103,9 @@ Deno.serve(async (req) => {
         sendRes = await fetch(`${UAZAPI_BASE_URL}/send/document`, {
           method: "POST",
           headers: apiHeaders,
-          body: JSON.stringify({ number: cleanPhone, document: mediaUrl, fileName: media_filename || "arquivo", caption: message || "" }),
+          body: JSON.stringify({ number: cleanPhone, url: mediaUrl, fileName: media_filename || "arquivo", caption: message || "" }),
         });
-        if (sendRes.status === 405) {
+        if (!sendRes.ok) {
           sendRes = await fetch(`${UAZAPI_BASE_URL}/send/media`, {
             method: "POST",
             headers: apiHeaders,
