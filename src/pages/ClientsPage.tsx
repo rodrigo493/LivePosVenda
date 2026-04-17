@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Users, Plus, Search, History, Upload, MessageSquare } from "lucide-react";
+import { Users, Plus, Search, History, Upload, MessageSquare, Ticket } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { CrudDialog } from "@/components/shared/CrudDialog";
@@ -10,8 +10,15 @@ import { useAuth } from "@/hooks/useAuth";
 import { Client } from "@/types/database";
 import { ClientHistoryDialog } from "@/components/import/ClientHistoryDialog";
 import { BulkHistoryImportDialog } from "@/components/import/BulkHistoryImportDialog";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { WhatsAppChat } from "@/components/whatsapp/WhatsAppChat";
+import { useCreateTicket } from "@/hooks/useTickets";
+import { PIPELINE_STAGES } from "@/hooks/usePipeline";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { toast } from "sonner";
 
 const clientFields = [
   { name: "name", label: "Nome / Razão Social", required: true, placeholder: "Nome do cliente" },
@@ -39,6 +46,9 @@ const ClientsPage = () => {
   const [historyClient, setHistoryClient] = useState<Client | null>(null);
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [chatClient, setChatClient] = useState<Client | null>(null);
+  const [ticketClient, setTicketClient] = useState<Client | null>(null);
+  const [ticketForm, setTicketForm] = useState({ title: "", ticket_type: "chamado_tecnico", pipeline_stage: "sem_atendimento", priority: "media", description: "" });
+  const createTicket = useCreateTicket();
 
   const filteredClients = useMemo(() => {
     if (!clients) return [];
@@ -129,6 +139,9 @@ const ClientsPage = () => {
                         <Button variant="ghost" size="sm" className="text-xs h-7 gap-1 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50" onClick={() => setChatClient(client)} title="WhatsApp">
                           <MessageSquare className="h-3.5 w-3.5" />
                         </Button>
+                        <Button variant="ghost" size="sm" className="text-xs h-7 gap-1 text-blue-600 hover:text-blue-700 hover:bg-blue-50" onClick={() => { setTicketClient(client); setTicketForm({ title: `Atendimento — ${client.name}`, ticket_type: "chamado_tecnico", pipeline_stage: "sem_atendimento", priority: "media", description: "" }); }} title="Criar card">
+                          <Ticket className="h-3.5 w-3.5" />
+                        </Button>
                         <Button variant="outline" size="sm" className="text-xs h-7" onClick={() => handleEdit(client)}>Editar</Button>
                       </div>
                     </td>
@@ -160,6 +173,85 @@ const ClientsPage = () => {
         open={bulkImportOpen}
         onOpenChange={setBulkImportOpen}
       />
+
+      {/* ── Create Ticket Dialog ── */}
+      <Dialog open={!!ticketClient} onOpenChange={(open) => !open && setTicketClient(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Ticket className="h-4 w-4 text-blue-600" />
+              Criar card — {ticketClient?.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Título</Label>
+              <Input value={ticketForm.title} onChange={(e) => setTicketForm((f) => ({ ...f, title: e.target.value }))} placeholder="Título do atendimento" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Tipo</Label>
+                <Select value={ticketForm.ticket_type} onValueChange={(v) => setTicketForm((f) => ({ ...f, ticket_type: v }))}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="chamado_tecnico">Chamado Técnico</SelectItem>
+                    <SelectItem value="garantia">Garantia</SelectItem>
+                    <SelectItem value="assistencia">Assistência</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Prioridade</Label>
+                <Select value={ticketForm.priority} onValueChange={(v) => setTicketForm((f) => ({ ...f, priority: v }))}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="baixa">Baixa</SelectItem>
+                    <SelectItem value="media">Média</SelectItem>
+                    <SelectItem value="alta">Alta</SelectItem>
+                    <SelectItem value="urgente">Urgente</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Etapa no funil</Label>
+              <Select value={ticketForm.pipeline_stage} onValueChange={(v) => setTicketForm((f) => ({ ...f, pipeline_stage: v }))}>
+                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {PIPELINE_STAGES.map((s) => (
+                    <SelectItem key={s.key} value={s.key}>{s.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Descrição <span className="text-muted-foreground">(opcional)</span></Label>
+              <Textarea value={ticketForm.description} onChange={(e) => setTicketForm((f) => ({ ...f, description: e.target.value }))} placeholder="Descreva o atendimento..." rows={3} className="text-sm resize-none" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setTicketClient(null)}>Cancelar</Button>
+            <Button size="sm" disabled={!ticketForm.title.trim() || createTicket.isPending} onClick={async () => {
+              if (!ticketClient) return;
+              await createTicket.mutateAsync({
+                client_id: ticketClient.id,
+                title: ticketForm.title,
+                ticket_type: ticketForm.ticket_type as any,
+                pipeline_stage: ticketForm.pipeline_stage as any,
+                priority: ticketForm.priority as any,
+                description: ticketForm.description || null,
+                status: "aberto",
+                ticket_number: "",
+                created_by: user?.id,
+              } as any);
+              toast.success(`Card criado para ${ticketClient.name}`);
+              setTicketClient(null);
+            }}>
+              {createTicket.isPending ? "Criando..." : "Criar card"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!chatClient} onOpenChange={(open) => !open && setChatClient(null)}>
         <DialogContent className="max-w-2xl h-[600px] flex flex-col p-0">
