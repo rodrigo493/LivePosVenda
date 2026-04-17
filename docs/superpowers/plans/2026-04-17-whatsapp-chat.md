@@ -54,7 +54,7 @@ CREATE INDEX IF NOT EXISTS idx_wamsg_client ON public.whatsapp_messages(client_i
   \`;
   const r = await fetch('https://api.supabase.com/v1/projects/ehqkggiuouczmafmlzls/database/query', {
     method: 'POST',
-    headers: { Authorization: 'Bearer sbp_c51ba5c5ea4fcf6be4980274d23730b284f99c04', 'Content-Type': 'application/json' },
+    headers: { Authorization: 'Bearer YOUR_SUPABASE_PAT', 'Content-Type': 'application/json' },
     body: JSON.stringify({ query: sql })
   });
   const d = await r.json();
@@ -72,7 +72,7 @@ node -e "
 (async () => {
   const r = await fetch('https://api.supabase.com/v1/projects/ehqkggiuouczmafmlzls/database/query', {
     method: 'POST',
-    headers: { Authorization: 'Bearer sbp_c51ba5c5ea4fcf6be4980274d23730b284f99c04', 'Content-Type': 'application/json' },
+    headers: { Authorization: 'Bearer YOUR_SUPABASE_PAT', 'Content-Type': 'application/json' },
     body: JSON.stringify({ query: 'ALTER PUBLICATION supabase_realtime ADD TABLE public.whatsapp_messages' })
   });
   const d = await r.json();
