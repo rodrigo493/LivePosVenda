@@ -1,5 +1,31 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+async function downloadAndStoreMedia(
+  admin: ReturnType<typeof createClient>,
+  supabaseUrl: string,
+  uazapiBaseUrl: string,
+  uazapiToken: string,
+  messageid: string,
+  mime: string,
+  clientId: string,
+): Promise<string | null> {
+  try {
+    const res = await fetch(`${uazapiBaseUrl}/message/download`, {
+      method: "POST",
+      headers: { token: uazapiToken, "Content-Type": "application/json" },
+      body: JSON.stringify({ messageid }),
+    });
+    if (!res.ok) return null;
+    const ext = mime.includes("ogg") ? "ogg" : mime.split("/")[1]?.split(";")[0] || "bin";
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    const path = `${clientId}/${Date.now()}_inbound.${ext}`;
+    const { error } = await admin.storage.from("whatsapp-media").upload(path, bytes, { contentType: mime, upsert: true });
+    if (error) return null;
+    const { data } = admin.storage.from("whatsapp-media").getPublicUrl(path);
+    return data.publicUrl;
+  } catch { return null; }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "GET") {
     return new Response("OK", { status: 200 });
@@ -13,6 +39,8 @@ Deno.serve(async (req) => {
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const POSVENDA_USER_ID = Deno.env.get("POSVENDA_USER_ID") || null;
+    const UAZAPI_INSTANCE_TOKEN = Deno.env.get("UAZAPI_INSTANCE_TOKEN") || "c6a355b6-c741-47c1-b1e6-c48938dd477b";
+    const UAZAPI_BASE_URL = Deno.env.get("UAZAPI_BASE_URL") || "https://liveuni.uazapi.com";
 
     const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     const body = await req.json();
@@ -23,6 +51,7 @@ Deno.serve(async (req) => {
     let messageText: string | null = null;
     let senderName: string | null = null;
     let waMessageId: string | null = null;
+    let mediaMime: string | null = null;
 
     // Uazapi actual format: { EventType, message: { fromMe, sender_pn, chatid, text, senderName, messageid }, chat }
     if (body?.EventType && body?.message) {
@@ -38,7 +67,8 @@ Deno.serve(async (req) => {
       };
 
       if (typeof m.content === "object" && m.content !== null) {
-        messageText = resolveMediaText((m.content as any).mimetype || "");
+        mediaMime = (m.content as any).mimetype || null;
+        messageText = resolveMediaText(mediaMime || "");
       } else {
         const rawContent: string | null = (typeof m.text === "string" && m.text) ? m.text
           : (typeof m.content === "string" && m.content) ? m.content : null;
@@ -199,11 +229,17 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ duplicate: true }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
 
+    let mediaUrl: string | null = null;
+    if (mediaMime && waMessageId) {
+      mediaUrl = await downloadAndStoreMedia(admin, SUPABASE_URL, UAZAPI_BASE_URL, UAZAPI_INSTANCE_TOKEN, waMessageId, mediaMime, clientId);
+    }
+
     const { error: msgErr } = await admin.from("whatsapp_messages").insert({
       client_id: clientId,
       ticket_id: ticketId,
       direction: "inbound",
       message_text: messageText,
+      media_url: mediaUrl,
       sender_name: senderName,
       sender_phone: senderPhone,
       status: "received",

@@ -217,7 +217,17 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
                       {msg.direction === "inbound" && msg.sender_name && (
                         <p className="text-[10px] font-semibold text-muted-foreground mb-0.5">{msg.sender_name}</p>
                       )}
-                      <p className="whitespace-pre-wrap text-[13px] leading-relaxed">{msg.message_text}</p>
+                      {msg.media_url && msg.message_text?.startsWith("🎵") ? (
+                        <audio controls src={msg.media_url} className="max-w-[220px] h-8 mt-0.5" />
+                      ) : msg.media_url && msg.message_text?.startsWith("📷") ? (
+                        <img src={msg.media_url} alt="imagem" className="max-w-[200px] rounded-lg mt-0.5 cursor-pointer" onClick={() => window.open(msg.media_url, "_blank")} />
+                      ) : msg.media_url && msg.message_text?.startsWith("🎥") ? (
+                        <video controls src={msg.media_url} className="max-w-[220px] rounded-lg mt-0.5" />
+                      ) : msg.media_url ? (
+                        <a href={msg.media_url} target="_blank" rel="noreferrer" className="underline text-[13px]">{msg.message_text}</a>
+                      ) : (
+                        <p className="whitespace-pre-wrap text-[13px] leading-relaxed">{msg.message_text}</p>
+                      )}
                       <p
                         className={`text-[9px] mt-1 text-right ${
                           msg.direction === "outbound" ? "text-white/60" : "text-muted-foreground"
