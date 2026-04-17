@@ -24,8 +24,16 @@ Deno.serve(async (req) => {
     let senderName: string | null = null;
     let waMessageId: string | null = null;
 
-    // Uazapi format: { event, instance, data: { sender, senderName, text, messageid, chatid, phone } }
-    if (body?.event && body?.data) {
+    // Uazapi actual format: { EventType, message: { fromMe, sender_pn, chatid, text, senderName, messageid }, chat }
+    if (body?.EventType && body?.message) {
+      const m = body.message;
+      if (m.fromMe === true || m.wasSentByApi === true) return new Response("OK", { status: 200 });
+      senderPhone = (m.sender_pn || m.chatid || m.sender || "").toString().replace("@s.whatsapp.net", "").replace(/\D/g, "");
+      messageText = m.text || m.content || null;
+      senderName = m.senderName || body.chat?.name || null;
+      waMessageId = m.messageid || null;
+    } else if (body?.event && body?.data) {
+      // Uazapi legacy format
       const d = body.data;
       if (d.fromMe === true || d.key?.fromMe === true) return new Response("OK", { status: 200 });
       senderPhone = (d.phone || d.sender || d.chatid || "").toString().replace("@s.whatsapp.net", "").replace(/\D/g, "");
