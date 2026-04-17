@@ -233,19 +233,23 @@ const ClientsPage = () => {
             <Button variant="outline" size="sm" onClick={() => setTicketClient(null)}>Cancelar</Button>
             <Button size="sm" disabled={!ticketForm.title.trim() || createTicket.isPending} onClick={async () => {
               if (!ticketClient) return;
-              await createTicket.mutateAsync({
-                client_id: ticketClient.id,
-                title: ticketForm.title,
-                ticket_type: ticketForm.ticket_type as any,
-                pipeline_stage: ticketForm.pipeline_stage as any,
-                priority: ticketForm.priority as any,
-                description: ticketForm.description || null,
-                status: "aberto",
-                ticket_number: "",
-                created_by: user?.id,
-              } as any);
-              toast.success(`Card criado para ${ticketClient.name}`);
-              setTicketClient(null);
+              try {
+                await createTicket.mutateAsync({
+                  client_id: ticketClient.id,
+                  title: ticketForm.title,
+                  ticket_type: ticketForm.ticket_type as any,
+                  pipeline_stage: ticketForm.pipeline_stage as any,
+                  priority: ticketForm.priority as any,
+                  description: ticketForm.description || null,
+                  status: "aberto",
+                  ticket_number: "",
+                  created_by: user?.id,
+                } as any);
+                toast.success(`Card criado para ${ticketClient.name}`);
+                setTicketClient(null);
+              } catch (err: any) {
+                toast.error(err?.message || "Erro ao criar card");
+              }
             }}>
               {createTicket.isPending ? "Criando..." : "Criar card"}
             </Button>
