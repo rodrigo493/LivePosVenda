@@ -294,76 +294,34 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
           </div>
         )}
         <div className="flex items-end gap-2">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*,audio/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt,.zip"
-            onChange={handleFileSelect}
-            className="hidden"
-          />
-          {!recording && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-10 w-10 shrink-0 text-muted-foreground hover:text-foreground"
-              onClick={() => fileInputRef.current?.click()}
-              title="Anexar arquivo"
-            >
-              <Paperclip className="h-4 w-4" />
-            </Button>
-          )}
+          <input ref={fileInputRef} type="file" accept="image/*,audio/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt,.zip" onChange={handleFileSelect} className="hidden" />
+          <Button type="button" variant="ghost" size="icon" className="h-10 w-10 shrink-0 text-muted-foreground hover:text-foreground" onClick={() => fileInputRef.current?.click()} title="Anexar arquivo" disabled={recording}>
+            <Paperclip className="h-4 w-4" />
+          </Button>
           {recording ? (
             <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg">
               <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-              <span className="text-sm text-red-600 font-medium">
-                {String(Math.floor(recordSecs / 60)).padStart(2, "0")}:{String(recordSecs % 60).padStart(2, "0")}
-              </span>
-              <span className="text-xs text-red-400">Gravando...</span>
+              <span className="text-sm text-red-600 font-medium">{String(Math.floor(recordSecs / 60)).padStart(2, "0")}:{String(recordSecs % 60).padStart(2, "0")}</span>
+              <span className="text-xs text-red-400 flex-1">Gravando...</span>
+              <Button onClick={stopRecording} size="sm" variant="ghost" className="h-7 text-red-600 hover:text-red-700 gap-1 text-xs px-2">
+                <Square className="h-3 w-3 fill-red-600" /> Enviar
+              </Button>
             </div>
           ) : (
-            <Textarea
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={mediaFile ? "Adicionar legenda (opcional)..." : "Digite sua mensagem..."}
-              className="min-h-[44px] max-h-[120px] resize-none text-sm"
-              rows={1}
-            />
+            <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={handleKeyDown} placeholder={mediaFile ? "Adicionar legenda (opcional)..." : "Digite sua mensagem..."} className="min-h-[44px] max-h-[120px] resize-none text-sm" rows={1} />
           )}
-          {recording ? (
-            <Button
-              onClick={stopRecording}
-              size="icon"
-              className="h-10 w-10 shrink-0 bg-red-500 hover:bg-red-600"
-              title="Parar gravação"
-            >
-              <Square className="h-4 w-4 fill-white" />
-            </Button>
-          ) : !draft.trim() && !mediaFile ? (
-            <Button
-              onClick={startRecording}
-              size="icon"
-              variant="ghost"
-              className="h-10 w-10 shrink-0 text-muted-foreground hover:text-emerald-600"
-              title="Gravar áudio"
-            >
+          {!recording && (
+            <Button onClick={startRecording} size="icon" variant="ghost" className="h-10 w-10 shrink-0 text-muted-foreground hover:text-emerald-600" title="Gravar áudio" disabled={!!draft.trim() || !!mediaFile}>
               <Mic className="h-4 w-4" />
             </Button>
-          ) : (
-            <Button
-              onClick={sendMessage}
-              disabled={sending || (!draft.trim() && !mediaFile)}
-              size="icon"
-              className="h-10 w-10 shrink-0 bg-emerald-600 hover:bg-emerald-700"
-            >
+          )}
+          {!recording && (
+            <Button onClick={sendMessage} disabled={sending || (!draft.trim() && !mediaFile)} size="icon" className="h-10 w-10 shrink-0 bg-emerald-600 hover:bg-emerald-700">
               <Send className="h-4 w-4" />
             </Button>
           )}
         </div>
-        <p className="text-[10px] text-muted-foreground mt-1.5">
-          Enter para enviar · Shift+Enter para nova linha
-        </p>
+        <p className="text-[10px] text-muted-foreground mt-1.5">Enter para enviar · Shift+Enter para nova linha</p>
       </div>
     </div>
   );
