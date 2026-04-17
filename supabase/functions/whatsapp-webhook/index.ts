@@ -15,15 +15,22 @@ async function downloadAndStoreMedia(
       headers: { token: uazapiToken, "Content-Type": "application/json" },
       body: JSON.stringify({ messageid }),
     });
-    if (!res.ok) return null;
-    const ext = mime.includes("ogg") ? "ogg" : mime.split("/")[1]?.split(";")[0] || "bin";
+    console.log("media_download status:", res.status, "messageid:", messageid);
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("media_download error:", errText);
+      return null;
+    }
+    const contentType = res.headers.get("content-type") || mime;
+    const ext = contentType.includes("ogg") ? "ogg" : contentType.includes("mp4") ? "mp4" : contentType.includes("webm") ? "webm" : contentType.split("/")[1]?.split(";")[0] || "bin";
     const bytes = new Uint8Array(await res.arrayBuffer());
+    console.log("media_download bytes:", bytes.length, "ext:", ext);
     const path = `${clientId}/${Date.now()}_inbound.${ext}`;
-    const { error } = await admin.storage.from("whatsapp-media").upload(path, bytes, { contentType: mime, upsert: true });
-    if (error) return null;
+    const { error } = await admin.storage.from("whatsapp-media").upload(path, bytes, { contentType: contentType.split(";")[0], upsert: true });
+    if (error) { console.error("storage upload error:", error.message); return null; }
     const { data } = admin.storage.from("whatsapp-media").getPublicUrl(path);
     return data.publicUrl;
-  } catch { return null; }
+  } catch (e) { console.error("downloadAndStoreMedia exception:", e); return null; }
 }
 
 Deno.serve(async (req) => {
