@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Send, MessageSquare, Paperclip, X, Mic, Square } from "lucide-react";
+import { Send, MessageSquare, Paperclip, X, Mic } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -39,14 +39,10 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [mediaFile, setMediaFile] = useState<{ base64: string; mime: string; name: string } | null>(null);
-  const [recording, setRecording] = useState(false);
-  const [recordSecs, setRecordSecs] = useState(0);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const audioInputRef = useRef<HTMLInputElement>(null);
 
   // Realtime subscription
   useEffect(() => {
@@ -130,63 +126,6 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
     } finally {
       setSending(false);
     }
-  };
-
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mimeType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/ogg";
-      const mr = new MediaRecorder(stream, { mimeType });
-      audioChunksRef.current = [];
-      mr.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
-      mr.onstop = () => {
-        stream.getTracks().forEach((t) => t.stop());
-        if (recordTimerRef.current) clearInterval(recordTimerRef.current);
-        setRecordSecs(0);
-        setRecording(false);
-        // Use mp4 mime for broader Uazapi compatibility; fallback to original
-        const sendMime = "audio/mp4";
-        const blob = new Blob(audioChunksRef.current, { type: mimeType });
-        const ext = mimeType.includes("ogg") ? "ogg" : mimeType.includes("mp4") ? "mp4" : "webm";
-        const reader = new FileReader();
-        reader.onload = () => {
-          const base64 = reader.result as string;
-          // Auto-send directly
-          (async () => {
-            if (!clientPhone) return;
-            setSending(true);
-            try {
-              const { data: sessionData } = await supabase.auth.getSession();
-              const token = sessionData?.session?.access_token;
-              const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-whatsapp`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-                body: JSON.stringify({ client_id: clientId, ticket_id: ticketId, phone: clientPhone, media_base64: base64, media_mime_type: mimeType, media_filename: `audio_${Date.now()}.${ext}` }),
-              });
-              const result = await res.json();
-              if (!res.ok) throw new Error(result.error || "Erro ao enviar áudio");
-              supabase.from("whatsapp_messages").select("id").then(() => qc.invalidateQueries({ queryKey: ["whatsapp-messages", clientId] }));
-            } catch (err: any) {
-              toast.error(err.message || "Erro ao enviar áudio");
-            } finally {
-              setSending(false);
-            }
-          })();
-        };
-        reader.readAsDataURL(blob);
-      };
-      mr.start();
-      mediaRecorderRef.current = mr;
-      setRecording(true);
-      setRecordSecs(0);
-      recordTimerRef.current = setInterval(() => setRecordSecs((s) => s + 1), 1000);
-    } catch {
-      toast.error("Permissão de microfone negada");
-    }
-  };
-
-  const stopRecording = () => {
-    mediaRecorderRef.current?.stop();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -319,31 +258,21 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
           </div>
         )}
         <div className="flex items-end gap-2">
-          <input ref={fileInputRef} type="file" accept="image/*,audio/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt,.zip" onChange={handleFileSelect} className="hidden" />
-          <Button type="button" variant="ghost" size="icon" className="h-10 w-10 shrink-0 text-muted-foreground hover:text-foreground" onClick={() => fileInputRef.current?.click()} title="Anexar arquivo" disabled={recording}>
+          <input ref={fileInputRef} type="file" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt,.zip" onChange={handleFileSelect} className="hidden" />
+          <input ref={audioInputRef} type="file" accept="audio/*" capture="user" onChange={handleFileSelect} className="hidden" />
+          <Button type="button" variant="ghost" size="icon" className="h-10 w-10 shrink-0 text-muted-foreground hover:text-foreground" onClick={() => fileInputRef.current?.click()} title="Anexar arquivo">
             <Paperclip className="h-4 w-4" />
           </Button>
-          {recording ? (
-            <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg">
-              <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-              <span className="text-sm text-red-600 font-medium">{String(Math.floor(recordSecs / 60)).padStart(2, "0")}:{String(recordSecs % 60).padStart(2, "0")}</span>
-              <span className="text-xs text-red-400 flex-1">Gravando...</span>
-              <Button onClick={stopRecording} size="sm" variant="ghost" className="h-7 text-red-600 hover:text-red-700 gap-1 text-xs px-2">
-                <Square className="h-3 w-3 fill-red-600" /> Enviar
-              </Button>
-            </div>
-          ) : (
-            <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={handleKeyDown} placeholder={mediaFile ? "Adicionar legenda (opcional)..." : "Digite sua mensagem..."} className="min-h-[44px] max-h-[120px] resize-none text-sm" rows={1} />
-          )}
-          {!recording && !draft.trim() && !mediaFile ? (
-            <Button onClick={startRecording} size="icon" variant="ghost" className="h-10 w-10 shrink-0 text-emerald-600 hover:bg-emerald-50" title="Gravar áudio">
+          <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={handleKeyDown} placeholder={mediaFile ? "Adicionar legenda (opcional)..." : "Digite sua mensagem..."} className="min-h-[44px] max-h-[120px] resize-none text-sm" rows={1} />
+          {!draft.trim() && !mediaFile ? (
+            <Button onClick={() => audioInputRef.current?.click()} size="icon" variant="ghost" className="h-10 w-10 shrink-0 text-emerald-600 hover:bg-emerald-50" title="Enviar áudio">
               <Mic className="h-5 w-5" />
             </Button>
-          ) : !recording ? (
+          ) : (
             <Button onClick={sendMessage} disabled={sending} size="icon" className="h-10 w-10 shrink-0 bg-emerald-600 hover:bg-emerald-700">
               <Send className="h-4 w-4" />
             </Button>
-          ) : null}
+          )}
         </div>
         <p className="text-[10px] text-muted-foreground mt-1.5">Enter para enviar · Shift+Enter para nova linha</p>
       </div>

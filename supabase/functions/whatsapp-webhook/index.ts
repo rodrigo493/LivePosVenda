@@ -200,13 +200,8 @@ Deno.serve(async (req) => {
       ticketId = newTicket?.id || null;
     }
 
-    // Deduplication: prefer waMessageId match, fallback to text+window
-    const dedupeWindow = new Date(Date.now() - 30000).toISOString();
-    let dedupeQuery = admin.from("whatsapp_messages").select("id").eq("client_id", clientId).eq("direction", "inbound").limit(1);
-    if (waMessageId) {
-      dedupeQuery = dedupeQuery.eq("sender_phone", senderPhone);
-      // Check by message id via notes — use 30s window with same text as fallback
-    }
+    // Deduplication: block same message within 15s from same client
+    const dedupeWindow = new Date(Date.now() - 15000).toISOString();
     const { data: existing } = await admin
       .from("whatsapp_messages")
       .select("id")
@@ -216,23 +211,7 @@ Deno.serve(async (req) => {
       .gte("created_at", dedupeWindow)
       .limit(1);
 
-    // For media messages (generic placeholder), also check by sender+window with shorter dedup
-    const mediaPlaceholders = ["🎵 Áudio", "📷 Imagem", "🎥 Vídeo", "📎 Arquivo", "📎 Mídia"];
-    const isMediaPlaceholder = mediaPlaceholders.includes(messageText || "");
-    const shortWindow = new Date(Date.now() - 5000).toISOString();
-    if (isMediaPlaceholder) {
-      const { data: recentMedia } = await admin
-        .from("whatsapp_messages")
-        .select("id")
-        .eq("client_id", clientId)
-        .eq("direction", "inbound")
-        .eq("message_text", messageText)
-        .gte("created_at", shortWindow)
-        .limit(1);
-      if (recentMedia?.length) {
-        return new Response(JSON.stringify({ duplicate: true }), { status: 200, headers: { "Content-Type": "application/json" } });
-      }
-    } else if (existing?.length) {
+    if (existing?.length) {
       return new Response(JSON.stringify({ duplicate: true }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
 
