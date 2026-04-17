@@ -14,13 +14,9 @@ Deno.serve(async (req) => {
   try {
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const UAZAPI_API_KEY = Deno.env.get("UAZAPI_API_KEY");
-    const UAZAPI_INSTANCE_TOKEN = Deno.env.get("UAZAPI_INSTANCE_TOKEN");
+    const UAZAPI_API_KEY = Deno.env.get("UAZAPI_API_KEY") || "ZaW1qwTEkuq7Ub1cBUuyMiK5bNSu3nnMQ9lh7klElc2clSRV8t";
+    const UAZAPI_INSTANCE_TOKEN = Deno.env.get("UAZAPI_INSTANCE_TOKEN") || "81a82558-de29-480b-8649-fe4155209fee";
     const UAZAPI_BASE_URL = Deno.env.get("UAZAPI_BASE_URL") || "https://free.uazapi.com";
-
-    if (!UAZAPI_API_KEY || !UAZAPI_INSTANCE_TOKEN) {
-      throw new Error("Uazapi credentials not configured");
-    }
 
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
