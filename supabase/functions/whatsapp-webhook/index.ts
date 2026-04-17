@@ -29,7 +29,19 @@ Deno.serve(async (req) => {
       const m = body.message;
       if (m.fromMe === true || m.wasSentByApi === true) return new Response("OK", { status: 200 });
       senderPhone = (m.sender_pn || m.chatid || m.sender || "").toString().replace("@s.whatsapp.net", "").replace(/\D/g, "");
-      messageText = m.text || m.content || null;
+      const rawContent = m.text || m.content || null;
+      if (rawContent && rawContent.trim().startsWith("{") && rawContent.includes("mimetype")) {
+        try {
+          const media = JSON.parse(rawContent);
+          const mime: string = media.mimetype || "";
+          if (mime.startsWith("image/")) messageText = "📷 Imagem";
+          else if (mime.startsWith("video/")) messageText = "🎥 Vídeo";
+          else if (mime.startsWith("audio/")) messageText = "🎵 Áudio";
+          else messageText = "📎 Arquivo";
+        } catch { messageText = "📎 Mídia"; }
+      } else {
+        messageText = rawContent;
+      }
       senderName = m.senderName || body.chat?.name || null;
       waMessageId = m.messageid || null;
     } else if (body?.event && body?.data) {
@@ -37,7 +49,19 @@ Deno.serve(async (req) => {
       const d = body.data;
       if (d.fromMe === true || d.key?.fromMe === true) return new Response("OK", { status: 200 });
       senderPhone = (d.phone || d.sender || d.chatid || "").toString().replace("@s.whatsapp.net", "").replace(/\D/g, "");
-      messageText = d.text || d.message || d.body || null;
+      const rawD = d.text || d.message || d.body || null;
+      if (rawD && rawD.trim().startsWith("{") && rawD.includes("mimetype")) {
+        try {
+          const media = JSON.parse(rawD);
+          const mime: string = media.mimetype || "";
+          if (mime.startsWith("image/")) messageText = "📷 Imagem";
+          else if (mime.startsWith("video/")) messageText = "🎥 Vídeo";
+          else if (mime.startsWith("audio/")) messageText = "🎵 Áudio";
+          else messageText = "📎 Arquivo";
+        } catch { messageText = "📎 Mídia"; }
+      } else {
+        messageText = rawD;
+      }
       senderName = d.senderName || d.pushName || null;
       waMessageId = d.messageid || d.key?.id || null;
     } else if (body?.data?.key) {
