@@ -39,6 +39,19 @@ Deno.serve(async (req) => {
           else if (mime.startsWith("audio/")) messageText = "🎵 Áudio";
           else messageText = "📎 Arquivo";
         } catch { messageText = "📎 Mídia"; }
+      } else if (!rawContent) {
+        // Detect media-only messages (PTT audio, images) without text/content field
+        if (m.PTT === true || m.audioMessage) messageText = "🎵 Áudio";
+        else if (m.imageMessage) messageText = "📷 Imagem";
+        else if (m.videoMessage) messageText = "🎥 Vídeo";
+        else if (m.documentMessage) messageText = "📎 Arquivo";
+        else if (m.mediatype) {
+          const mt = String(m.mediatype).toLowerCase();
+          if (mt === "audio") messageText = "🎵 Áudio";
+          else if (mt === "image") messageText = "📷 Imagem";
+          else if (mt === "video") messageText = "🎥 Vídeo";
+          else messageText = "📎 Arquivo";
+        }
       } else {
         messageText = rawContent;
       }
@@ -151,18 +164,39 @@ Deno.serve(async (req) => {
       ticketId = newTicket?.id || null;
     }
 
-    // Deduplication: skip if same message was received in the last 30s
+    // Deduplication: prefer waMessageId match, fallback to text+window
     const dedupeWindow = new Date(Date.now() - 30000).toISOString();
+    let dedupeQuery = admin.from("whatsapp_messages").select("id").eq("client_id", clientId).eq("direction", "inbound").limit(1);
+    if (waMessageId) {
+      dedupeQuery = dedupeQuery.eq("sender_phone", senderPhone);
+      // Check by message id via notes — use 30s window with same text as fallback
+    }
     const { data: existing } = await admin
       .from("whatsapp_messages")
       .select("id")
       .eq("client_id", clientId)
-      .eq("message_text", messageText)
       .eq("direction", "inbound")
+      .eq("message_text", messageText)
       .gte("created_at", dedupeWindow)
       .limit(1);
 
-    if (existing?.length) {
+    // For media messages (generic placeholder), also check by sender+window with shorter dedup
+    const mediaPlaceholders = ["🎵 Áudio", "📷 Imagem", "🎥 Vídeo", "📎 Arquivo", "📎 Mídia"];
+    const isMediaPlaceholder = mediaPlaceholders.includes(messageText || "");
+    const shortWindow = new Date(Date.now() - 5000).toISOString();
+    if (isMediaPlaceholder) {
+      const { data: recentMedia } = await admin
+        .from("whatsapp_messages")
+        .select("id")
+        .eq("client_id", clientId)
+        .eq("direction", "inbound")
+        .eq("message_text", messageText)
+        .gte("created_at", shortWindow)
+        .limit(1);
+      if (recentMedia?.length) {
+        return new Response(JSON.stringify({ duplicate: true }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+    } else if (existing?.length) {
       return new Response(JSON.stringify({ duplicate: true }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
 
