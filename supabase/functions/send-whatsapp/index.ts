@@ -6,6 +6,14 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+function base64ToUint8Array(base64: string): Uint8Array {
+  const b64 = base64.includes(",") ? base64.split(",")[1] : base64;
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -54,28 +62,64 @@ Deno.serve(async (req) => {
     }
 
     let cleanPhone = phone.replace(/\D/g, "");
-    if (cleanPhone.length <= 11) {
-      cleanPhone = "55" + cleanPhone;
-    }
+    if (cleanPhone.length <= 11) cleanPhone = "55" + cleanPhone;
 
-    const headers = { token: UAZAPI_INSTANCE_TOKEN, "Content-Type": "application/json" };
+    const apiHeaders = { token: UAZAPI_INSTANCE_TOKEN, "Content-Type": "application/json" };
     let sendRes: Response;
     let savedText: string;
+    const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     if (media_base64 && media_mime_type) {
+      // Upload to Supabase Storage and send URL to Uazapi
+      const ext = (media_filename || "file").split(".").pop() || "bin";
+      const storagePath = `${client_id}/${Date.now()}.${ext}`;
+      const fileBytes = base64ToUint8Array(media_base64);
+
+      const { error: uploadErr } = await adminClient.storage
+        .from("whatsapp-media")
+        .upload(storagePath, fileBytes, { contentType: media_mime_type, upsert: true });
+
+      if (uploadErr) throw new Error(`Storage upload failed: ${uploadErr.message}`);
+
+      const { data: urlData } = adminClient.storage.from("whatsapp-media").getPublicUrl(storagePath);
+      const mediaUrl = urlData.publicUrl;
+
       const isImage = media_mime_type.startsWith("image/");
-      const endpoint = isImage ? `${UAZAPI_BASE_URL}/send/image` : `${UAZAPI_BASE_URL}/send/document`;
 
-      const body = isImage
-        ? { number: cleanPhone, image: media_base64, caption: message || "" }
-        : { number: cleanPhone, document: media_base64, fileName: media_filename || "arquivo", caption: message || "" };
+      if (isImage) {
+        sendRes = await fetch(`${UAZAPI_BASE_URL}/send/image`, {
+          method: "POST",
+          headers: apiHeaders,
+          body: JSON.stringify({ number: cleanPhone, image: mediaUrl, caption: message || "" }),
+        });
+        // Fallback: try /send/media if /send/image returns 405
+        if (sendRes.status === 405) {
+          sendRes = await fetch(`${UAZAPI_BASE_URL}/send/media`, {
+            method: "POST",
+            headers: apiHeaders,
+            body: JSON.stringify({ number: cleanPhone, mediatype: "image", url: mediaUrl, caption: message || "" }),
+          });
+        }
+      } else {
+        sendRes = await fetch(`${UAZAPI_BASE_URL}/send/document`, {
+          method: "POST",
+          headers: apiHeaders,
+          body: JSON.stringify({ number: cleanPhone, document: mediaUrl, fileName: media_filename || "arquivo", caption: message || "" }),
+        });
+        if (sendRes.status === 405) {
+          sendRes = await fetch(`${UAZAPI_BASE_URL}/send/media`, {
+            method: "POST",
+            headers: apiHeaders,
+            body: JSON.stringify({ number: cleanPhone, mediatype: "document", url: mediaUrl, fileName: media_filename || "arquivo" }),
+          });
+        }
+      }
 
-      sendRes = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(body) });
       savedText = isImage ? `🖼️ ${media_filename || "imagem"}` : `📎 ${media_filename || "arquivo"}`;
     } else {
       sendRes = await fetch(`${UAZAPI_BASE_URL}/send/text`, {
         method: "POST",
-        headers,
+        headers: apiHeaders,
         body: JSON.stringify({ number: cleanPhone, text: message }),
       });
       savedText = message;
@@ -86,7 +130,6 @@ Deno.serve(async (req) => {
       throw new Error(`Uazapi error [${sendRes.status}]: ${JSON.stringify(sendData)}`);
     }
 
-    const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     const { error: insertErr } = await adminClient.from("whatsapp_messages").insert({
       client_id,
       ticket_id: ticket_id || null,
@@ -96,9 +139,7 @@ Deno.serve(async (req) => {
       status: "sent",
     });
 
-    if (insertErr) {
-      console.error("Failed to save outbound message:", insertErr);
-    }
+    if (insertErr) console.error("Failed to save outbound message:", insertErr);
 
     return new Response(
       JSON.stringify({ success: true }),
