@@ -196,6 +196,7 @@ export default function ChatPage() {
                 clientId={selectedChat.client_id}
                 clientPhone={selectedChat.client_phone}
                 clientName={selectedChat.client_name}
+                hideHeader
               />
             </div>
           </motion.div>
