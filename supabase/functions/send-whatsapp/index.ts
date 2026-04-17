@@ -6,8 +6,6 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const META_API_URL = "https://graph.facebook.com/v21.0";
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -16,14 +14,14 @@ Deno.serve(async (req) => {
   try {
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const WHATSAPP_ACCESS_TOKEN = Deno.env.get("WHATSAPP_ACCESS_TOKEN");
-    const WHATSAPP_PHONE_NUMBER_ID = Deno.env.get("WHATSAPP_PHONE_NUMBER_ID");
+    const UAZAPI_API_KEY = Deno.env.get("UAZAPI_API_KEY");
+    const UAZAPI_INSTANCE_TOKEN = Deno.env.get("UAZAPI_INSTANCE_TOKEN");
+    const UAZAPI_BASE_URL = Deno.env.get("UAZAPI_BASE_URL") || "https://free.uazapi.com";
 
-    if (!WHATSAPP_ACCESS_TOKEN || !WHATSAPP_PHONE_NUMBER_ID) {
-      throw new Error("WhatsApp Cloud API credentials not configured");
+    if (!UAZAPI_API_KEY || !UAZAPI_INSTANCE_TOKEN) {
+      throw new Error("Uazapi credentials not configured");
     }
 
-    // Verify auth
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -53,56 +51,41 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Format phone: ensure country code, digits only
     let cleanPhone = phone.replace(/\D/g, "");
     if (cleanPhone.length <= 11) {
       cleanPhone = "55" + cleanPhone;
     }
 
-    // Send message via WhatsApp Cloud API
     const sendRes = await fetch(
-      `${META_API_URL}/${WHATSAPP_PHONE_NUMBER_ID}/messages`,
+      `${UAZAPI_BASE_URL}/message/sendText/${UAZAPI_INSTANCE_TOKEN}`,
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${WHATSAPP_ACCESS_TOKEN}`,
+          Authorization: `Bearer ${UAZAPI_API_KEY}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          messaging_product: "whatsapp",
-          recipient_type: "individual",
-          to: cleanPhone,
-          type: "text",
-          text: { body: message },
-        }),
+        body: JSON.stringify({ number: cleanPhone, text: message }),
       }
     );
 
     const sendData = await sendRes.json();
 
     if (!sendRes.ok) {
-      throw new Error(`WhatsApp API failed [${sendRes.status}]: ${JSON.stringify(sendData)}`);
+      throw new Error(`Uazapi error [${sendRes.status}]: ${JSON.stringify(sendData)}`);
     }
 
-    const waMessageId = sendData?.messages?.[0]?.id || null;
+    const waMessageId = sendData?.key?.id || sendData?.id || null;
 
-    // Save message to DB
     const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-    const { error: insertError } = await adminClient
-      .from("whatsapp_messages")
-      .insert({
-        client_id,
-        ticket_id: ticket_id || null,
-        direction: "outbound",
-        message_text: message,
-        sender_phone: phone,
-        manychat_message_id: waMessageId,
-        status: "sent",
-      });
-
-    if (insertError) {
-      console.error("Failed to save message:", insertError);
-    }
+    await adminClient.from("whatsapp_messages").insert({
+      client_id,
+      ticket_id: ticket_id || null,
+      direction: "outbound",
+      message_text: message,
+      sender_phone: cleanPhone,
+      wa_message_id: waMessageId,
+      status: "sent",
+    });
 
     return new Response(
       JSON.stringify({ success: true, message_id: waMessageId }),

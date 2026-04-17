@@ -19,6 +19,7 @@ import {
   User,
   BookOpen,
   HardHat,
+  MessageSquare,
 } from "lucide-react";
 import { NavLink } from "@/components/layout/NavLink";
 import posvendaLogo from "@/assets/posvenda.png";
@@ -45,6 +46,7 @@ const mainNav = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Meu Painel", url: "/meu-painel", icon: User },
   { title: "CRM Pipeline", url: "/crm", icon: Kanban },
+  { title: "Chat WhatsApp", url: "/chat", icon: MessageSquare },
   { title: "Clientes", url: "/clientes", icon: Users },
   { title: "Equipamentos", url: "/equipamentos", icon: Package },
 ];

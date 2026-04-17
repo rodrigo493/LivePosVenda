@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Users, Plus, Search, History, Upload } from "lucide-react";
+import { Users, Plus, Search, History, Upload, MessageSquare } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { CrudDialog } from "@/components/shared/CrudDialog";
@@ -10,6 +10,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { Client } from "@/types/database";
 import { ClientHistoryDialog } from "@/components/import/ClientHistoryDialog";
 import { BulkHistoryImportDialog } from "@/components/import/BulkHistoryImportDialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { WhatsAppChat } from "@/components/whatsapp/WhatsAppChat";
 
 const clientFields = [
   { name: "name", label: "Nome / Razão Social", required: true, placeholder: "Nome do cliente" },
@@ -36,6 +38,7 @@ const ClientsPage = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [historyClient, setHistoryClient] = useState<Client | null>(null);
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
+  const [chatClient, setChatClient] = useState<Client | null>(null);
 
   const filteredClients = useMemo(() => {
     if (!clients) return [];
@@ -123,6 +126,9 @@ const ClientsPage = () => {
                         <Button variant="ghost" size="sm" className="text-xs h-7 gap-1" onClick={() => setHistoryClient(client)} title="Histórico">
                           <History className="h-3.5 w-3.5" />
                         </Button>
+                        <Button variant="ghost" size="sm" className="text-xs h-7 gap-1 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50" onClick={() => setChatClient(client)} title="WhatsApp">
+                          <MessageSquare className="h-3.5 w-3.5" />
+                        </Button>
                         <Button variant="outline" size="sm" className="text-xs h-7" onClick={() => handleEdit(client)}>Editar</Button>
                       </div>
                     </td>
@@ -154,6 +160,26 @@ const ClientsPage = () => {
         open={bulkImportOpen}
         onOpenChange={setBulkImportOpen}
       />
+
+      <Dialog open={!!chatClient} onOpenChange={(open) => !open && setChatClient(null)}>
+        <DialogContent className="max-w-2xl h-[600px] flex flex-col p-0">
+          <DialogHeader className="px-4 py-3 border-b shrink-0">
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <MessageSquare className="h-4 w-4 text-emerald-600" />
+              WhatsApp — {chatClient?.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-hidden p-4">
+            {chatClient && (
+              <WhatsAppChat
+                clientId={chatClient.id}
+                clientPhone={(chatClient as any).whatsapp || chatClient.phone || ""}
+                clientName={chatClient.name}
+              />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

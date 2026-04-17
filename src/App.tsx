@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { AppLayout } from "@/components/layout/AppLayout";
 import AuthPage from "./pages/AuthPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
+const ChatPage = lazy(() => import("./pages/ChatPage"));
 
 // Lazy-loaded pages
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -113,6 +114,7 @@ function AppRoutes() {
           <Route path="/configuracoes" element={<SettingsPage />} />
           <Route path="/importar-historico" element={<HistoricalImportPage />} />
           <Route path="/crm" element={<CrmPipelinePage />} />
+          <Route path="/chat" element={<ChatPage />} />
           <Route path="/meu-painel" element={<MyDashboardPage />} />
           <Route path="/manual" element={<ManualPage />} />
           <Route path="*" element={<NotFound />} />
