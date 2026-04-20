@@ -152,7 +152,7 @@ const PADetailPage = () => {
     try {
       const q = query.trim();
       const res = await fetch(
-        `/api/nomus/rest/pessoas?query=nomeFantasia==*${encodeURIComponent(q)}*,razaoSocial==*${encodeURIComponent(q)}*,nome==*${encodeURIComponent(q)}*`,
+        `/api/nomus/rest/pessoas?query=nome==*${encodeURIComponent(q)}*`,
         { headers: { "Content-Type": "application/json", "Accept": "application/json" } }
       );
       if (!res.ok) throw new Error(`Erro ${res.status}`);
@@ -407,7 +407,7 @@ const PADetailPage = () => {
       if (!idPessoaCliente) {
         const q = nomusFields.cliente.trim();
         const cRes = await fetch(
-          `/api/nomus/rest/pessoas?query=nomeFantasia==*${encodeURIComponent(q)}*,razaoSocial==*${encodeURIComponent(q)}*,nome==*${encodeURIComponent(q)}*`,
+          `/api/nomus/rest/pessoas?query=nome==*${encodeURIComponent(q)}*`,
           { headers: { "Content-Type": "application/json", "Accept": "application/json" } }
         );
         if (cRes.ok) {
