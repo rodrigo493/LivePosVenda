@@ -150,13 +150,18 @@ const PADetailPage = () => {
     if (query.length < 2) { setNomusClientResults([]); setNomusClientOpen(false); return; }
     setNomusClientLoading(true);
     try {
-      const searchTerm = query.trim();
-      const res = await fetch(`/api/nomus/rest/pessoas?query=nome==*${encodeURIComponent(searchTerm)}*`, {
-        headers: { "Content-Type": "application/json", "Accept": "application/json" },
-      });
-      const people = await res.json();
-      const list = Array.isArray(people) ? people : (people?.data ?? people?.content ?? []);
-      const results = list.slice(0, 20).map((p: any) => ({ id: p.id, nome: p.nome || p.nomeFantasia || p.razaoSocial || "" }));
+      const term = encodeURIComponent(query.trim());
+      // Nomus pessoas API: try nomeFantasia first, fallback to razaoSocial and nome
+      const res = await fetch(
+        `/api/nomus/rest/pessoas?query=nomeFantasia==*${term}*,razaoSocial==*${term}*,nome==*${term}*`,
+        { headers: { "Content-Type": "application/json", "Accept": "application/json" } }
+      );
+      const data = await res.json();
+      const list: any[] = Array.isArray(data) ? data : (data?.data ?? data?.content ?? data?.items ?? []);
+      const results = list.slice(0, 20).map((p: any) => ({
+        id: p.id,
+        nome: p.nomeFantasia || p.razaoSocial || p.nome || `ID ${p.id}`,
+      }));
       setNomusClientResults(results);
       setNomusClientOpen(results.length > 0);
     } catch (e) {
