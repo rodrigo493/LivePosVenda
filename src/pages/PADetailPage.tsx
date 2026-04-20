@@ -769,7 +769,7 @@ const PADetailPage = () => {
       </div>
 
       {/* Nomus ERP Integration Form */}
-      {sr.status !== "resolvido" && sr.status !== "cancelado" && (
+      {(
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="bg-card rounded-xl border shadow-sm overflow-hidden mb-6">
           <div className="px-4 py-3 border-b bg-muted/50">
             <h3 className="font-display font-semibold text-sm flex items-center gap-2">
