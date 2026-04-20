@@ -271,11 +271,11 @@ const SettingsPage = () => {
             </div>
           </motion.div>
         </TabsContent>
+        <TabsContent value="nomus">
+          <NomusIdCache />
+        </TabsContent>
         {/* USUÁRIOS */}
         {isAdmin && (
-          <TabsContent value="nomus">
-            <NomusIdCache />
-          </TabsContent>
           <TabsContent value="usuarios">
             <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="bg-card rounded-xl border shadow-card p-6">
               <h3 className="font-display font-semibold text-sm mb-6 flex items-center gap-2">
