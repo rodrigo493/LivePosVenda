@@ -943,18 +943,19 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                                         if (error) { toast.error("Erro ao atualizar"); return; }
                                         toast.success("Status atualizado");
                                         qc.invalidateQueries({ queryKey: ["client-service-requests"] });
+                                        if (val === "aprovado") {
+                                          onOpenChange(false);
+                                          setTimeout(() => navigate(`/pedidos-acessorios/${sr.id}?from_ticket=${ticket.id}`), 150);
+                                        }
                                       }}
                                     >
                                       <SelectTrigger onClick={(e) => e.stopPropagation()} className="h-6 w-[130px] text-[10px] shrink-0">
                                         <SelectValue />
                                       </SelectTrigger>
                                       <SelectContent>
-                                        <SelectItem value="aberto">Aberto</SelectItem>
-                                        <SelectItem value="orcamento_enviado">Orç. Enviado</SelectItem>
-                                        <SelectItem value="agendado">Agendado</SelectItem>
-                                        <SelectItem value="em_andamento">Em Andamento</SelectItem>
-                                        <SelectItem value="resolvido">Resolvido</SelectItem>
-                                        <SelectItem value="cancelado">Cancelado</SelectItem>
+                                        <SelectItem value="em_analise">Em Análise</SelectItem>
+                                        <SelectItem value="aprovado">Aprovado</SelectItem>
+                                        <SelectItem value="reprovado">Reprovado</SelectItem>
                                       </SelectContent>
                                     </Select>
                                     {sr.notes && <span className="text-[10px] text-muted-foreground truncate max-w-[100px] hidden sm:block">{sr.notes}</span>}
@@ -1016,9 +1017,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                                       </SelectTrigger>
                                       <SelectContent>
                                         <SelectItem value="em_analise">Em Análise</SelectItem>
-                                        <SelectItem value="aprovada">Aprovada</SelectItem>
-                                        <SelectItem value="reprovada">Reprovada</SelectItem>
-                                        <SelectItem value="convertida_os">Convertida OS</SelectItem>
+                                        <SelectItem value="aprovada">Aprovado</SelectItem>
+                                        <SelectItem value="reprovada">Reprovado</SelectItem>
                                       </SelectContent>
                                     </Select>
                                     {wc.defect_description && <span className="text-[10px] text-muted-foreground truncate max-w-[100px] hidden sm:block">{wc.defect_description}</span>}
