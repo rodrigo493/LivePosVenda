@@ -787,7 +787,99 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                     </div>
                   )}
 
-                  {/* Client Service History - only text entries from Histórico Técnico */}
+                  {/* Orçamentos / PA / PG do Ticket — logo após problema/solução */}
+                  {clientQuotes && clientQuotes.filter((q: any) => q.ticket_id === ticket.id).length > 0 && (
+                    <>
+                      <Separator />
+                      <div>
+                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                          Orçamentos / PA / PG deste Chamado
+                        </p>
+                        <div className="rounded-lg border overflow-hidden">
+                          <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 px-3 py-2 bg-muted/50 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                            <span>Documento</span>
+                            <span>Total</span>
+                            <span>Data</span>
+                            <span>Status</span>
+                          </div>
+                          {clientQuotes.filter((q: any) => q.ticket_id === ticket.id).map((q: any) => {
+                            const total = Number(q.total) > 0 ? Number(q.total) : (q.quote_items || []).reduce((sum: number, it: any) => sum + (Number(it.quantity) * Number(it.unit_price)), 0);
+                            return (
+                              <div key={q.id} className="grid grid-cols-[1fr_auto_auto_auto] gap-2 px-3 py-2.5 border-t items-center hover:bg-muted/20 transition-colors">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span
+                                    className="text-xs font-mono font-semibold text-primary cursor-pointer hover:underline"
+                                    onClick={() => { onOpenChange(false); navigate(`/orcamentos/${q.id}?from_ticket=${ticket.id}`); }}
+                                  >
+                                    {q.quote_number || "—"}
+                                  </span>
+                                  {q.service_request_id && (
+                                    <Badge
+                                      className="text-[9px] h-5 px-2 bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-200 cursor-pointer font-semibold"
+                                      onClick={() => { onOpenChange(false); navigate(`/pedidos-acessorios/${q.service_request_id}?from_ticket=${ticket.id}`); }}
+                                    >
+                                      PA · {q.service_requests?.request_number || "—"}
+                                    </Badge>
+                                  )}
+                                  {q.warranty_claim_id && (
+                                    <Badge
+                                      className="text-[9px] h-5 px-2 bg-amber-100 text-amber-800 border-amber-200 hover:bg-amber-200 cursor-pointer font-semibold"
+                                      onClick={() => { onOpenChange(false); navigate(`/pedidos-garantia/${q.warranty_claim_id}?from_ticket=${ticket.id}`); }}
+                                    >
+                                      PG · {q.warranty_claims?.claim_number || "—"}
+                                    </Badge>
+                                  )}
+                                </div>
+                                <span className="text-xs font-mono font-bold">R$ {total.toFixed(2)}</span>
+                                <span className="text-xs text-muted-foreground whitespace-nowrap">{new Date(q.created_at).toLocaleDateString("pt-BR")}</span>
+                                <Select
+                                  value={q.status}
+                                  onValueChange={async (val: any) => {
+                                    const { error } = await supabase.from("quotes").update({ status: val }).eq("id", q.id);
+                                    if (error) { toast.error("Erro ao atualizar status"); return; }
+                                    toast.success("Status atualizado");
+                                    qc.invalidateQueries({ queryKey: ["client-quotes"] });
+                                    if (val === "aprovado") {
+                                      setApprovalPrompt({ quoteId: q.id, ticketId: ticket.id, quoteNumber: q.quote_number });
+                                      const squadUrl = import.meta.env.VITE_SQUAD_API_URL;
+                                      const squadKey = import.meta.env.VITE_SQUAD_WORKFLOW_API_KEY;
+                                      const templateId = import.meta.env.VITE_SQUAD_POSVENDA_TEMPLATE_ID;
+                                      if (squadUrl && squadKey && templateId) {
+                                        fetch(`${squadUrl}/api/workflow-items`, {
+                                          method: "POST",
+                                          headers: { "Content-Type": "application/json", "x-api-key": squadKey },
+                                          body: JSON.stringify({
+                                            reference: q.quote_number,
+                                            title: q.quote_number,
+                                            template_id: templateId,
+                                            initial_note: `Aprovado no LivePosVenda em ${new Date().toLocaleDateString("pt-BR")}`,
+                                          }),
+                                        }).catch(() => null);
+                                      }
+                                    }
+                                  }}
+                                >
+                                  <SelectTrigger className="h-7 w-[130px] text-xs">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="aguardando_aprovacao">Em Análise</SelectItem>
+                                    <SelectItem value="aprovado">Aprovado</SelectItem>
+                                    <SelectItem value="reprovado">Reprovado</SelectItem>
+                                    <SelectItem value="rascunho">Rascunho</SelectItem>
+                                    <SelectItem value="convertido_os">Convertido OS</SelectItem>
+                                    <SelectItem value="cancelado">Cancelado</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {/* Client Service History */}
                   <Separator />
                   <div>
                     <div className="flex items-center justify-between mb-3">
@@ -813,96 +905,6 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                       <p className="text-sm text-muted-foreground py-4 text-center">Nenhum histórico registrado.</p>
                     )}
                   </div>
-
-                  {/* Orçamentos do Ticket */}
-                   {clientQuotes && clientQuotes.filter((q: any) => q.ticket_id === ticket.id).length > 0 && (
-                    <>
-                      <Separator />
-                      <div>
-                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                          Orçamentos deste Chamado
-                        </p>
-                        <div className="rounded-lg border overflow-hidden">
-                          <div className="grid grid-cols-[auto_1fr_1fr_auto_auto] gap-2 px-3 py-2 bg-muted/50 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                            <span>Nº</span>
-                            <span>Equipamento</span>
-                            <span>Total</span>
-                            <span>Data</span>
-                            <span>Status</span>
-                          </div>
-                          {clientQuotes.filter((q: any) => q.ticket_id === ticket.id).map((q: any) => {
-                            const equipName = q.equipments?.equipment_models?.name
-                              ? `${q.equipments.equipment_models.name}${q.equipments.serial_number ? ` - ${q.equipments.serial_number}` : ""}`
-                              : "—";
-                            return (
-                              <div key={q.id} className="grid grid-cols-[auto_1fr_1fr_auto_auto] gap-2 px-3 py-2.5 border-t items-center hover:bg-muted/20 transition-colors">
-                                <div className="flex items-center gap-1.5">
-                                  <span
-                                    className="text-xs font-mono text-primary cursor-pointer hover:underline"
-                                    onClick={() => { onOpenChange(false); navigate(`/orcamentos/${q.id}?from_ticket=${ticket.id}`); }}
-                                  >
-                                    {q.quote_number || "—"}
-                                  </span>
-                                  {q.service_request_id && (
-                                    <Badge className="text-[9px] h-4 bg-blue-100 text-blue-700 border-blue-200 hover:bg-blue-200 cursor-pointer"
-                                      onClick={() => { onOpenChange(false); navigate(`/pedidos-acessorios/${q.service_request_id}?from_ticket=${ticket.id}`); }}
-                                    >→ {q.service_requests?.request_number || "PA"}</Badge>
-                                  )}
-                                  {q.warranty_claim_id && (
-                                    <Badge className="text-[9px] h-4 bg-amber-100 text-amber-700 border-amber-200 hover:bg-amber-200 cursor-pointer"
-                                      onClick={() => { onOpenChange(false); navigate(`/pedidos-garantia/${q.warranty_claim_id}?from_ticket=${ticket.id}`); }}
-                                    >→ {q.warranty_claims?.claim_number || "PG"}</Badge>
-                                  )}
-                                </div>
-                                <span className="text-xs truncate">{equipName}</span>
-                                <span className="text-xs font-mono font-bold">R$ {(Number(q.total) > 0 ? Number(q.total) : (q.quote_items || []).reduce((sum: number, it: any) => sum + (Number(it.quantity) * Number(it.unit_price)), 0)).toFixed(2)}</span>
-                                <span className="text-xs text-muted-foreground">{new Date(q.created_at).toLocaleDateString("pt-BR")}</span>
-                                <Select
-                                  value={q.status}
-                                  onValueChange={async (val: any) => {
-                                    const { error } = await supabase.from("quotes").update({ status: val }).eq("id", q.id);
-                                    if (error) { toast.error("Erro ao atualizar status"); return; }
-                                    toast.success("Status atualizado");
-                                    qc.invalidateQueries({ queryKey: ["client-quotes"] });
-                                    if (val === "aprovado") {
-                                      setApprovalPrompt({ quoteId: q.id, ticketId: ticket.id, quoteNumber: q.quote_number });
-                                      const squadUrl = import.meta.env.VITE_SQUAD_API_URL;
-                                      const squadKey = import.meta.env.VITE_SQUAD_WORKFLOW_API_KEY;
-                                      const templateId = import.meta.env.VITE_SQUAD_POSVENDA_TEMPLATE_ID;
-                                      if (squadUrl && squadKey && templateId) {
-                                        fetch(`${squadUrl}/api/workflow-items`, {
-                                          method: "POST",
-                                          headers: { "Content-Type": "application/json", "x-api-key": squadKey },
-                                          body: JSON.stringify({
-                                            reference: q.quote_number,
-                                            title: equipName ? `${q.quote_number} — ${equipName}` : q.quote_number,
-                                            template_id: templateId,
-                                            initial_note: `Aprovado no LivePosVenda em ${new Date().toLocaleDateString("pt-BR")}`,
-                                          }),
-                                        }).catch(() => null);
-                                      }
-                                    }
-                                  }}
-                                >
-                                  <SelectTrigger className="h-7 w-[150px] text-xs">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="rascunho">Rascunho</SelectItem>
-                                    <SelectItem value="aguardando_aprovacao">Aguardando Aprovação</SelectItem>
-                                    <SelectItem value="aprovado">Aprovado</SelectItem>
-                                    <SelectItem value="reprovado">Reprovado</SelectItem>
-                                    <SelectItem value="convertido_os">Convertido em OS</SelectItem>
-                                    <SelectItem value="cancelado">Cancelado</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </>
-                  )}
 
                   {/* Quick summary */}
                   <Separator />

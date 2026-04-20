@@ -40,8 +40,6 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/StatusBadge";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { ChevronDown } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePipelineTickets, useMovePipelineStage, PIPELINE_STAGES } from "@/hooks/usePipeline";
 import { useWhatsAppConversations } from "@/hooks/useWhatsAppConversations";
@@ -685,17 +683,8 @@ const QUOTE_STATUS_OPTIONS = [
 ];
 
 function PipelineCard({ ticket, onQuickTask, onClick }: { ticket: any; onQuickTask: () => void; onClick: () => void }) {
-  const navigate = useNavigate();
-  const qc = useQueryClient();
   const typeInfo = TICKET_TYPE_LABELS[ticket.ticket_type] || { label: ticket.ticket_type, color: "bg-muted text-muted-foreground" };
-  const quoteRefs = getQuoteRefs(ticket.quotes);
   const unreadWpp = ticket._unreadWhatsapp || 0;
-
-  const updateQuoteStatus = async (quoteId: string, status: string) => {
-    await supabase.from("quotes").update({ status }).eq("id", quoteId);
-    qc.invalidateQueries({ queryKey: ["pipeline-tickets"] });
-    qc.invalidateQueries({ queryKey: ["quotes"] });
-  };
 
   return (
     <div
@@ -724,43 +713,6 @@ function PipelineCard({ ticket, onQuickTask, onClick }: { ticket: any; onQuickTa
         <span className="inline-block text-[10px] font-medium bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded line-clamp-1 mb-1">
           {ticket.description || ticket.problem_category}
         </span>
-      )}
-
-      {quoteRefs.length > 0 && (
-        <div
-          className="mt-1.5 space-y-1"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {quoteRefs.map((ref) => (
-            <div key={ref.quoteId} className="flex items-center gap-1">
-              <button
-                className="flex-1 text-left text-[10px] font-semibold font-mono bg-primary/10 text-primary px-2 py-1 rounded hover:bg-primary/20 transition-colors truncate"
-                onClick={() => navigate(ref.route)}
-              >
-                {ref.label}
-              </button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className="h-6 px-1.5 text-[9px] gap-0.5 shrink-0">
-                    {QUOTE_STATUS_OPTIONS.find((o) => o.value === ref.status)?.label ?? ref.status}
-                    <ChevronDown className="h-2.5 w-2.5" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="min-w-[120px]">
-                  {QUOTE_STATUS_OPTIONS.map((opt) => (
-                    <DropdownMenuItem
-                      key={opt.value}
-                      className="text-xs"
-                      onClick={() => updateQuoteStatus(ref.quoteId, opt.value)}
-                    >
-                      {opt.label}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          ))}
-        </div>
       )}
 
       <div className="flex items-center justify-between mt-1.5">
