@@ -428,8 +428,11 @@ const QuoteDetailPage = () => {
 
       {/* Actions bar */}
       <div className="flex flex-wrap gap-2 border-t pt-4">
-        <Button size="sm" variant="outline" className="gap-1.5" onClick={() => navigate("/orcamentos")}>
-          <ArrowLeft className="h-3.5 w-3.5" /> Voltar para Orçamentos
+        <Button size="sm" variant="outline" className="gap-1.5" onClick={() => {
+          if (fromTicketId) navigate(`/crm?open_ticket=${fromTicketId}`);
+          else navigate("/orcamentos");
+        }}>
+          <ArrowLeft className="h-3.5 w-3.5" /> {fromTicketId ? "Voltar ao Card" : "Voltar para Orçamentos"}
         </Button>
         {isEditable && (
           <Button size="sm" className="gap-1.5" onClick={handleSaveDetails}>

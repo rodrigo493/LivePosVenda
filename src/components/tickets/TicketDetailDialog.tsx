@@ -823,7 +823,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                                   <div
                                     key={q.id}
                                     className={`flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 cursor-pointer transition-colors ${isCurrentTicket ? "bg-primary/5" : ""}`}
-                                    onClick={() => { onOpenChange(false); navigate(`/orcamentos/${q.id}`); }}
+                                    onClick={() => { onOpenChange(false); navigate(`/orcamentos/${q.id}?from_ticket=${ticket.id}`); }}
                                   >
                                     <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
                                       <span className="text-xs font-mono font-semibold text-primary">{q.quote_number || "—"}</span>
@@ -831,7 +831,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                                       {q.service_request_id && (
                                         <Badge
                                           className="text-[9px] h-4 px-1.5 bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-200 cursor-pointer"
-                                          onClick={(e) => { e.stopPropagation(); onOpenChange(false); navigate(`/pedidos-acessorios/${q.service_request_id}`); }}
+                                          onClick={(e) => { e.stopPropagation(); onOpenChange(false); navigate(`/pedidos-acessorios/${q.service_request_id}?from_ticket=${ticket.id}`); }}
                                         >
                                           PA · {q.service_requests?.request_number || "—"}
                                         </Badge>
@@ -839,7 +839,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                                       {q.warranty_claim_id && (
                                         <Badge
                                           className="text-[9px] h-4 px-1.5 bg-amber-100 text-amber-800 border-amber-200 hover:bg-amber-200 cursor-pointer"
-                                          onClick={(e) => { e.stopPropagation(); onOpenChange(false); navigate(`/pedidos-garantia/${q.warranty_claim_id}`); }}
+                                          onClick={(e) => { e.stopPropagation(); onOpenChange(false); navigate(`/pedidos-garantia/${q.warranty_claim_id}?from_ticket=${ticket.id}`); }}
                                         >
                                           PG · {q.warranty_claims?.claim_number || "—"}
                                         </Badge>
@@ -869,7 +869,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                                 <div
                                   key={sr.id}
                                   className="flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 cursor-pointer transition-colors"
-                                  onClick={() => { onOpenChange(false); navigate(`/pedidos-acessorios/${sr.id}`); }}
+                                  onClick={() => { onOpenChange(false); navigate(`/pedidos-acessorios/${sr.id}?from_ticket=${ticket.id}`); }}
                                 >
                                   <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
                                     <span className="text-xs font-mono font-semibold text-blue-700">{sr.request_number || "—"}</span>
@@ -900,7 +900,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                                 <div
                                   key={wc.id}
                                   className="flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 cursor-pointer transition-colors"
-                                  onClick={() => { onOpenChange(false); navigate(`/pedidos-garantia/${wc.id}`); }}
+                                  onClick={() => { onOpenChange(false); navigate(`/pedidos-garantia/${wc.id}?from_ticket=${ticket.id}`); }}
                                 >
                                   <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
                                     <span className="text-xs font-mono font-semibold text-amber-700">{wc.claim_number || "—"}</span>
