@@ -13,9 +13,7 @@ function jsonResponse(body: Record<string, unknown>, status = 200) {
 }
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+  if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
   try {
     const supabase = createClient(
@@ -36,48 +34,38 @@ Deno.serve(async (req) => {
     const today = new Date();
     const fallbackDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
 
-    // Resolve client ID via pg_net
+    // Resolve client ID — from direct param, numeric string, or cache
     let idPessoaCliente: number | null = idCliente || null;
     if (!idPessoaCliente && client_name) {
       if (/^\d+$/.test(client_name.trim())) {
         idPessoaCliente = Number(client_name.trim());
       } else {
-        const { data: clientData } = await supabase.rpc("nomus_search_clientes", {
-          search_term: client_name.trim(),
-          auth_header: NOMUS_API_KEY,
+        const { data: cached } = await supabase.rpc("nomus_get_cached_id", {
+          p_type: "cliente",
+          p_key: client_name.trim(),
         });
-        if (clientData?.body) {
-          try {
-            const people = JSON.parse(clientData.body);
-            if (Array.isArray(people) && people.length > 0) {
-              const exact = people.find((p: any) => p.nome?.toLowerCase() === client_name.toLowerCase());
-              idPessoaCliente = exact?.id || people[0].id;
-            }
-          } catch { /* sem resultado */ }
-        }
+        if (cached) idPessoaCliente = cached;
       }
     }
 
     if (!idPessoaCliente) {
-      return jsonResponse({ error: `Cliente "${client_name}" não encontrado no ERP Nomus.` }, 400);
+      return jsonResponse({
+        error: `ID do cliente "${client_name}" não encontrado. Cadastre o ID Nomus deste cliente na tela de configuração.`,
+        missing_client: client_name,
+      });
     }
 
-    // Resolve product IDs via pg_net
+    // Resolve product IDs — from direct param or cache
     const itensPedido = await Promise.all((items || []).map(async (item: any, idx: number) => {
       let idProduto: number | null = item.product_id_nomus || null;
       if (!idProduto && item.product_code) {
-        const { data: prodData } = await supabase.rpc("nomus_search_produtos", {
-          product_code: item.product_code,
-          auth_header: NOMUS_API_KEY,
+        const { data: cached } = await supabase.rpc("nomus_get_cached_id", {
+          p_type: "produto",
+          p_key: item.product_code,
         });
-        if (prodData?.body) {
-          try {
-            const prods = JSON.parse(prodData.body);
-            if (Array.isArray(prods) && prods.length > 0) idProduto = prods[0].id;
-          } catch { /* sem resultado */ }
-        }
+        if (cached) idProduto = cached;
       }
-      if (!idProduto) throw new Error(`Produto "${item.product_code}" não encontrado no ERP Nomus.`);
+      if (!idProduto) throw new Error(`ID do produto "${item.product_code}" não encontrado. Cadastre o ID Nomus deste produto na tela de configuração.`);
       return {
         idProduto,
         item: String(idx + 1),
@@ -113,15 +101,11 @@ Deno.serve(async (req) => {
       auth_header: NOMUS_API_KEY,
     });
 
-    if (orderError) return jsonResponse({ error: orderError.message }, 500);
+    if (orderError) return jsonResponse({ error: orderError.message });
 
     const statusCode = orderData?.status_code;
-    if (statusCode === 429) {
-      return jsonResponse({ error: 'API Nomus em throttling. Aguarde e tente novamente.', throttled: true, wait_seconds: 30 }, 200);
-    }
-    if (statusCode < 200 || statusCode >= 300) {
-      return jsonResponse({ error: `Erro Nomus [${statusCode}]: ${orderData?.body || ''}` }, 200);
-    }
+    if (statusCode === 429) return jsonResponse({ error: 'API Nomus em throttling. Aguarde e tente novamente.', throttled: true, wait_seconds: 30 });
+    if (statusCode < 200 || statusCode >= 300) return jsonResponse({ error: `Erro Nomus [${statusCode}]: ${orderData?.body || ''}` });
 
     let nomusBody: any = {};
     try { nomusBody = JSON.parse(orderData.body); } catch { /* ok */ }
@@ -130,6 +114,6 @@ Deno.serve(async (req) => {
 
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Erro desconhecido";
-    return jsonResponse({ error: msg }, 200);
+    return jsonResponse({ error: msg });
   }
 });
