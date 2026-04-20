@@ -150,12 +150,13 @@ const PADetailPage = () => {
     if (query.length < 2) { setNomusClientResults([]); setNomusClientOpen(false); return; }
     setNomusClientLoading(true);
     try {
-      const { data: rpcData, error } = await supabase.rpc("nomus_search_clientes", {
-        search_term: query.trim(),
-        auth_header: "aW50ZWdyYWRvcmVycDptOE9SQ3JUZ3VTcHFkeDE=",
-      });
-      if (error) throw error;
-      const body = typeof rpcData?.body === "string" ? JSON.parse(rpcData.body) : [];
+      const q = query.trim();
+      const res = await fetch(
+        `/api/nomus/rest/pessoas?query=nomeFantasia==*${encodeURIComponent(q)}*,razaoSocial==*${encodeURIComponent(q)}*,nome==*${encodeURIComponent(q)}*`,
+        { headers: { "Content-Type": "application/json", "Accept": "application/json" } }
+      );
+      if (!res.ok) throw new Error(`Erro ${res.status}`);
+      const body = await res.json();
       const list: any[] = Array.isArray(body) ? body : [];
       const results: { id: number; nome: string }[] = list.slice(0, 20).map((p: any) => ({
         id: p.id,
@@ -165,6 +166,7 @@ const PADetailPage = () => {
       setNomusClientOpen(results.length > 0);
     } catch (e: any) {
       console.error("nomus-search error:", e);
+      toast.error(`Busca Nomus: ${e.message || "Erro desconhecido"}`);
       setNomusClientResults([]);
     }
     setNomusClientLoading(false);
@@ -400,41 +402,73 @@ const PADetailPage = () => {
 
     setApproving(true);
     try {
-      const orderItems = items.map((item: any) => {
+      // Resolve client ID via nginx proxy
+      let idPessoaCliente = nomusClientId;
+      if (!idPessoaCliente) {
+        const q = nomusFields.cliente.trim();
+        const cRes = await fetch(
+          `/api/nomus/rest/pessoas?query=nomeFantasia==*${encodeURIComponent(q)}*,razaoSocial==*${encodeURIComponent(q)}*,nome==*${encodeURIComponent(q)}*`,
+          { headers: { "Content-Type": "application/json", "Accept": "application/json" } }
+        );
+        if (cRes.ok) {
+          const cBody = await cRes.json();
+          const cList = Array.isArray(cBody) ? cBody : [];
+          if (cList.length > 0) idPessoaCliente = cList[0].id;
+        }
+      }
+      if (!idPessoaCliente) {
+        toast.error(`Cliente "${nomusFields.cliente}" não encontrado no ERP Nomus.`);
+        return;
+      }
+
+      const today = new Date();
+      const fallbackDate = `${String(today.getDate()).padStart(2, "0")}/${String(today.getMonth() + 1).padStart(2, "0")}/${today.getFullYear()}`;
+
+      // Resolve product IDs and build items
+      const itensPedido = await Promise.all(items.map(async (item: any, idx: number) => {
         const erpData = itemErpData[item.id];
+        const code = erpData?.produto || item.products?.code || "";
+        const idProduto = await resolveNomusProductId(code);
+        if (!idProduto) throw new Error(`Produto "${code}" não encontrado no ERP Nomus.`);
         return {
-          product_code: erpData?.produto || item.products?.code || "",
-          description: item.description,
-          quantity: Number(erpData?.quantidade || item.quantity || 1),
-          unit_price: Number(erpData?.valorUnitario || item.unit_price || 0),
+          idProduto,
+          item: String(idx + 1),
+          quantidade: String(Number(erpData?.quantidade || item.quantity || 1)),
+          valorUnitario: String(Number(erpData?.valorUnitario || item.unit_price || 0).toFixed(2)),
+          observacoes: item.description || "",
+          informacoesAdicionaisProduto: "",
+          percentualAcrescimo: "0", percentualDesconto: "0",
+          valorAcrescimo: "0", valorDesconto: "0",
+          status: 1, idTipoMovimentacao: 60,
+          dataEntrega: nomusFields.dataEntregaPadrao || fallbackDate,
         };
+      }));
+
+      const payload = {
+        codigoPedido: nomusFields.pedido || requestNumber,
+        dataEmissao: nomusFields.dataEmissao || fallbackDate,
+        idCondicaoPagamento: 28,
+        idEmpresa: 2,
+        idFormaPagamento: 10,
+        idPessoaCliente,
+        idTipoMovimentacao: 60,
+        idTipoPedido: 1,
+        observacoes: currentNotes || `Pedido de Acessório - ${nomusFields.cliente}`,
+        observacoesInternas: `Gerado pelo Live Care - ${nomusFields.pedido || requestNumber}`,
+        itensPedido,
+        ...(nomusFields.cfop ? { cfop: nomusFields.cfop } : {}),
+      };
+
+      const orderRes = await fetch("/api/nomus/rest/pedidos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify(payload),
       });
 
-      const res = await supabase.functions.invoke("nomus-create-order", {
-        body: {
-          order_code: nomusFields.pedido || requestNumber,
-          items: orderItems,
-          notes: currentNotes,
-          client_name: nomusFields.cliente || clientName,
-          empresa: nomusFields.empresa,
-          dataEmissao: nomusFields.dataEmissao || undefined,
-          dataEntregaPadrao: nomusFields.dataEntregaPadrao || undefined,
-          cfop: nomusFields.cfop || undefined,
-        },
-      });
-
-      if (res.error) throw new Error(res.error.message || "Erro ao enviar ao ERP");
-
-      const resData = res.data;
-      if (resData?.throttled) {
-        toast.error(`API Nomus em throttling. Aguarde ${resData.wait_seconds || 30}s e tente novamente.`);
-        return;
+      if (!orderRes.ok) {
+        const errText = await orderRes.text();
+        throw new Error(`Erro Nomus [${orderRes.status}]: ${errText}`);
       }
-      if (resData?.pending) {
-        toast.warning(resData.message || "Pedido enviado para processamento.");
-        return;
-      }
-      if (!resData?.success) throw new Error(resData?.error || "Erro desconhecido ao enviar ao ERP");
 
       await supabase.from("service_requests").update({ status: "resolvido" as any }).eq("id", id!);
       toast.success("Pedido criado no ERP com sucesso!");
@@ -801,14 +835,35 @@ const PADetailPage = () => {
                   </SelectContent>
                 </Select>
               </div>
-              <div>
-                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Cliente (ERP Nomus)</Label>
-                <Input
-                  value={nomusFields.cliente}
-                  onChange={e => updateNomusField("cliente", e.target.value)}
-                  placeholder="Nome do cliente"
-                  className="mt-1 h-9 text-xs"
-                />
+              <div className="relative">
+                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                  Cliente (ERP Nomus){nomusClientId ? <span className="ml-2 text-success font-normal">✓ ID {nomusClientId}</span> : null}
+                </Label>
+                <div className="relative mt-1">
+                  <Input
+                    value={nomusFields.cliente}
+                    onChange={e => searchNomusClients(e.target.value)}
+                    onBlur={() => setTimeout(() => setNomusClientOpen(false), 200)}
+                    placeholder="Digite o nome para buscar..."
+                    className="h-9 text-xs pr-7"
+                  />
+                  {nomusClientLoading && <Loader2 className="absolute right-2 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />}
+                </div>
+                {nomusClientOpen && nomusClientResults.length > 0 && (
+                  <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-md max-h-48 overflow-y-auto">
+                    {nomusClientResults.map(c => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onMouseDown={() => selectNomusClient(c)}
+                        className="w-full text-left px-3 py-2 text-xs hover:bg-accent transition-colors"
+                      >
+                        <span className="font-medium">{c.nome}</span>
+                        <span className="ml-2 text-muted-foreground">#{c.id}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <div>
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Tipo de Movimentação</Label>
