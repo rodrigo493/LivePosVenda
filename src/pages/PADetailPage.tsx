@@ -179,7 +179,7 @@ const PADetailPage = () => {
   const items = linkedQuote?.quote_items || [];
 
   // Editable item-level ERP data
-  const [itemErpData, setItemErpData] = useState<Record<string, { produto: string; quantidade: string; valorUnitario: string }>>({});
+  const [itemErpData, setItemErpData] = useState<Record<string, { produto: string; quantidade: string; valorUnitario: string; idNomus: string }>>({});
 
   // Initialize item ERP data and editable items from quote items
   useEffect(() => {
@@ -192,6 +192,7 @@ const PADetailPage = () => {
             produto: item.products?.code || item.description || "",
             quantidade: String(item.quantity || 1),
             valorUnitario: Number(item.unit_price || 0).toFixed(2),
+            idNomus: "",
           };
         }
       }
@@ -407,8 +408,8 @@ const PADetailPage = () => {
       const itensPedido = await Promise.all(items.map(async (item: any, idx: number) => {
         const erpData = itemErpData[item.id];
         const productCode = erpData?.produto || item.products?.code || "";
-        const idProduto = await resolveNomusProductId(productCode);
-        if (!idProduto) throw new Error(`Produto "${productCode}" não encontrado no ERP Nomus.`);
+        const idProduto = erpData?.idNomus ? Number(erpData.idNomus) : null;
+        if (!idProduto) throw new Error(`Preencha o ID Nomus do produto "${productCode}" antes de criar o pedido.`);
         return {
           idProduto,
           item: String(idx + 1),
@@ -895,7 +896,7 @@ const PADetailPage = () => {
                 <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-3">Itens do Pedido (Dados ERP)</p>
                 <div className="space-y-3">
                   {items.map((item: any, idx: number) => {
-                    const erpData = itemErpData[item.id] || { produto: "", quantidade: "1", valorUnitario: "0" };
+                    const erpData = itemErpData[item.id] || { produto: "", quantidade: "1", valorUnitario: "0", idNomus: "" };
                     return (
                       <div key={item.id} className="bg-muted/30 rounded-lg p-3 grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
                         <div className="md:col-span-1">
@@ -927,7 +928,15 @@ const PADetailPage = () => {
                           />
                         </div>
                         <div>
-                          <p className="text-[10px] text-muted-foreground truncate">{item.description}</p>
+                          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">ID Produto Nomus <span className="text-red-500">*</span></Label>
+                          <Input
+                            type="number"
+                            value={erpData.idNomus}
+                            onChange={e => updateItemErp(item.id, "idNomus", e.target.value)}
+                            placeholder="Ex: 567"
+                            className={`mt-1 h-8 text-xs font-mono ${erpData.idNomus ? "border-green-500" : "border-red-300"}`}
+                          />
+                          <p className="text-[10px] text-muted-foreground truncate mt-1">{item.description}</p>
                         </div>
                       </div>
                     );
