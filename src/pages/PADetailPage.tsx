@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Package, Save, Loader2, Send, CalendarIcon, Pencil, X, Wrench, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -127,7 +127,7 @@ const PADetailPage = () => {
   const [nomusClientResults, setNomusClientResults] = useState<{ id: number; nome: string }[]>([]);
   const [nomusClientLoading, setNomusClientLoading] = useState(false);
   const [nomusClientOpen, setNomusClientOpen] = useState(false);
-  const nomusSearchTimer = useState<ReturnType<typeof setTimeout> | null>(null);
+  const nomusSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Pre-fill fields from quote data when loaded
   useEffect(() => {
@@ -149,8 +149,8 @@ const PADetailPage = () => {
     updateNomusField("cliente", query);
     setNomusClientId(null);
     if (query.length < 3) { setNomusClientResults([]); setNomusClientOpen(false); return; }
-    if (nomusSearchTimer[0]) clearTimeout(nomusSearchTimer[0]);
-    nomusSearchTimer[0] = setTimeout(async () => {
+    if (nomusSearchTimer.current) clearTimeout(nomusSearchTimer.current);
+    nomusSearchTimer.current = setTimeout(async () => {
       setNomusClientLoading(true);
       try {
         const q = query.trim();
