@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Settings, Users, Bell, Database, Mail, Shield, DollarSign, FlaskConical, Save, Brain, Kanban, UserPlus, Trash2, Pencil, KeyRound } from "lucide-react";
+import { Settings, Users, Bell, Database, Mail, Shield, DollarSign, FlaskConical, Save, Brain, Kanban, UserPlus, Trash2, Pencil, KeyRound, Link } from "lucide-react";
 import { PipelineStageSettings } from "@/components/crm/PipelineStageSettings";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -109,6 +109,7 @@ const SettingsPage = () => {
           <TabsTrigger value="engenharia" className="text-xs gap-1.5"><FlaskConical className="h-3.5 w-3.5" /> Engenharia</TabsTrigger>
           <TabsTrigger value="pipeline" className="text-xs gap-1.5"><Kanban className="h-3.5 w-3.5" /> Pipeline</TabsTrigger>
           <TabsTrigger value="ia" className="text-xs gap-1.5"><Brain className="h-3.5 w-3.5" /> IA</TabsTrigger>
+          <TabsTrigger value="nomus" className="text-xs gap-1.5"><Link className="h-3.5 w-3.5" /> Nomus ERP</TabsTrigger>
           {isAdmin && <TabsTrigger value="usuarios" className="text-xs gap-1.5"><Users className="h-3.5 w-3.5" /> Usuários</TabsTrigger>}
         </TabsList>
 
@@ -272,6 +273,9 @@ const SettingsPage = () => {
         </TabsContent>
         {/* USUÁRIOS */}
         {isAdmin && (
+          <TabsContent value="nomus">
+            <NomusIdCache />
+          </TabsContent>
           <TabsContent value="usuarios">
             <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="bg-card rounded-xl border shadow-card p-6">
               <h3 className="font-display font-semibold text-sm mb-6 flex items-center gap-2">
@@ -568,6 +572,90 @@ function SettingTextarea({ settingKey, label, value, onSave, disabled }: {
         </Button>
       )}
     </div>
+  );
+}
+
+function NomusIdCache() {
+  const qc = useQueryClient();
+  const [type, setType] = useState<"cliente" | "produto">("cliente");
+  const [key, setKey] = useState("");
+  const [nomusId, setNomusId] = useState("");
+
+  const { data: entries = [], isLoading } = useQuery({
+    queryKey: ["nomus_id_cache"],
+    queryFn: async () => {
+      const { data } = await supabase.from("nomus_id_cache").select("*").order("entity_type").order("entity_key");
+      return data || [];
+    },
+  });
+
+  const save = async () => {
+    if (!key.trim() || !nomusId) { toast.error("Preencha nome/código e ID Nomus"); return; }
+    const { error } = await supabase.from("nomus_id_cache").upsert({ entity_type: type, entity_key: key.trim(), nomus_id: Number(nomusId) }, { onConflict: "entity_type,entity_key" });
+    if (error) { toast.error("Erro ao salvar"); return; }
+    toast.success("ID Nomus cadastrado!");
+    setKey(""); setNomusId("");
+    qc.invalidateQueries({ queryKey: ["nomus_id_cache"] });
+  };
+
+  const remove = async (id: string) => {
+    await supabase.from("nomus_id_cache").delete().eq("id", id);
+    qc.invalidateQueries({ queryKey: ["nomus_id_cache"] });
+  };
+
+  const clientes = entries.filter((e: any) => e.entity_type === "cliente");
+  const produtos = entries.filter((e: any) => e.entity_type === "produto");
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="bg-card rounded-xl border shadow-card p-6 space-y-6">
+      <h3 className="font-display font-semibold text-sm flex items-center gap-2"><Link className="h-4 w-4 text-primary" /> IDs Nomus ERP</h3>
+      <p className="text-xs text-muted-foreground">Cadastre aqui os IDs numéricos do Nomus para clientes e produtos. Eles são usados automaticamente ao criar pedidos.</p>
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end border rounded-lg p-4 bg-muted/30">
+        <div>
+          <Label className="text-xs">Tipo</Label>
+          <Select value={type} onValueChange={(v) => setType(v as any)}>
+            <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="cliente">Cliente</SelectItem>
+              <SelectItem value="produto">Produto</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="md:col-span-2">
+          <Label className="text-xs">{type === "cliente" ? "Nome do Cliente (igual no sistema)" : "Código do Produto"}</Label>
+          <Input value={key} onChange={e => setKey(e.target.value)} placeholder={type === "cliente" ? "Ex: STUDIO PILATES RAFAELA..." : "Ex: MOP.V12.131"} className="mt-1 h-8 text-xs" />
+        </div>
+        <div>
+          <Label className="text-xs">ID Nomus</Label>
+          <div className="flex gap-2 mt-1">
+            <Input value={nomusId} onChange={e => setNomusId(e.target.value)} type="number" placeholder="Ex: 2509" className="h-8 text-xs font-mono" />
+            <Button size="sm" onClick={save} className="h-8 px-3"><Save className="h-3 w-3" /></Button>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {[{ label: "Clientes", data: clientes }, { label: "Produtos", data: produtos }].map(({ label, data }) => (
+          <div key={label}>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">{label}</p>
+            {isLoading ? <p className="text-xs text-muted-foreground">Carregando...</p> : data.length === 0 ? (
+              <p className="text-xs text-muted-foreground italic">Nenhum cadastrado</p>
+            ) : (
+              <div className="space-y-1">
+                {data.map((e: any) => (
+                  <div key={e.id} className="flex items-center justify-between px-3 py-1.5 rounded bg-muted/40 text-xs">
+                    <span className="truncate flex-1">{e.entity_key}</span>
+                    <span className="font-mono text-primary ml-3 shrink-0">ID: {e.nomus_id}</span>
+                    <Button variant="ghost" size="icon" className="h-6 w-6 ml-2 shrink-0" onClick={() => remove(e.id)}><Trash2 className="h-3 w-3 text-destructive" /></Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </motion.div>
   );
 }
 
