@@ -64,57 +64,49 @@ Deno.serve(async (req) => {
     let cleanPhone = phone.replace(/\D/g, "");
     if (cleanPhone.length <= 11) cleanPhone = "55" + cleanPhone;
 
-    const apiHeaders = { token: UAZAPI_INSTANCE_TOKEN, "Content-Type": "application/json" };
     let sendRes: Response;
     let savedText: string;
     let outboundMediaUrl: string | undefined;
     const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     if (media_base64 && media_mime_type) {
-      // Upload to Supabase Storage and send URL to Uazapi
       const ext = (media_filename || "file").split(".").pop() || "bin";
-      const storagePath = `${client_id}/${Date.now()}.${ext}`;
       const fileBytes = base64ToUint8Array(media_base64);
 
+      // Upload to Storage for DB media_url (player)
+      const storagePath = `${client_id}/${Date.now()}.${ext}`;
       const { error: uploadErr } = await adminClient.storage
         .from("whatsapp-media")
         .upload(storagePath, fileBytes, { contentType: media_mime_type, upsert: true });
-
       if (uploadErr) throw new Error(`Storage upload failed: ${uploadErr.message}`);
-
       const { data: urlData } = adminClient.storage.from("whatsapp-media").getPublicUrl(storagePath);
-      const mediaUrl = urlData.publicUrl;
-      outboundMediaUrl = mediaUrl;
+      outboundMediaUrl = urlData.publicUrl;
 
       const isImage = media_mime_type.startsWith("image/");
       const isAudio = media_mime_type.startsWith("audio/");
       const mediatype = isAudio ? "audio" : isImage ? "image" : "document";
       const caption = message || "";
+      const filename = media_filename || `file.${ext}`;
 
-      const mediaBody: Record<string, unknown> = { number: cleanPhone, mediatype, url: mediaUrl, caption };
-      if (!isAudio && !isImage) mediaBody.fileName = media_filename || "arquivo";
+      // Uazapi requires multipart/form-data with a "file" field
+      const formData = new FormData();
+      formData.append("number", cleanPhone);
+      formData.append("mediatype", mediatype);
+      if (caption) formData.append("caption", caption);
+      if (!isAudio && !isImage) formData.append("fileName", filename);
+      formData.append("file", new Blob([fileBytes], { type: media_mime_type }), filename);
 
       sendRes = await fetch(`${UAZAPI_BASE_URL}/send/media`, {
         method: "POST",
-        headers: apiHeaders,
-        body: JSON.stringify(mediaBody),
+        headers: { token: UAZAPI_INSTANCE_TOKEN },
+        body: formData,
       });
 
-      // Fallback: send audio as document if audio mediatype rejected
-      if (!sendRes.ok && isAudio) {
-        const ext = (media_filename || "audio.webm").split(".").pop() || "webm";
-        sendRes = await fetch(`${UAZAPI_BASE_URL}/send/media`, {
-          method: "POST",
-          headers: apiHeaders,
-          body: JSON.stringify({ number: cleanPhone, mediatype: "document", url: mediaUrl, fileName: `audio.${ext}`, caption }),
-        });
-      }
-
-      savedText = isAudio ? `🎵 ${media_filename || "áudio"}` : isImage ? `🖼️ ${media_filename || "imagem"}` : `📎 ${media_filename || "arquivo"}`;
+      savedText = isAudio ? `🎵 ${filename}` : isImage ? `🖼️ ${filename}` : `📎 ${filename}`;
     } else {
       sendRes = await fetch(`${UAZAPI_BASE_URL}/send/text`, {
         method: "POST",
-        headers: apiHeaders,
+        headers: { token: UAZAPI_INSTANCE_TOKEN, "Content-Type": "application/json" },
         body: JSON.stringify({ number: cleanPhone, text: message }),
       });
       savedText = message;
