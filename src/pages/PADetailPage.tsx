@@ -399,14 +399,17 @@ const PADetailPage = () => {
     let clientId = nomusClientId;
     if (!clientId && nomusFields.cliente.trim().length >= 2) {
       try {
-        const { data } = await supabase.functions.invoke("nomus-search", {
+        const { data, error } = await supabase.functions.invoke("nomus-search", {
           body: { type: "clientes", query: nomusFields.cliente.trim() },
         });
+        if (error) { toast.error(`Busca Nomus: ${error.message}`); setApproving(false); return; }
+        console.log("nomus-search debug:", data?._debug);
         const firstResult = data?.results?.[0];
         if (firstResult) { clientId = firstResult.id; setNomusClientId(firstResult.id); }
-      } catch { /* silencioso */ }
+        else { toast.error(`Cliente não encontrado. Debug: ${JSON.stringify(data?._debug)}`); setApproving(false); return; }
+      } catch (e: any) { toast.error(`Erro busca: ${e?.message}`); setApproving(false); return; }
     }
-    if (!clientId) { toast.error("Cliente não encontrado no ERP Nomus. Verifique o nome."); setApproving(false); return; }
+    if (!clientId) { toast.error("Nome do cliente muito curto. Digite ao menos 2 letras."); setApproving(false); return; }
     try {
       const today = new Date();
       const fallbackDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;

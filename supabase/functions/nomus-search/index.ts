@@ -41,7 +41,9 @@ Deno.serve(async (req) => {
       },
     });
 
-    const data = await res.json();
+    const rawText = await res.text();
+    let data: any;
+    try { data = JSON.parse(rawText); } catch { data = rawText; }
 
     const results = Array.isArray(data) ? data.slice(0, 20).map((item: any) => ({
       id: type === 'clientes' ? item.id : item.id,
@@ -49,7 +51,7 @@ Deno.serve(async (req) => {
       codigo: item.codigo || '',
     })) : [];
 
-    return new Response(JSON.stringify({ results }), {
+    return new Response(JSON.stringify({ results, _debug: { status: res.status, url, dataType: typeof data, isArray: Array.isArray(data), sample: Array.isArray(data) ? data[0] : data } }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 
