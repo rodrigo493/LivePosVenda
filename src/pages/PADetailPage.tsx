@@ -138,34 +138,7 @@ const PADetailPage = () => {
       pedido: prev.pedido || requestNumber,
       cliente: prev.cliente || clientName,
     }));
-    // Auto-search Nomus client when name is pre-filled
-    if (clientName && !nomusClientId) {
-      const searchTerm = clientName.trim().split(/\s+/)[0];
-      fetch(`/api/nomus/rest/pessoas?query=nome==*${encodeURIComponent(searchTerm)}*`, {
-        headers: { "Accept": "application/json" },
-      })
-        .then(r => r.ok ? r.json() : [])
-        .then((people: any[]) => {
-          if (!Array.isArray(people)) return;
-          const results = people.slice(0, 20).map((p: any) => ({ id: p.id, nome: p.nome }));
-          setNomusClientResults(results);
-          if (results.length === 1) {
-            setNomusClientId(results[0].id);
-            setNomusFields(prev => ({ ...prev, cliente: results[0].nome }));
-          } else if (results.length > 1) {
-            // Try exact match (case-insensitive)
-            const exact = results.find(r => r.nome.toLowerCase() === clientName.toLowerCase());
-            if (exact) {
-              setNomusClientId(exact.id);
-              setNomusFields(prev => ({ ...prev, cliente: exact.nome }));
-            } else {
-              setNomusClientOpen(true);
-            }
-          }
-        })
-        .catch(() => {});
-    }
-  }, [sr]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sr]);
 
   const updateNomusField = (field: string, value: string) => {
     setNomusFields(prev => ({ ...prev, [field]: value }));
@@ -177,16 +150,19 @@ const PADetailPage = () => {
     if (query.length < 2) { setNomusClientResults([]); setNomusClientOpen(false); return; }
     setNomusClientLoading(true);
     try {
-      const searchTerm = query.trim().split(/\s+/)[0];
+      const searchTerm = query.trim();
       const res = await fetch(`/api/nomus/rest/pessoas?query=nome==*${encodeURIComponent(searchTerm)}*`, {
         headers: { "Content-Type": "application/json", "Accept": "application/json" },
       });
-      if (!res.ok) { setNomusClientResults([]); setNomusClientOpen(false); setNomusClientLoading(false); return; }
       const people = await res.json();
-      const results = Array.isArray(people) ? people.slice(0, 20).map((p: any) => ({ id: p.id, nome: p.nome })) : [];
+      const list = Array.isArray(people) ? people : (people?.data ?? people?.content ?? []);
+      const results = list.slice(0, 20).map((p: any) => ({ id: p.id, nome: p.nome || p.nomeFantasia || p.razaoSocial || "" }));
       setNomusClientResults(results);
       setNomusClientOpen(results.length > 0);
-    } catch (e) { if (import.meta.env.DEV) console.error("Nomus search error:", e); setNomusClientResults([]); }
+    } catch (e) {
+      console.error("Nomus client search error:", e);
+      setNomusClientResults([]);
+    }
     setNomusClientLoading(false);
   };
 
