@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { Settings, Users, Bell, Database, Mail, Shield, DollarSign, FlaskConical, Save, Brain, Kanban } from "lucide-react";
+import { Settings, Users, Bell, Database, Mail, Shield, DollarSign, FlaskConical, Save, Brain, Kanban, UserPlus, Trash2, Pencil, KeyRound } from "lucide-react";
 import { PipelineStageSettings } from "@/components/crm/PipelineStageSettings";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { motion } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -108,6 +109,7 @@ const SettingsPage = () => {
           <TabsTrigger value="engenharia" className="text-xs gap-1.5"><FlaskConical className="h-3.5 w-3.5" /> Engenharia</TabsTrigger>
           <TabsTrigger value="pipeline" className="text-xs gap-1.5"><Kanban className="h-3.5 w-3.5" /> Pipeline</TabsTrigger>
           <TabsTrigger value="ia" className="text-xs gap-1.5"><Brain className="h-3.5 w-3.5" /> IA</TabsTrigger>
+          {isAdmin && <TabsTrigger value="usuarios" className="text-xs gap-1.5"><Users className="h-3.5 w-3.5" /> Usuários</TabsTrigger>}
         </TabsList>
 
         {/* GERAL */}
@@ -268,10 +270,258 @@ const SettingsPage = () => {
             </div>
           </motion.div>
         </TabsContent>
+        {/* USUÁRIOS */}
+        {isAdmin && (
+          <TabsContent value="usuarios">
+            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="bg-card rounded-xl border shadow-card p-6">
+              <h3 className="font-display font-semibold text-sm mb-6 flex items-center gap-2">
+                <Users className="h-4 w-4 text-primary" /> Gerenciamento de Usuários
+              </h3>
+              <UserManagement />
+            </motion.div>
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );
 };
+
+type UserRow = { id: string; full_name: string; email: string | null; roles: string[] };
+
+const APP_ROLES = [
+  { value: "admin", label: "Administrador" },
+  { value: "atendimento", label: "Atendimento / Suporte" },
+  { value: "tecnico", label: "Técnico" },
+  { value: "engenharia", label: "Engenharia" },
+  { value: "financeiro", label: "Financeiro / Administrativo" },
+  { value: "cliente", label: "Cliente" },
+];
+
+const EDGE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/manage-users`;
+
+async function callEdge(method: string, body?: object) {
+  const { data: { session } } = await supabase.auth.getSession();
+  const res = await fetch(EDGE_URL, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${session?.access_token ?? ""}`,
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error ?? "Erro desconhecido");
+  return json;
+}
+
+function UserManagement() {
+  const qc = useQueryClient();
+  const { user: me } = useAuth();
+  const [form, setForm] = useState({ full_name: "", email: "", password: "", role: "atendimento" });
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editMode, setEditMode] = useState<"role" | "password">("role");
+  const [editRole, setEditRole] = useState("");
+  const [editPassword, setEditPassword] = useState("");
+
+  const { data: users = [], isLoading } = useQuery<UserRow[]>({
+    queryKey: ["manage_users"],
+    queryFn: () => callEdge("GET"),
+  });
+
+  const createMut = useMutation({
+    mutationFn: () => callEdge("POST", form),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["manage_users"] });
+      setForm({ full_name: "", email: "", password: "", role: "atendimento" });
+      toast.success("Usuário criado com sucesso!");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const updateMut = useMutation({
+    mutationFn: (payload: { user_id: string; role?: string; password?: string }) =>
+      callEdge("PATCH", payload),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["manage_users"] });
+      setEditingId(null);
+      setEditPassword("");
+      toast.success(vars.password ? "Senha alterada!" : "Perfil atualizado!");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (user_id: string) => callEdge("DELETE", { user_id }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["manage_users"] });
+      toast.success("Usuário removido.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return (
+    <div className="space-y-6">
+      {/* Form de criação */}
+      <div className="border rounded-lg p-4 bg-muted/30">
+        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-3">Novo Usuário</p>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="space-y-1">
+            <Label className="text-xs">Nome completo</Label>
+            <Input
+              value={form.full_name}
+              onChange={(e) => setForm((f) => ({ ...f, full_name: e.target.value }))}
+              placeholder="João Silva"
+              className="h-8 text-sm"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">E-mail</Label>
+            <Input
+              type="email"
+              value={form.email}
+              onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+              placeholder="joao@empresa.com"
+              className="h-8 text-sm"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Senha</Label>
+            <Input
+              type="password"
+              value={form.password}
+              onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+              placeholder="Mínimo 6 caracteres"
+              className="h-8 text-sm"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Perfil</Label>
+            <Select value={form.role} onValueChange={(v) => setForm((f) => ({ ...f, role: v }))}>
+              <SelectTrigger className="h-8 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {APP_ROLES.map((r) => (
+                  <SelectItem key={r.value} value={r.value} className="text-sm">{r.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <Button
+          size="sm"
+          className="mt-3 gap-1.5 text-xs"
+          onClick={() => createMut.mutate()}
+          disabled={!form.full_name || !form.email || !form.password || createMut.isPending}
+        >
+          <UserPlus className="h-3.5 w-3.5" />
+          {createMut.isPending ? "Criando..." : "Criar Usuário"}
+        </Button>
+      </div>
+
+      {/* Lista de usuários */}
+      <div>
+        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-3">Usuários Cadastrados</p>
+        {isLoading ? (
+          <p className="text-xs text-muted-foreground">Carregando...</p>
+        ) : (
+          <div className="space-y-2">
+            {users.map((u) => (
+              <div key={u.id} className="flex items-center gap-3 p-3 rounded-lg bg-muted/40 hover:bg-muted/60 transition-colors">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{u.full_name}</p>
+                  <p className="text-xs text-muted-foreground truncate">{u.email}</p>
+                </div>
+                {editingId === u.id ? (
+                  <div className="flex items-center gap-2 flex-wrap justify-end">
+                    {editMode === "role" ? (
+                      <Select value={editRole} onValueChange={setEditRole}>
+                        <SelectTrigger className="h-7 w-44 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {APP_ROLES.map((r) => (
+                            <SelectItem key={r.value} value={r.value} className="text-xs">{r.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        type="password"
+                        value={editPassword}
+                        onChange={(e) => setEditPassword(e.target.value)}
+                        placeholder="Nova senha (mín. 6)"
+                        className="h-7 w-44 text-xs"
+                      />
+                    )}
+                    <Button
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() =>
+                        editMode === "role"
+                          ? updateMut.mutate({ user_id: u.id, role: editRole })
+                          : updateMut.mutate({ user_id: u.id, password: editPassword })
+                      }
+                      disabled={updateMut.isPending || (editMode === "password" && editPassword.length < 6)}
+                    >
+                      Salvar
+                    </Button>
+                    <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => { setEditingId(null); setEditPassword(""); }}>
+                      Cancelar
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <div className="flex gap-1 flex-wrap justify-end">
+                      {u.roles.map((r) => (
+                        <span key={r} className="text-[10px] uppercase tracking-wider font-medium bg-primary/10 text-primary px-2 py-0.5 rounded">
+                          {APP_ROLES.find((x) => x.value === r)?.label ?? r}
+                        </span>
+                      ))}
+                      {u.roles.length === 0 && (
+                        <span className="text-[10px] text-muted-foreground">Sem perfil</span>
+                      )}
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 w-7 p-0"
+                      title="Alterar perfil"
+                      onClick={() => { setEditingId(u.id); setEditMode("role"); setEditRole(u.roles[0] ?? "atendimento"); }}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 w-7 p-0"
+                      title="Alterar senha"
+                      onClick={() => { setEditingId(u.id); setEditMode("password"); setEditPassword(""); }}
+                    >
+                      <KeyRound className="h-3.5 w-3.5" />
+                    </Button>
+                    {u.id !== me?.id && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                        onClick={() => {
+                          if (confirm(`Remover ${u.full_name}?`)) deleteMut.mutate(u.id);
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 // Reusable setting field component
 function SettingField({ settingKey, label, value, onSave, disabled, type = "text" }: {
