@@ -161,7 +161,7 @@ const PADetailPage = () => {
       setNomusClientResults(results);
       setNomusClientOpen(results.length > 0);
     } catch (e: any) {
-      toast.error("Erro ao buscar cliente na Nomus");
+      console.error("nomus-search error:", e);
       setNomusClientResults([]);
     }
     setNomusClientLoading(false);
@@ -392,10 +392,21 @@ const PADetailPage = () => {
   };
 
   const handleApprove = async () => {
-    if (!nomusClientId) { toast.error("Selecione um cliente do ERP Nomus antes de criar o pedido."); return; }
     if (!nomusFields.dataEntregaPadrao) { toast.error("Preencha a Data de Entrega Padrão."); return; }
 
     setApproving(true);
+
+    let clientId = nomusClientId;
+    if (!clientId && nomusFields.cliente.trim().length >= 2) {
+      try {
+        const { data } = await supabase.functions.invoke("nomus-search", {
+          body: { type: "clientes", query: nomusFields.cliente.trim() },
+        });
+        const firstResult = data?.results?.[0];
+        if (firstResult) { clientId = firstResult.id; setNomusClientId(firstResult.id); }
+      } catch { /* silencioso */ }
+    }
+    if (!clientId) { toast.error("Cliente não encontrado no ERP Nomus. Verifique o nome."); setApproving(false); return; }
     try {
       const today = new Date();
       const fallbackDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
@@ -429,7 +440,7 @@ const PADetailPage = () => {
         idCondicaoPagamento: 28,
         idEmpresa: empresaMap[nomusFields.empresa] || 2,
         idFormaPagamento: 10,
-        idPessoaCliente: nomusClientId,
+        idPessoaCliente: clientId,
         idTipoMovimentacao: 60,
         idTipoPedido: 1,
         observacoes: currentNotes || `Pedido de Acessório - ${nomusFields.cliente || clientName}`,

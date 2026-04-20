@@ -22,8 +22,8 @@ Deno.serve(async (req) => {
 
     let url = '';
     if (type === 'clientes') {
-      const searchTerm = query.trim().split(/\s+/)[0];
-      url = `${NOMUS_API_URL}/rest/pessoas?query=nome==*${encodeURIComponent(searchTerm)}*`;
+      const term = encodeURIComponent(query.trim());
+      url = `${NOMUS_API_URL}/rest/pessoas?query=nomeFantasia==*${term}*,razaoSocial==*${term}*,nome==*${term}*`;
     } else if (type === 'produtos') {
       url = `${NOMUS_API_URL}/rest/produtos?query=codigo==*${encodeURIComponent(query)}*`;
     } else {
@@ -45,7 +45,7 @@ Deno.serve(async (req) => {
 
     const results = Array.isArray(data) ? data.slice(0, 20).map((item: any) => ({
       id: type === 'clientes' ? item.id : item.id,
-      nome: item.nome || item.descricao || '',
+      nome: item.nomeFantasia || item.razaoSocial || item.nome || item.descricao || '',
       codigo: item.codigo || '',
     })) : [];
 
