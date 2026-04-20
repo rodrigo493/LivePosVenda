@@ -2,33 +2,54 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 async function downloadAndStoreMedia(
   admin: ReturnType<typeof createClient>,
-  supabaseUrl: string,
   uazapiBaseUrl: string,
   uazapiToken: string,
-  messageid: string,
+  messageid: string | null,
   mime: string,
   clientId: string,
+  directUrl?: string | null,
 ): Promise<string | null> {
   try {
-    const res = await fetch(`${uazapiBaseUrl}/message/download`, {
-      method: "POST",
-      headers: { token: uazapiToken, "Content-Type": "application/json" },
-      body: JSON.stringify({ messageid }),
-    });
-    console.log("media_download status:", res.status, "messageid:", messageid);
-    if (!res.ok) {
-      const errText = await res.text();
-      console.error("media_download error:", errText);
-      return null;
+    let res: Response | null = null;
+
+    // 1. Try direct URL from payload (Uazapi embeds it in content object)
+    if (directUrl) {
+      res = await fetch(directUrl, { headers: { token: uazapiToken } });
+      console.log("direct_url status:", res.status, directUrl.slice(0, 80));
+      if (!res.ok) { console.log("direct_url failed, trying messageid"); res = null; }
     }
+
+    // 2. Fall back to download by messageid
+    if (!res && messageid) {
+      res = await fetch(`${uazapiBaseUrl}/message/download`, {
+        method: "POST",
+        headers: { token: uazapiToken, "Content-Type": "application/json" },
+        body: JSON.stringify({ messageid }),
+      });
+      console.log("messageid_download status:", res.status);
+      if (!res.ok) { const t = await res.text(); console.error("messageid_download error:", t); return null; }
+    }
+
+    if (!res) return null;
+
     const contentType = res.headers.get("content-type") || mime;
-    const ext = contentType.includes("ogg") ? "ogg" : contentType.includes("mp4") ? "mp4" : contentType.includes("webm") ? "webm" : contentType.split("/")[1]?.split(";")[0] || "bin";
+    // Normalize ogg/opus from WhatsApp — browsers play it as audio/ogg
+    const storeContentType = contentType.includes("ogg") ? "audio/ogg" : contentType.split(";")[0];
+    const ext = contentType.includes("ogg") ? "ogg"
+      : contentType.includes("mp4") ? "mp4"
+      : contentType.includes("webm") ? "webm"
+      : contentType.includes("jpeg") || contentType.includes("jpg") ? "jpg"
+      : contentType.includes("png") ? "png"
+      : contentType.includes("gif") ? "gif"
+      : contentType.split("/")[1]?.split(";")[0] || "bin";
     const bytes = new Uint8Array(await res.arrayBuffer());
-    console.log("media_download bytes:", bytes.length, "ext:", ext);
+    console.log("media_download OK: bytes=", bytes.length, "ext=", ext, "contentType=", storeContentType);
+    if (bytes.length === 0) { console.error("media_download: empty body, skipping upload"); return null; }
     const path = `${clientId}/${Date.now()}_inbound.${ext}`;
-    const { error } = await admin.storage.from("whatsapp-media").upload(path, bytes, { contentType: contentType.split(";")[0], upsert: true });
+    const { error } = await admin.storage.from("whatsapp-media").upload(path, bytes, { contentType: storeContentType, upsert: true });
     if (error) { console.error("storage upload error:", error.message); return null; }
     const { data } = admin.storage.from("whatsapp-media").getPublicUrl(path);
+    console.log("media stored:", data.publicUrl.slice(0, 100));
     return data.publicUrl;
   } catch (e) { console.error("downloadAndStoreMedia exception:", e); return null; }
 }
@@ -59,6 +80,7 @@ Deno.serve(async (req) => {
     let senderName: string | null = null;
     let waMessageId: string | null = null;
     let mediaMime: string | null = null;
+    let directMediaUrl: string | null = null;
 
     // Uazapi actual format: { EventType, message: { fromMe, sender_pn, chatid, text, senderName, messageid }, chat }
     if (body?.EventType && body?.message) {
@@ -75,18 +97,36 @@ Deno.serve(async (req) => {
 
       if (typeof m.content === "object" && m.content !== null) {
         mediaMime = (m.content as any).mimetype || null;
+        directMediaUrl = (m.content as any).url || (m.content as any).mediaUrl || (m.content as any).directPath || null;
         messageText = resolveMediaText(mediaMime || "");
       } else {
         const rawContent: string | null = (typeof m.text === "string" && m.text) ? m.text
           : (typeof m.content === "string" && m.content) ? m.content : null;
         if (rawContent && rawContent.trim().startsWith("{") && rawContent.includes("mimetype")) {
-          try { messageText = resolveMediaText(JSON.parse(rawContent).mimetype || ""); }
-          catch { messageText = "📎 Mídia"; }
+          try {
+            const parsed = JSON.parse(rawContent);
+            mediaMime = parsed.mimetype || null;
+            directMediaUrl = parsed.url || parsed.mediaUrl || null;
+            messageText = resolveMediaText(mediaMime || "");
+          } catch { messageText = "📎 Mídia"; }
         } else if (!rawContent) {
-          if (m.PTT === true || m.audioMessage) messageText = "🎵 Áudio";
-          else if (m.imageMessage) messageText = "📷 Imagem";
-          else if (m.videoMessage) messageText = "🎥 Vídeo";
-          else if (m.documentMessage) messageText = "📎 Arquivo";
+          if (m.PTT === true || m.audioMessage) {
+            messageText = "🎵 Áudio";
+            mediaMime = (m.audioMessage as any)?.mimetype || "audio/ogg";
+            directMediaUrl = (m.audioMessage as any)?.url || (m.audioMessage as any)?.mediaUrl || null;
+          } else if (m.imageMessage) {
+            messageText = "📷 Imagem";
+            mediaMime = (m.imageMessage as any)?.mimetype || "image/jpeg";
+            directMediaUrl = (m.imageMessage as any)?.url || (m.imageMessage as any)?.mediaUrl || null;
+          } else if (m.videoMessage) {
+            messageText = "🎥 Vídeo";
+            mediaMime = (m.videoMessage as any)?.mimetype || "video/mp4";
+            directMediaUrl = (m.videoMessage as any)?.url || (m.videoMessage as any)?.mediaUrl || null;
+          } else if (m.documentMessage) {
+            messageText = "📎 Arquivo";
+            mediaMime = (m.documentMessage as any)?.mimetype || "application/octet-stream";
+            directMediaUrl = (m.documentMessage as any)?.url || (m.documentMessage as any)?.mediaUrl || null;
+          }
         } else {
           messageText = rawContent;
         }
@@ -227,8 +267,9 @@ Deno.serve(async (req) => {
     }
 
     let mediaUrl: string | null = null;
-    if (mediaMime && waMessageId) {
-      mediaUrl = await downloadAndStoreMedia(admin, SUPABASE_URL, UAZAPI_BASE_URL, UAZAPI_INSTANCE_TOKEN, waMessageId, mediaMime, clientId);
+    if (mediaMime && (waMessageId || directMediaUrl)) {
+      console.log("downloading media: mime=", mediaMime, "directUrl=", directMediaUrl?.slice(0, 80), "msgid=", waMessageId);
+      mediaUrl = await downloadAndStoreMedia(admin, UAZAPI_BASE_URL, UAZAPI_INSTANCE_TOKEN, waMessageId, mediaMime, clientId, directMediaUrl);
     }
 
     const { error: msgErr } = await admin.from("whatsapp_messages").insert({

@@ -39,13 +39,14 @@ function AudioPlayer({ src, outbound }: { src: string; outbound: boolean }) {
   const [progress, setProgress] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [error, setError] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
 
   const toggle = () => {
     const a = audioRef.current;
     if (!a) return;
     if (playing) { a.pause(); setPlaying(false); }
-    else { a.play(); setPlaying(true); }
+    else { a.play().catch(() => setError(true)); setPlaying(true); }
   };
 
   const onTimeUpdate = () => {
@@ -66,6 +67,8 @@ function AudioPlayer({ src, outbound }: { src: string; outbound: boolean }) {
     if (audioRef.current) setDuration(audioRef.current.duration);
   };
 
+  const onError = () => setError(true);
+
   const seek = (e: React.MouseEvent<HTMLDivElement>) => {
     const a = audioRef.current;
     if (!a || !a.duration) return;
@@ -76,9 +79,43 @@ function AudioPlayer({ src, outbound }: { src: string; outbound: boolean }) {
   const fmt = (s: number) =>
     isFinite(s) ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}` : "0:00";
 
+  const filename = src.split("/").pop()?.split("?")[0] || "audio.ogg";
+
+  if (error) {
+    return (
+      <div className="flex items-center gap-2 min-w-[160px] mt-0.5">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className={`h-4 w-4 shrink-0 ${outbound ? "text-white/70" : "text-muted-foreground"}`}>
+          <path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" />
+        </svg>
+        <span className={`text-[11px] ${outbound ? "text-white/70" : "text-muted-foreground"}`}>Áudio</span>
+        <a
+          href={src}
+          download={filename}
+          target="_blank"
+          rel="noreferrer"
+          className={`ml-auto flex items-center gap-1 text-[10px] underline ${outbound ? "text-white/80 hover:text-white" : "text-emerald-700 hover:text-emerald-800"}`}
+          title="Baixar áudio"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-3 w-3">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+          Baixar
+        </a>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex items-center gap-2 min-w-[180px] max-w-[220px] mt-0.5">
-      <audio ref={audioRef} src={src} preload="metadata" onTimeUpdate={onTimeUpdate} onEnded={onEnded} onLoadedMetadata={onLoadedMetadata} />
+    <div className="flex items-center gap-2 min-w-[200px] max-w-[240px] mt-0.5">
+      <audio
+        ref={audioRef}
+        src={src}
+        preload="metadata"
+        onTimeUpdate={onTimeUpdate}
+        onEnded={onEnded}
+        onLoadedMetadata={onLoadedMetadata}
+        onError={onError}
+      />
       <button
         onClick={toggle}
         className={`h-7 w-7 rounded-full flex items-center justify-center shrink-0 transition-colors ${outbound ? "bg-white/20 hover:bg-white/30 text-white" : "bg-emerald-100 hover:bg-emerald-200 text-emerald-700"}`}
@@ -101,6 +138,19 @@ function AudioPlayer({ src, outbound }: { src: string; outbound: boolean }) {
           {playing ? fmt(currentTime) : fmt(duration)}
         </span>
       </div>
+      <a
+        href={src}
+        download={filename}
+        target="_blank"
+        rel="noreferrer"
+        className={`shrink-0 transition-opacity opacity-50 hover:opacity-100 ${outbound ? "text-white" : "text-muted-foreground hover:text-emerald-700"}`}
+        title="Baixar áudio"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-3.5 w-3.5">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+        </svg>
+      </a>
     </div>
   );
 }
@@ -373,8 +423,13 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
                       {msg.direction === "inbound" && msg.sender_name && (
                         <p className="text-[10px] font-semibold text-muted-foreground mb-0.5">{msg.sender_name}</p>
                       )}
-                      {msg.media_url && msg.message_text?.startsWith("🎵") ? (
-                        <AudioPlayer src={msg.media_url} outbound={msg.direction === "outbound"} />
+                      {msg.message_text?.startsWith("🎵") ? (
+                        msg.media_url
+                          ? <AudioPlayer src={msg.media_url} outbound={msg.direction === "outbound"} />
+                          : <span className="text-[12px] opacity-70 flex items-center gap-1.5">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-3.5 w-3.5 shrink-0"><path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" /></svg>
+                              Áudio (não disponível)
+                            </span>
                       ) : msg.media_url && msg.message_text?.startsWith("📷") ? (
                         <img src={msg.media_url} alt="imagem" className="max-w-[200px] rounded-lg mt-0.5 cursor-pointer" onClick={() => window.open(msg.media_url, "_blank")} />
                       ) : msg.media_url && msg.message_text?.startsWith("🎥") ? (
