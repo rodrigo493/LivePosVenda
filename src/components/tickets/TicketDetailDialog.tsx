@@ -870,8 +870,27 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                                           PG · {q.warranty_claims?.claim_number || "—"}
                                         </Badge>
                                       )}
-                                      <StatusBadge status={q.status} />
                                     </div>
+                                    <Select
+                                      value={q.status}
+                                      onValueChange={async (val) => {
+                                        const { error } = await supabase.from("quotes").update({ status: val }).eq("id", q.id);
+                                        if (error) { toast.error("Erro ao atualizar"); return; }
+                                        toast.success("Status atualizado");
+                                        qc.invalidateQueries({ queryKey: ["client-quotes"] });
+                                      }}
+                                    >
+                                      <SelectTrigger onClick={(e) => e.stopPropagation()} className="h-6 w-[130px] text-[10px] shrink-0">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="rascunho">Rascunho</SelectItem>
+                                        <SelectItem value="em_analise">Em Análise</SelectItem>
+                                        <SelectItem value="aprovado">Aprovado</SelectItem>
+                                        <SelectItem value="reprovado">Reprovado</SelectItem>
+                                        <SelectItem value="cancelado">Cancelado</SelectItem>
+                                      </SelectContent>
+                                    </Select>
                                     <span className="text-xs font-mono shrink-0">{fmtCurrency(total)}</span>
                                     <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:block">{new Date(q.created_at).toLocaleDateString("pt-BR")}</span>
                                     <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
@@ -913,12 +932,32 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                                     />
                                     <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
                                       <span className="text-xs font-mono font-semibold text-blue-700">{sr.request_number || "—"}</span>
-                                      <StatusBadge status={sr.status} />
                                       {sr.tickets?.ticket_number && (
                                         <span className="text-[10px] text-muted-foreground">#{sr.tickets.ticket_number}</span>
                                       )}
                                     </div>
-                                    {sr.notes && <span className="text-[10px] text-muted-foreground truncate max-w-[150px] hidden sm:block">{sr.notes}</span>}
+                                    <Select
+                                      value={sr.status}
+                                      onValueChange={async (val) => {
+                                        const { error } = await supabase.from("service_requests").update({ status: val }).eq("id", sr.id);
+                                        if (error) { toast.error("Erro ao atualizar"); return; }
+                                        toast.success("Status atualizado");
+                                        qc.invalidateQueries({ queryKey: ["client-service-requests"] });
+                                      }}
+                                    >
+                                      <SelectTrigger onClick={(e) => e.stopPropagation()} className="h-6 w-[130px] text-[10px] shrink-0">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="aberto">Aberto</SelectItem>
+                                        <SelectItem value="orcamento_enviado">Orç. Enviado</SelectItem>
+                                        <SelectItem value="agendado">Agendado</SelectItem>
+                                        <SelectItem value="em_andamento">Em Andamento</SelectItem>
+                                        <SelectItem value="resolvido">Resolvido</SelectItem>
+                                        <SelectItem value="cancelado">Cancelado</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                    {sr.notes && <span className="text-[10px] text-muted-foreground truncate max-w-[100px] hidden sm:block">{sr.notes}</span>}
                                     <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:block">{new Date(sr.created_at).toLocaleDateString("pt-BR")}</span>
                                     <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
                                   </div>
@@ -959,12 +998,30 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                                     />
                                     <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
                                       <span className="text-xs font-mono font-semibold text-amber-700">{wc.claim_number || "—"}</span>
-                                      <StatusBadge status={wc.warranty_status} />
                                       {wc.tickets?.ticket_number && (
                                         <span className="text-[10px] text-muted-foreground">#{wc.tickets.ticket_number}</span>
                                       )}
                                     </div>
-                                    {wc.defect_description && <span className="text-[10px] text-muted-foreground truncate max-w-[150px] hidden sm:block">{wc.defect_description}</span>}
+                                    <Select
+                                      value={wc.warranty_status}
+                                      onValueChange={async (val) => {
+                                        const { error } = await supabase.from("warranty_claims").update({ warranty_status: val }).eq("id", wc.id);
+                                        if (error) { toast.error("Erro ao atualizar"); return; }
+                                        toast.success("Status atualizado");
+                                        qc.invalidateQueries({ queryKey: ["client-warranty-claims"] });
+                                      }}
+                                    >
+                                      <SelectTrigger onClick={(e) => e.stopPropagation()} className="h-6 w-[130px] text-[10px] shrink-0">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="em_analise">Em Análise</SelectItem>
+                                        <SelectItem value="aprovada">Aprovada</SelectItem>
+                                        <SelectItem value="reprovada">Reprovada</SelectItem>
+                                        <SelectItem value="convertida_os">Convertida OS</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                    {wc.defect_description && <span className="text-[10px] text-muted-foreground truncate max-w-[100px] hidden sm:block">{wc.defect_description}</span>}
                                     <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:block">{new Date(wc.created_at).toLocaleDateString("pt-BR")}</span>
                                     <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
                                   </div>
