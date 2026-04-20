@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Shield, Save, CheckCircle, Loader2 } from "lucide-react";
+import { ArrowLeft, Shield, Save, CheckCircle, Loader2, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -152,7 +152,7 @@ const PGDetailPage = () => {
       </div>
 
       {/* Client & Equipment */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
         <div className="bg-card rounded-xl border p-4">
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2 font-semibold">Cliente</p>
           <p className="text-sm font-medium">{clientName}</p>
@@ -164,6 +164,42 @@ const PGDetailPage = () => {
           {serialNumber && <p className="text-xs text-muted-foreground mt-1">S/N: {serialNumber}</p>}
         </div>
       </div>
+
+      {/* Orçamento de origem */}
+      {linkedQuote && (
+        <div className="bg-card rounded-xl border shadow-sm p-4 mb-4 flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Orçamento de Origem</p>
+            <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" onClick={() => navigate(`/orcamentos/${linkedQuote.id}`)}>
+              <ExternalLink className="h-3.5 w-3.5" /> {linkedQuote.quote_number}
+            </Button>
+          </div>
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex-1 min-w-[160px]">
+              <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Status do Orçamento</label>
+              <Select
+                value={linkedQuote.status}
+                onValueChange={async (val) => {
+                  await supabase.from("quotes").update({ status: val }).eq("id", linkedQuote.id);
+                  qc.invalidateQueries({ queryKey: ["pg_linked_quote", id] });
+                  qc.invalidateQueries({ queryKey: ["pipeline-tickets"] });
+                }}
+              >
+                <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="aguardando_aprovacao">Em Análise</SelectItem>
+                  <SelectItem value="aprovado">Aprovado</SelectItem>
+                  <SelectItem value="reprovado">Reprovado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="text-right">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Total</p>
+              <p className="text-lg font-bold font-mono text-primary">R$ {Number(linkedQuote.total || 0).toFixed(2)}</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Financial summary cards */}
       {items.length > 0 && (
@@ -261,15 +297,14 @@ const PGDetailPage = () => {
       {/* Status change */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <div>
-          <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Alterar Status</label>
+          <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Status do PG</label>
           <Select value={wc.warranty_status} onValueChange={handleStatusChange}>
-            <SelectTrigger className="h-9 text-xs">
-              <SelectValue />
-            </SelectTrigger>
+            <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
             <SelectContent>
-              {Object.entries(warrantyStatusLabels).map(([val, label]) => (
-                <SelectItem key={val} value={val}>{label}</SelectItem>
-              ))}
+              <SelectItem value="em_analise">Em Análise</SelectItem>
+              <SelectItem value="aprovada">Aprovado</SelectItem>
+              <SelectItem value="reprovada">Reprovado</SelectItem>
+              <SelectItem value="convertida_os">Convertida em OS</SelectItem>
             </SelectContent>
           </Select>
         </div>

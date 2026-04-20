@@ -679,7 +679,7 @@ function SortableCard({ ticket, onQuickTask, onClick }: { ticket: any; onQuickTa
 }
 
 const QUOTE_STATUS_OPTIONS = [
-  { value: "em_analise", label: "Em análise" },
+  { value: "aguardando_aprovacao", label: "Em Análise" },
   { value: "aprovado", label: "Aprovado" },
   { value: "reprovado", label: "Reprovado" },
 ];
