@@ -138,7 +138,34 @@ const PADetailPage = () => {
       pedido: prev.pedido || requestNumber,
       cliente: prev.cliente || clientName,
     }));
-  }, [sr]);
+    // Auto-search Nomus client when name is pre-filled
+    if (clientName && !nomusClientId) {
+      const searchTerm = clientName.trim().split(/\s+/)[0];
+      fetch(`/api/nomus/rest/pessoas?query=nome==*${encodeURIComponent(searchTerm)}*`, {
+        headers: { "Accept": "application/json" },
+      })
+        .then(r => r.ok ? r.json() : [])
+        .then((people: any[]) => {
+          if (!Array.isArray(people)) return;
+          const results = people.slice(0, 20).map((p: any) => ({ id: p.id, nome: p.nome }));
+          setNomusClientResults(results);
+          if (results.length === 1) {
+            setNomusClientId(results[0].id);
+            setNomusFields(prev => ({ ...prev, cliente: results[0].nome }));
+          } else if (results.length > 1) {
+            // Try exact match (case-insensitive)
+            const exact = results.find(r => r.nome.toLowerCase() === clientName.toLowerCase());
+            if (exact) {
+              setNomusClientId(exact.id);
+              setNomusFields(prev => ({ ...prev, cliente: exact.nome }));
+            } else {
+              setNomusClientOpen(true);
+            }
+          }
+        })
+        .catch(() => {});
+    }
+  }, [sr]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const updateNomusField = (field: string, value: string) => {
     setNomusFields(prev => ({ ...prev, [field]: value }));
