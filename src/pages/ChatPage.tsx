@@ -87,7 +87,7 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] overflow-hidden rounded-xl border bg-card shadow-card">
+    <div className="flex h-[calc(100vh-6.5rem)] overflow-hidden rounded-xl border bg-card">
       <div className="w-80 shrink-0 flex flex-col border-r">
         <div className="p-3 border-b">
           <div className="relative">
@@ -191,12 +191,13 @@ export default function ChatPage() {
                 )}
               </div>
             </div>
-            <div className="flex-1 overflow-hidden p-4">
+            <div className="flex-1 overflow-hidden flex flex-col">
               <WhatsAppChat
                 clientId={selectedChat.client_id}
                 clientPhone={selectedChat.client_phone}
                 clientName={selectedChat.client_name}
                 hideHeader
+                className="flex flex-col flex-1 min-h-0 p-4"
               />
             </div>
           </motion.div>

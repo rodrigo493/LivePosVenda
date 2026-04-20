@@ -200,19 +200,30 @@ Deno.serve(async (req) => {
       ticketId = newTicket?.id || null;
     }
 
-    // Deduplication: block same message within 15s from same client
-    const dedupeWindow = new Date(Date.now() - 15000).toISOString();
-    const { data: existing } = await admin
-      .from("whatsapp_messages")
-      .select("id")
-      .eq("client_id", clientId)
-      .eq("direction", "inbound")
-      .eq("message_text", messageText)
-      .gte("created_at", dedupeWindow)
-      .limit(1);
-
-    if (existing?.length) {
-      return new Response(JSON.stringify({ duplicate: true }), { status: 200, headers: { "Content-Type": "application/json" } });
+    // Deduplication: prefer wa_message_id (exact), fallback to text+phone+15s window
+    if (waMessageId) {
+      const { data: existing } = await admin
+        .from("whatsapp_messages")
+        .select("id")
+        .eq("manychat_message_id", waMessageId)
+        .limit(1);
+      if (existing?.length) {
+        return new Response(JSON.stringify({ duplicate: true }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+    } else {
+      const dedupeWindow = new Date(Date.now() - 15000).toISOString();
+      const { data: existing } = await admin
+        .from("whatsapp_messages")
+        .select("id")
+        .eq("client_id", clientId)
+        .eq("direction", "inbound")
+        .eq("message_text", messageText)
+        .eq("sender_phone", senderPhone)
+        .gte("created_at", dedupeWindow)
+        .limit(1);
+      if (existing?.length) {
+        return new Response(JSON.stringify({ duplicate: true }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
     }
 
     let mediaUrl: string | null = null;
@@ -228,6 +239,7 @@ Deno.serve(async (req) => {
       media_url: mediaUrl,
       sender_name: senderName,
       sender_phone: senderPhone,
+      manychat_message_id: waMessageId,
       status: "received",
     });
 

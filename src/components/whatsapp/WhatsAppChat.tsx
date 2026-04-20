@@ -14,6 +14,7 @@ interface WhatsAppChatProps {
   clientPhone?: string;
   clientName?: string;
   hideHeader?: boolean;
+  className?: string;
 }
 
 function useWhatsAppMessages(clientId: string | undefined) {
@@ -33,7 +34,7 @@ function useWhatsAppMessages(clientId: string | undefined) {
   });
 }
 
-export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hideHeader }: WhatsAppChatProps) {
+export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hideHeader, className }: WhatsAppChatProps) {
   const qc = useQueryClient();
   const { data: messages, isLoading } = useWhatsAppMessages(clientId);
   const [draft, setDraft] = useState("");
@@ -166,7 +167,7 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
   }
 
   return (
-    <div className="flex flex-col h-[60vh]">
+    <div className={className ?? "flex flex-col h-[60vh]"}>
       {/* Chat header */}
       {!hideHeader && (
         <div className="flex items-center gap-3 pb-3 border-b mb-2">
@@ -259,7 +260,7 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
         )}
         <div className="flex items-end gap-2">
           <input ref={fileInputRef} type="file" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt,.zip" onChange={handleFileSelect} className="hidden" />
-          <input ref={audioInputRef} type="file" accept="audio/*" capture="user" onChange={handleFileSelect} className="hidden" />
+          <input ref={audioInputRef} type="file" accept="audio/*" onChange={handleFileSelect} className="hidden" />
           <Button type="button" variant="ghost" size="icon" className="h-10 w-10 shrink-0 text-muted-foreground hover:text-foreground" onClick={() => fileInputRef.current?.click()} title="Anexar arquivo">
             <Paperclip className="h-4 w-4" />
           </Button>

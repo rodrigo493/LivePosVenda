@@ -67,6 +67,7 @@ Deno.serve(async (req) => {
     const apiHeaders = { token: UAZAPI_INSTANCE_TOKEN, "Content-Type": "application/json" };
     let sendRes: Response;
     let savedText: string;
+    let outboundMediaUrl: string | undefined;
     const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     if (media_base64 && media_mime_type) {
@@ -83,6 +84,7 @@ Deno.serve(async (req) => {
 
       const { data: urlData } = adminClient.storage.from("whatsapp-media").getPublicUrl(storagePath);
       const mediaUrl = urlData.publicUrl;
+      outboundMediaUrl = mediaUrl;
 
       const isImage = media_mime_type.startsWith("image/");
       const isAudio = media_mime_type.startsWith("audio/");
@@ -128,6 +130,7 @@ Deno.serve(async (req) => {
       ticket_id: ticket_id || null,
       direction: "outbound",
       message_text: savedText,
+      media_url: outboundMediaUrl || null,
       sender_phone: cleanPhone,
       status: "sent",
     });
