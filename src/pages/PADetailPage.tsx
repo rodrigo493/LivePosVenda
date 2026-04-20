@@ -179,7 +179,7 @@ const PADetailPage = () => {
   const items = linkedQuote?.quote_items || [];
 
   // Editable item-level ERP data
-  const [itemErpData, setItemErpData] = useState<Record<string, { produto: string; quantidade: string; valorUnitario: string; idNomus: string }>>({});
+  const [itemErpData, setItemErpData] = useState<Record<string, { produto: string; quantidade: string; valorUnitario: string }>>({});
 
   // Initialize item ERP data and editable items from quote items
   useEffect(() => {
@@ -192,7 +192,6 @@ const PADetailPage = () => {
             produto: item.products?.code || item.description || "",
             quantidade: String(item.quantity || 1),
             valorUnitario: Number(item.unit_price || 0).toFixed(2),
-            idNomus: "",
           };
         }
       }
@@ -396,75 +395,49 @@ const PADetailPage = () => {
   };
 
   const handleApprove = async () => {
-    if (!nomusClientId) { toast.error("Preencha o ID do cliente Nomus antes de criar o pedido."); return; }
     if (!nomusFields.dataEntregaPadrao) { toast.error("Preencha a Data de Entrega Padrão."); return; }
+    if (!nomusFields.cliente.trim()) { toast.error("Preencha o nome do cliente."); return; }
 
     setApproving(true);
-    const clientId = nomusClientId;
     try {
-      const today = new Date();
-      const fallbackDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
-
-      const itensPedido = await Promise.all(items.map(async (item: any, idx: number) => {
+      const orderItems = items.map((item: any) => {
         const erpData = itemErpData[item.id];
-        const productCode = erpData?.produto || item.products?.code || "";
-        const idProduto = erpData?.idNomus ? Number(erpData.idNomus) : null;
-        if (!idProduto) throw new Error(`Preencha o ID Nomus do produto "${productCode}" antes de criar o pedido.`);
         return {
-          idProduto,
-          item: String(idx + 1),
-          quantidade: String(Number(erpData?.quantidade || item.quantity || 1)),
-          valorUnitario: (() => { const v = String(erpData?.valorUnitario || item.unit_price || 0); return v.includes(",") ? Number(v.replace(/\./g, "").replace(",", ".")).toFixed(2) : Number(v).toFixed(2); })(),
-          observacoes: item.description || "",
-          informacoesAdicionaisProduto: "",
-          percentualAcrescimo: "0",
-          percentualDesconto: "0",
-          valorAcrescimo: "0",
-          valorDesconto: "0",
-          status: 1,
-          idTipoMovimentacao: 60,
-          dataEntrega: nomusFields.dataEntregaPadrao || fallbackDate,
+          product_code: erpData?.produto || item.products?.code || "",
+          description: item.description,
+          quantity: Number(erpData?.quantidade || item.quantity || 1),
+          unit_price: Number(erpData?.valorUnitario || item.unit_price || 0),
         };
-      }));
-
-      const empresaMap: Record<string, number> = { "TS": 2, "LIVE": 1, "YZ": 3 };
-      const nomusPayload = {
-        codigoPedido: nomusFields.pedido || requestNumber,
-        dataEmissao: nomusFields.dataEmissao || fallbackDate,
-        idCondicaoPagamento: 28,
-        idEmpresa: empresaMap[nomusFields.empresa] || 2,
-        idFormaPagamento: 10,
-        idPessoaCliente: clientId,
-        idTipoMovimentacao: 60,
-        idTipoPedido: 1,
-        observacoes: currentNotes || `Pedido de Acessório - ${nomusFields.cliente || clientName}`,
-        observacoesInternas: `Gerado pelo Live Care - ${nomusFields.pedido || requestNumber}`,
-        itensPedido,
-        ...(nomusFields.cfop ? { cfop: nomusFields.cfop } : {}),
-      };
-
-      const nomusRes = await fetch("/api/nomus/rest/pedidos", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Accept": "application/json",
-        },
-        body: JSON.stringify(nomusPayload),
       });
 
-      const nomusData = await nomusRes.json();
+      const res = await supabase.functions.invoke("nomus-create-order", {
+        body: {
+          order_code: nomusFields.pedido || requestNumber,
+          items: orderItems,
+          notes: currentNotes,
+          client_name: nomusFields.cliente || clientName,
+          empresa: nomusFields.empresa,
+          dataEmissao: nomusFields.dataEmissao || undefined,
+          dataEntregaPadrao: nomusFields.dataEntregaPadrao || undefined,
+          cfop: nomusFields.cfop || undefined,
+        },
+      });
 
-      if (nomusRes.status === 429) {
-        toast.error(`API Nomus em throttling. Aguarde ${nomusData?.tempoAteLiberar || 30}s e tente novamente.`);
+      if (res.error) throw new Error(res.error.message || "Erro ao enviar ao ERP");
+
+      const resData = res.data;
+      if (resData?.throttled) {
+        toast.error(`API Nomus em throttling. Aguarde ${resData.wait_seconds || 30}s e tente novamente.`);
         return;
       }
-      if (!nomusRes.ok) {
-        const erros = nomusData?.erros?.map((e: any) => e.mensagem).join(", ") || nomusData?.descricao || "Erro desconhecido";
-        throw new Error(`Erro Nomus: ${erros}`);
+      if (resData?.pending) {
+        toast.warning(resData.message || "Pedido enviado para processamento.");
+        return;
       }
+      if (!resData?.success) throw new Error(resData?.error || "Erro desconhecido ao enviar ao ERP");
 
       await supabase.from("service_requests").update({ status: "resolvido" as any }).eq("id", id!);
-      toast.success(`Pedido ${nomusData.codigoPedido || ""} criado no ERP com sucesso!`);
+      toast.success("Pedido criado no ERP com sucesso!");
       qc.invalidateQueries({ queryKey: ["service_request_detail", id] });
       startSquadWorkflow(requestNumber, id!);
     } catch (err: any) {
@@ -838,16 +811,6 @@ const PADetailPage = () => {
                 />
               </div>
               <div>
-                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">ID Cliente Nomus <span className="text-red-500">*</span></Label>
-                <Input
-                  value={nomusClientId ?? ""}
-                  onChange={e => setNomusClientId(e.target.value ? Number(e.target.value) : null)}
-                  placeholder="Ex: 1234"
-                  type="number"
-                  className={`mt-1 h-9 text-xs font-mono ${nomusClientId ? "border-green-500" : "border-red-300"}`}
-                />
-              </div>
-              <div>
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Tipo de Movimentação</Label>
                 <Select value={nomusFields.tipoMovimentacao} onValueChange={v => updateNomusField("tipoMovimentacao", v)}>
                   <SelectTrigger className="mt-1 h-9 text-xs"><SelectValue /></SelectTrigger>
@@ -896,7 +859,7 @@ const PADetailPage = () => {
                 <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-3">Itens do Pedido (Dados ERP)</p>
                 <div className="space-y-3">
                   {items.map((item: any, idx: number) => {
-                    const erpData = itemErpData[item.id] || { produto: "", quantidade: "1", valorUnitario: "0", idNomus: "" };
+                    const erpData = itemErpData[item.id] || { produto: "", quantidade: "1", valorUnitario: "0" };
                     return (
                       <div key={item.id} className="bg-muted/30 rounded-lg p-3 grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
                         <div className="md:col-span-1">
@@ -928,15 +891,7 @@ const PADetailPage = () => {
                           />
                         </div>
                         <div>
-                          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">ID Produto Nomus <span className="text-red-500">*</span></Label>
-                          <Input
-                            type="number"
-                            value={erpData.idNomus}
-                            onChange={e => updateItemErp(item.id, "idNomus", e.target.value)}
-                            placeholder="Ex: 567"
-                            className={`mt-1 h-8 text-xs font-mono ${erpData.idNomus ? "border-green-500" : "border-red-300"}`}
-                          />
-                          <p className="text-[10px] text-muted-foreground truncate mt-1">{item.description}</p>
+                          <p className="text-[10px] text-muted-foreground truncate">{item.description}</p>
                         </div>
                       </div>
                     );
