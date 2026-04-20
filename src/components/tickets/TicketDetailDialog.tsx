@@ -937,25 +937,26 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                                       )}
                                     </div>
                                     <Select
-                                      value={sr.status}
+                                      value={sr.status === "cancelado" ? "cancelado" : sr.status === "resolvido" ? "resolvido" : "em_andamento"}
                                       onValueChange={async (val) => {
-                                        const { error } = await supabase.from("service_requests").update({ status: val }).eq("id", sr.id);
+                                        if (val === "resolvido") {
+                                          onOpenChange(false);
+                                          setTimeout(() => navigate(`/pedidos-acessorios/${sr.id}?from_ticket=${ticket.id}`), 150);
+                                          return;
+                                        }
+                                        const { error } = await supabase.from("service_requests").update({ status: val as any }).eq("id", sr.id);
                                         if (error) { toast.error("Erro ao atualizar"); return; }
                                         toast.success("Status atualizado");
                                         qc.invalidateQueries({ queryKey: ["client-service-requests"] });
-                                        if (val === "aprovado") {
-                                          onOpenChange(false);
-                                          setTimeout(() => navigate(`/pedidos-acessorios/${sr.id}?from_ticket=${ticket.id}`), 150);
-                                        }
                                       }}
                                     >
                                       <SelectTrigger onClick={(e) => e.stopPropagation()} className="h-6 w-[130px] text-[10px] shrink-0">
                                         <SelectValue />
                                       </SelectTrigger>
                                       <SelectContent>
-                                        <SelectItem value="em_analise">Em Análise</SelectItem>
-                                        <SelectItem value="aprovado">Aprovado</SelectItem>
-                                        <SelectItem value="reprovado">Reprovado</SelectItem>
+                                        <SelectItem value="em_andamento">Em Análise</SelectItem>
+                                        <SelectItem value="resolvido">Aprovado</SelectItem>
+                                        <SelectItem value="cancelado">Reprovado</SelectItem>
                                       </SelectContent>
                                     </Select>
                                     {sr.notes && <span className="text-[10px] text-muted-foreground truncate max-w-[100px] hidden sm:block">{sr.notes}</span>}
@@ -1004,9 +1005,9 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                                       )}
                                     </div>
                                     <Select
-                                      value={wc.warranty_status}
+                                      value={["em_analise","aprovada","reprovada"].includes(wc.warranty_status) ? wc.warranty_status : "em_analise"}
                                       onValueChange={async (val) => {
-                                        const { error } = await supabase.from("warranty_claims").update({ warranty_status: val }).eq("id", wc.id);
+                                        const { error } = await supabase.from("warranty_claims").update({ warranty_status: val as any }).eq("id", wc.id);
                                         if (error) { toast.error("Erro ao atualizar"); return; }
                                         toast.success("Status atualizado");
                                         qc.invalidateQueries({ queryKey: ["client-warranty-claims"] });
