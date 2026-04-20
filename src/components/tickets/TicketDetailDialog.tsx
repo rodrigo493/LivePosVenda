@@ -787,94 +787,129 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                     </div>
                   )}
 
-                  {/* Orçamentos / PA / PG do Ticket — logo após problema/solução */}
-                  {clientQuotes && clientQuotes.filter((q: any) => q.ticket_id === ticket.id).length > 0 && (
+                  {/* Documentos do Cliente — Orçamentos / PA / PG */}
+                  {((clientQuotes && clientQuotes.length > 0) || (clientServiceRequests && clientServiceRequests.length > 0) || (clientWarrantyClaims && clientWarrantyClaims.length > 0)) && (
                     <>
                       <Separator />
-                      <div>
-                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                          Orçamentos / PA / PG deste Chamado
+                      <div className="space-y-4">
+                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                          Documentos do Cliente
                         </p>
-                        <div className="rounded-lg border overflow-hidden">
-                          <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 px-3 py-2 bg-muted/50 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                            <span>Documento</span>
-                            <span>Total</span>
-                            <span>Data</span>
-                            <span>Status</span>
-                          </div>
-                          {clientQuotes.filter((q: any) => q.ticket_id === ticket.id).map((q: any) => {
-                            const total = Number(q.total) > 0 ? Number(q.total) : (q.quote_items || []).reduce((sum: number, it: any) => sum + (Number(it.quantity) * Number(it.unit_price)), 0);
-                            return (
-                              <div key={q.id} className="grid grid-cols-[1fr_auto_auto_auto] gap-2 px-3 py-2.5 border-t items-center hover:bg-muted/20 transition-colors">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span
-                                    className="text-xs font-mono font-semibold text-primary cursor-pointer hover:underline"
-                                    onClick={() => { onOpenChange(false); navigate(`/orcamentos/${q.id}?from_ticket=${ticket.id}`); }}
+
+                        {/* Orçamentos */}
+                        {clientQuotes && clientQuotes.length > 0 && (
+                          <div>
+                            <div className="flex items-center gap-2 mb-2">
+                              <Receipt className="h-3.5 w-3.5 text-muted-foreground" />
+                              <span className="text-xs font-semibold">Orçamentos</span>
+                              <Badge variant="secondary" className="text-[10px] h-4 px-1.5">{clientQuotes.length}</Badge>
+                            </div>
+                            <div className="rounded-lg border overflow-hidden divide-y">
+                              {clientQuotes.map((q: any) => {
+                                const total = Number(q.total) > 0 ? Number(q.total) : (q.quote_items || []).reduce((sum: number, it: any) => sum + (Number(it.quantity) * Number(it.unit_price)), 0);
+                                const isCurrentTicket = q.ticket_id === ticket.id;
+                                return (
+                                  <div
+                                    key={q.id}
+                                    className={`flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 cursor-pointer transition-colors ${isCurrentTicket ? "bg-primary/5" : ""}`}
+                                    onClick={() => { onOpenChange(false); navigate(`/orcamentos/${q.id}`); }}
                                   >
-                                    {q.quote_number || "—"}
-                                  </span>
-                                  {q.service_request_id && (
-                                    <Badge
-                                      className="text-[9px] h-5 px-2 bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-200 cursor-pointer font-semibold"
-                                      onClick={() => { onOpenChange(false); navigate(`/pedidos-acessorios/${q.service_request_id}?from_ticket=${ticket.id}`); }}
-                                    >
-                                      PA · {q.service_requests?.request_number || "—"}
-                                    </Badge>
-                                  )}
-                                  {q.warranty_claim_id && (
-                                    <Badge
-                                      className="text-[9px] h-5 px-2 bg-amber-100 text-amber-800 border-amber-200 hover:bg-amber-200 cursor-pointer font-semibold"
-                                      onClick={() => { onOpenChange(false); navigate(`/pedidos-garantia/${q.warranty_claim_id}?from_ticket=${ticket.id}`); }}
-                                    >
-                                      PG · {q.warranty_claims?.claim_number || "—"}
-                                    </Badge>
-                                  )}
-                                </div>
-                                <span className="text-xs font-mono font-bold">R$ {total.toFixed(2)}</span>
-                                <span className="text-xs text-muted-foreground whitespace-nowrap">{new Date(q.created_at).toLocaleDateString("pt-BR")}</span>
-                                <Select
-                                  value={q.status}
-                                  onValueChange={async (val: any) => {
-                                    const { error } = await supabase.from("quotes").update({ status: val }).eq("id", q.id);
-                                    if (error) { toast.error("Erro ao atualizar status"); return; }
-                                    toast.success("Status atualizado");
-                                    qc.invalidateQueries({ queryKey: ["client-quotes"] });
-                                    if (val === "aprovado") {
-                                      setApprovalPrompt({ quoteId: q.id, ticketId: ticket.id, quoteNumber: q.quote_number });
-                                      const squadUrl = import.meta.env.VITE_SQUAD_API_URL;
-                                      const squadKey = import.meta.env.VITE_SQUAD_WORKFLOW_API_KEY;
-                                      const templateId = import.meta.env.VITE_SQUAD_POSVENDA_TEMPLATE_ID;
-                                      if (squadUrl && squadKey && templateId) {
-                                        fetch(`${squadUrl}/api/workflow-items`, {
-                                          method: "POST",
-                                          headers: { "Content-Type": "application/json", "x-api-key": squadKey },
-                                          body: JSON.stringify({
-                                            reference: q.quote_number,
-                                            title: q.quote_number,
-                                            template_id: templateId,
-                                            initial_note: `Aprovado no LivePosVenda em ${new Date().toLocaleDateString("pt-BR")}`,
-                                          }),
-                                        }).catch(() => null);
-                                      }
-                                    }
-                                  }}
+                                    <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
+                                      <span className="text-xs font-mono font-semibold text-primary">{q.quote_number || "—"}</span>
+                                      {isCurrentTicket && <Badge className="text-[9px] h-4 px-1.5 bg-primary/10 text-primary border-primary/20">Chamado atual</Badge>}
+                                      {q.service_request_id && (
+                                        <Badge
+                                          className="text-[9px] h-4 px-1.5 bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-200 cursor-pointer"
+                                          onClick={(e) => { e.stopPropagation(); onOpenChange(false); navigate(`/pedidos-acessorios/${q.service_request_id}`); }}
+                                        >
+                                          PA · {q.service_requests?.request_number || "—"}
+                                        </Badge>
+                                      )}
+                                      {q.warranty_claim_id && (
+                                        <Badge
+                                          className="text-[9px] h-4 px-1.5 bg-amber-100 text-amber-800 border-amber-200 hover:bg-amber-200 cursor-pointer"
+                                          onClick={(e) => { e.stopPropagation(); onOpenChange(false); navigate(`/pedidos-garantia/${q.warranty_claim_id}`); }}
+                                        >
+                                          PG · {q.warranty_claims?.claim_number || "—"}
+                                        </Badge>
+                                      )}
+                                      <StatusBadge status={q.status} />
+                                    </div>
+                                    <span className="text-xs font-mono shrink-0">{fmtCurrency(total)}</span>
+                                    <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:block">{new Date(q.created_at).toLocaleDateString("pt-BR")}</span>
+                                    <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Pedidos de Acessório (PA) */}
+                        {clientServiceRequests && clientServiceRequests.length > 0 && (
+                          <div>
+                            <div className="flex items-center gap-2 mb-2">
+                              <Package className="h-3.5 w-3.5 text-blue-600" />
+                              <span className="text-xs font-semibold">Pedidos de Acessório (PA)</span>
+                              <Badge variant="secondary" className="text-[10px] h-4 px-1.5">{clientServiceRequests.length}</Badge>
+                            </div>
+                            <div className="rounded-lg border overflow-hidden divide-y">
+                              {clientServiceRequests.map((sr: any) => (
+                                <div
+                                  key={sr.id}
+                                  className="flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 cursor-pointer transition-colors"
+                                  onClick={() => { onOpenChange(false); navigate(`/pedidos-acessorios/${sr.id}`); }}
                                 >
-                                  <SelectTrigger className="h-7 w-[130px] text-xs">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="aguardando_aprovacao">Em Análise</SelectItem>
-                                    <SelectItem value="aprovado">Aprovado</SelectItem>
-                                    <SelectItem value="reprovado">Reprovado</SelectItem>
-                                    <SelectItem value="rascunho">Rascunho</SelectItem>
-                                    <SelectItem value="convertido_os">Convertido OS</SelectItem>
-                                    <SelectItem value="cancelado">Cancelado</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                            );
-                          })}
-                        </div>
+                                  <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
+                                    <span className="text-xs font-mono font-semibold text-blue-700">{sr.request_number || "—"}</span>
+                                    <StatusBadge status={sr.status} />
+                                    {sr.tickets?.ticket_number && (
+                                      <span className="text-[10px] text-muted-foreground">#{sr.tickets.ticket_number}</span>
+                                    )}
+                                  </div>
+                                  {sr.notes && <span className="text-[10px] text-muted-foreground truncate max-w-[150px] hidden sm:block">{sr.notes}</span>}
+                                  <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:block">{new Date(sr.created_at).toLocaleDateString("pt-BR")}</span>
+                                  <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Pedidos de Garantia (PG) */}
+                        {clientWarrantyClaims && clientWarrantyClaims.length > 0 && (
+                          <div>
+                            <div className="flex items-center gap-2 mb-2">
+                              <Shield className="h-3.5 w-3.5 text-amber-600" />
+                              <span className="text-xs font-semibold">Pedidos de Garantia (PG)</span>
+                              <Badge variant="secondary" className="text-[10px] h-4 px-1.5">{clientWarrantyClaims.length}</Badge>
+                            </div>
+                            <div className="rounded-lg border overflow-hidden divide-y">
+                              {clientWarrantyClaims.map((wc: any) => (
+                                <div
+                                  key={wc.id}
+                                  className="flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 cursor-pointer transition-colors"
+                                  onClick={() => { onOpenChange(false); navigate(`/pedidos-garantia/${wc.id}`); }}
+                                >
+                                  <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
+                                    <span className="text-xs font-mono font-semibold text-amber-700">{wc.claim_number || "—"}</span>
+                                    <StatusBadge status={wc.warranty_status} />
+                                    {wc.tickets?.ticket_number && (
+                                      <span className="text-[10px] text-muted-foreground">#{wc.tickets.ticket_number}</span>
+                                    )}
+                                  </div>
+                                  {wc.defect_description && <span className="text-[10px] text-muted-foreground truncate max-w-[150px] hidden sm:block">{wc.defect_description}</span>}
+                                  <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:block">{new Date(wc.created_at).toLocaleDateString("pt-BR")}</span>
+                                  <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {!clientQuotes?.length && !clientServiceRequests?.length && !clientWarrantyClaims?.length && (
+                          <p className="text-sm text-muted-foreground text-center py-3">Nenhum documento registrado para este cliente.</p>
+                        )}
                       </div>
                     </>
                   )}
