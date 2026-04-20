@@ -151,12 +151,11 @@ const PADetailPage = () => {
     setNomusClientLoading(true);
     try {
       const term = encodeURIComponent(query.trim());
-      // Nomus pessoas API: try nomeFantasia first, fallback to razaoSocial and nome
-      const res = await fetch(
-        `/api/nomus/rest/pessoas?query=nomeFantasia==*${term}*,razaoSocial==*${term}*,nome==*${term}*`,
-        { headers: { "Content-Type": "application/json", "Accept": "application/json" } }
-      );
+      const url = `/api/nomus/rest/pessoas?query=nomeFantasia==*${term}*,razaoSocial==*${term}*,nome==*${term}*`;
+      const res = await fetch(url, { headers: { "Content-Type": "application/json", "Accept": "application/json" } });
       const data = await res.json();
+      // Debug: show raw response
+      toast.info(`Nomus status: ${res.status} | tipo: ${Array.isArray(data) ? "array" : typeof data} | keys: ${Object.keys(data ?? {}).slice(0,5).join(",") || "—"} | qtd: ${Array.isArray(data) ? data.length : "?"}`);
       const list: any[] = Array.isArray(data) ? data : (data?.data ?? data?.content ?? data?.items ?? []);
       const results = list.slice(0, 20).map((p: any) => ({
         id: p.id,
@@ -164,8 +163,8 @@ const PADetailPage = () => {
       }));
       setNomusClientResults(results);
       setNomusClientOpen(results.length > 0);
-    } catch (e) {
-      console.error("Nomus client search error:", e);
+    } catch (e: any) {
+      toast.error(`Erro busca Nomus: ${e.message}`);
       setNomusClientResults([]);
     }
     setNomusClientLoading(false);
