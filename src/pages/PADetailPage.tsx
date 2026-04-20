@@ -395,26 +395,11 @@ const PADetailPage = () => {
   };
 
   const handleApprove = async () => {
+    if (!nomusClientId) { toast.error("Preencha o ID do cliente Nomus antes de criar o pedido."); return; }
     if (!nomusFields.dataEntregaPadrao) { toast.error("Preencha a Data de Entrega Padrão."); return; }
 
     setApproving(true);
-
-    let clientId = nomusClientId;
-    if (!clientId && nomusFields.cliente.trim().length >= 2) {
-      try {
-        const { data: rpcData, error } = await supabase.rpc("nomus_search_clientes", {
-          search_term: nomusFields.cliente.trim(),
-          auth_header: "aW50ZWdyYWRvcmVycDptOE9SQ3JUZ3VTcHFkeDE=",
-        });
-        if (error) { toast.error(`Busca Nomus: ${error.message}`); setApproving(false); return; }
-        const body = typeof rpcData?.body === "string" ? JSON.parse(rpcData.body) : [];
-        const list: any[] = Array.isArray(body) ? body : [];
-        const firstResult = list[0];
-        if (firstResult) { clientId = firstResult.id; setNomusClientId(firstResult.id); }
-        else { toast.error(`Cliente "${nomusFields.cliente}" não encontrado no ERP Nomus.`); setApproving(false); return; }
-      } catch (e: any) { toast.error(`Erro busca: ${e?.message}`); setApproving(false); return; }
-    }
-    if (!clientId) { toast.error("Nome do cliente muito curto. Digite ao menos 2 letras."); setApproving(false); return; }
+    const clientId = nomusClientId;
     try {
       const today = new Date();
       const fallbackDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
@@ -842,33 +827,24 @@ const PADetailPage = () => {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="relative">
+              <div>
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Cliente (ERP Nomus)</Label>
                 <Input
                   value={nomusFields.cliente}
-                  onChange={e => searchNomusClients(e.target.value)}
-                  onFocus={() => nomusClientResults.length > 0 && setNomusClientOpen(true)}
-                  onBlur={() => setTimeout(() => setNomusClientOpen(false), 200)}
-                  placeholder="Digite para buscar na Nomus..."
-                  className={`mt-1 h-9 text-xs ${nomusClientId ? "border-green-500" : ""}`}
+                  onChange={e => updateNomusField("cliente", e.target.value)}
+                  placeholder="Nome do cliente"
+                  className="mt-1 h-9 text-xs"
                 />
-                {nomusClientLoading && <span className="absolute right-3 top-8 text-[10px] text-muted-foreground">Buscando...</span>}
-                {nomusClientId && <span className="absolute right-3 top-8 text-[10px] text-green-600">ID: {nomusClientId}</span>}
-                {nomusClientOpen && (
-                  <div className="absolute z-50 mt-1 w-full bg-popover border rounded-md shadow-lg max-h-48 overflow-auto">
-                    {nomusClientResults.map(c => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onMouseDown={() => selectNomusClient(c)}
-                        className="w-full text-left px-3 py-2 text-xs hover:bg-muted transition-colors"
-                      >
-                        <span className="font-medium">{c.nome}</span>
-                        <span className="text-muted-foreground ml-2">ID: {c.id}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
+              </div>
+              <div>
+                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">ID Cliente Nomus <span className="text-red-500">*</span></Label>
+                <Input
+                  value={nomusClientId ?? ""}
+                  onChange={e => setNomusClientId(e.target.value ? Number(e.target.value) : null)}
+                  placeholder="Ex: 1234"
+                  type="number"
+                  className={`mt-1 h-9 text-xs font-mono ${nomusClientId ? "border-green-500" : "border-red-300"}`}
+                />
               </div>
               <div>
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Tipo de Movimentação</Label>
