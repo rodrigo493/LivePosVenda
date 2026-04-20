@@ -20,7 +20,7 @@ export function usePipelineTickets(userId?: string) {
     queryFn: async () => {
       let q = supabase
         .from("tickets")
-        .select("*, clients(name), equipments(serial_number, equipment_models(name)), quotes(quote_number, status)")
+        .select("*, clients(name), equipments(serial_number, equipment_models(name)), quotes(id, quote_number, status, service_request_id, warranty_claim_id)")
         .not("status", "eq", "fechado")
         .order("pipeline_position", { ascending: true })
         .order("last_interaction_at", { ascending: true });

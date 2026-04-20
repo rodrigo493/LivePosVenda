@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import {
   Kanban,
   ListTodo,
@@ -40,6 +40,8 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { ChevronDown } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePipelineTickets, useMovePipelineStage, PIPELINE_STAGES } from "@/hooks/usePipeline";
 import { useWhatsAppConversations } from "@/hooks/useWhatsAppConversations";
@@ -573,13 +575,30 @@ const TICKET_TYPE_LABELS: Record<string, { label: string; color: string }> = {
   comprar_acessorios: { label: "Acessórios", color: "bg-pink-100 text-pink-800" },
 };
 
-function getLatestQuoteRef(quotes: any[] | null) {
+interface QuoteRef {
+  label: string;
+  quoteId: string;
+  serviceRequestId: string | null;
+  warrantyClaimId: string | null;
+  status: string;
+  route: string;
+}
+
+function getLatestQuoteRef(quotes: any[] | null): QuoteRef | null {
   if (!quotes || quotes.length === 0) return null;
-  const pa = quotes.find((q: any) => q.status === "aprovado");
-  if (pa) return `PA ${pa.quote_number}`;
-  const pg = quotes.find((q: any) => q.status === "reprovado");
-  if (pg) return `PG ${pg.quote_number}`;
-  return `Orç ${quotes[0].quote_number}`;
+  // Priority: approved PA > reprovado PG > first quote
+  const q = quotes.find((q: any) => q.service_request_id)
+    || quotes.find((q: any) => q.warranty_claim_id)
+    || quotes[0];
+  const hasPa = !!q.service_request_id;
+  const hasPg = !!q.warranty_claim_id;
+  const label = hasPa ? `PA ${q.quote_number}` : hasPg ? `PG ${q.quote_number}` : `Orç ${q.quote_number}`;
+  const route = hasPa
+    ? `/pedidos-acessorios/${q.service_request_id}`
+    : hasPg
+    ? `/pedidos-garantia/${q.warranty_claim_id}`
+    : `/orcamentos/${q.id}`;
+  return { label, quoteId: q.id, serviceRequestId: q.service_request_id, warrantyClaimId: q.warranty_claim_id, status: q.status, route };
 }
 
 function StageColumn({
@@ -663,10 +682,24 @@ function SortableCard({ ticket, onQuickTask, onClick }: { ticket: any; onQuickTa
   );
 }
 
+const QUOTE_STATUS_OPTIONS = [
+  { value: "em_analise", label: "Em análise" },
+  { value: "aprovado", label: "Aprovado" },
+  { value: "reprovado", label: "Reprovado" },
+];
+
 function PipelineCard({ ticket, onQuickTask, onClick }: { ticket: any; onQuickTask: () => void; onClick: () => void }) {
+  const navigate = useNavigate();
+  const qc = useQueryClient();
   const typeInfo = TICKET_TYPE_LABELS[ticket.ticket_type] || { label: ticket.ticket_type, color: "bg-muted text-muted-foreground" };
   const quoteRef = getLatestQuoteRef(ticket.quotes);
   const unreadWpp = ticket._unreadWhatsapp || 0;
+
+  const updateQuoteStatus = async (quoteId: string, status: string) => {
+    await supabase.from("quotes").update({ status }).eq("id", quoteId);
+    qc.invalidateQueries({ queryKey: ["pipeline-tickets"] });
+    qc.invalidateQueries({ queryKey: ["quotes"] });
+  };
 
   return (
     <div
@@ -698,11 +731,41 @@ function PipelineCard({ ticket, onQuickTask, onClick }: { ticket: any; onQuickTa
       )}
 
       <div className="flex items-center gap-1.5 flex-wrap mt-1">
-        {quoteRef && (
-          <span className="text-[9px] font-mono bg-muted px-1.5 py-0.5 rounded">{quoteRef}</span>
-        )}
         <span className="text-[9px] font-mono text-muted-foreground">{ticket.ticket_number}</span>
       </div>
+
+      {quoteRef && (
+        <div
+          className="flex items-center gap-1 mt-2 pt-2 border-t"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            className="flex-1 text-left text-[10px] font-semibold font-mono bg-primary/10 text-primary px-2 py-1 rounded hover:bg-primary/20 transition-colors truncate"
+            onClick={() => navigate(quoteRef.route)}
+          >
+            {quoteRef.label}
+          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="h-6 px-1.5 text-[9px] gap-0.5 shrink-0">
+                {QUOTE_STATUS_OPTIONS.find((o) => o.value === quoteRef.status)?.label ?? quoteRef.status}
+                <ChevronDown className="h-2.5 w-2.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-[120px]">
+              {QUOTE_STATUS_OPTIONS.map((opt) => (
+                <DropdownMenuItem
+                  key={opt.value}
+                  className="text-xs"
+                  onClick={() => updateQuoteStatus(quoteRef.quoteId, opt.value)}
+                >
+                  {opt.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      )}
 
       <div className="flex items-center justify-end mt-1.5">
         <Button
