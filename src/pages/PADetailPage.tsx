@@ -150,13 +150,16 @@ const PADetailPage = () => {
     if (query.length < 2) { setNomusClientResults([]); setNomusClientOpen(false); return; }
     setNomusClientLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke("nomus-search", {
-        body: { type: "clientes", query: query.trim() },
+      const { data: rpcData, error } = await supabase.rpc("nomus_search_clientes", {
+        search_term: query.trim(),
+        auth_header: "aW50ZWdyYWRvcmVycDptOE9SQ3JUZ3VTcHFkeDE=",
       });
       if (error) throw error;
-      const results: { id: number; nome: string }[] = (data?.results ?? []).map((p: any) => ({
+      const body = typeof rpcData?.body === "string" ? JSON.parse(rpcData.body) : [];
+      const list: any[] = Array.isArray(body) ? body : [];
+      const results: { id: number; nome: string }[] = list.slice(0, 20).map((p: any) => ({
         id: p.id,
-        nome: p.nome || `ID ${p.id}`,
+        nome: p.nomeFantasia || p.razaoSocial || p.nome || `ID ${p.id}`,
       }));
       setNomusClientResults(results);
       setNomusClientOpen(results.length > 0);
@@ -399,14 +402,16 @@ const PADetailPage = () => {
     let clientId = nomusClientId;
     if (!clientId && nomusFields.cliente.trim().length >= 2) {
       try {
-        const { data, error } = await supabase.functions.invoke("nomus-search", {
-          body: { type: "clientes", query: nomusFields.cliente.trim() },
+        const { data: rpcData, error } = await supabase.rpc("nomus_search_clientes", {
+          search_term: nomusFields.cliente.trim(),
+          auth_header: "aW50ZWdyYWRvcmVycDptOE9SQ3JUZ3VTcHFkeDE=",
         });
         if (error) { toast.error(`Busca Nomus: ${error.message}`); setApproving(false); return; }
-        console.log("nomus-search debug:", data?._debug);
-        const firstResult = data?.results?.[0];
+        const body = typeof rpcData?.body === "string" ? JSON.parse(rpcData.body) : [];
+        const list: any[] = Array.isArray(body) ? body : [];
+        const firstResult = list[0];
         if (firstResult) { clientId = firstResult.id; setNomusClientId(firstResult.id); }
-        else { toast.error(`Cliente não encontrado. Debug: ${JSON.stringify(data?._debug)}`); setApproving(false); return; }
+        else { toast.error(`Cliente "${nomusFields.cliente}" não encontrado no ERP Nomus.`); setApproving(false); return; }
       } catch (e: any) { toast.error(`Erro busca: ${e?.message}`); setApproving(false); return; }
     }
     if (!clientId) { toast.error("Nome do cliente muito curto. Digite ao menos 2 letras."); setApproving(false); return; }
