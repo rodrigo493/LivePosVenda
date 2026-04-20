@@ -3,8 +3,9 @@ import { useNavigate } from "react-router-dom";
 import {
   Clock, User, Tag, FileText, MessageSquare, Calendar, Package,
   AlertTriangle, Send, Pencil, Check, X, Wrench, Shield, ClipboardList,
-  ExternalLink, Receipt, Settings2, ArrowLeft, Cpu, Plus, ChevronDown, History,
+  ExternalLink, Receipt, Settings2, ArrowLeft, Cpu, Plus, ChevronDown, History, CheckSquare,
 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { WhatsAppChat } from "@/components/whatsapp/WhatsAppChat";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -283,6 +284,18 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   const [histProblem, setHistProblem] = useState("");
   const [histSolution, setHistSolution] = useState("");
   const [stagePopoverOpen, setStagePopoverOpen] = useState(false);
+  const [selectedQuotes, setSelectedQuotes] = useState<Set<string>>(new Set());
+  const [selectedPA, setSelectedPA] = useState<Set<string>>(new Set());
+  const [selectedPG, setSelectedPG] = useState<Set<string>>(new Set());
+
+  const toggleSel = (set: Set<string>, setFn: (s: Set<string>) => void, id: string) => {
+    const next = new Set(set);
+    next.has(id) ? next.delete(id) : next.add(id);
+    setFn(next);
+  };
+  const toggleAll = (ids: string[], set: Set<string>, setFn: (s: Set<string>) => void) => {
+    setFn(set.size === ids.length ? new Set() : new Set(ids));
+  };
   const [approvalPrompt, setApprovalPrompt] = useState<{ quoteId: string; ticketId: string; quoteNumber: string } | null>(null);
   const moveStage = useMovePipelineStage();
   const ticketId = ticket?.id;
@@ -811,20 +824,33 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                         {clientQuotes && clientQuotes.length > 0 && (
                           <div>
                             <div className="flex items-center gap-2 mb-2">
+                              <Checkbox
+                                checked={selectedQuotes.size === clientQuotes.length}
+                                onCheckedChange={() => toggleAll(clientQuotes.map((q: any) => q.id), selectedQuotes, setSelectedQuotes)}
+                                className="h-3.5 w-3.5"
+                              />
                               <Receipt className="h-3.5 w-3.5 text-muted-foreground" />
                               <span className="text-xs font-semibold">Orçamentos</span>
                               <Badge variant="secondary" className="text-[10px] h-4 px-1.5">{clientQuotes.length}</Badge>
+                              {selectedQuotes.size > 0 && <Badge className="text-[10px] h-4 px-1.5 bg-primary text-white">{selectedQuotes.size} selecionado{selectedQuotes.size > 1 ? "s" : ""}</Badge>}
                             </div>
                             <div className="rounded-lg border overflow-hidden divide-y">
                               {clientQuotes.map((q: any) => {
                                 const total = Number(q.total) > 0 ? Number(q.total) : (q.quote_items || []).reduce((sum: number, it: any) => sum + (Number(it.quantity) * Number(it.unit_price)), 0);
                                 const isCurrentTicket = q.ticket_id === ticket.id;
+                                const isSelected = selectedQuotes.has(q.id);
                                 return (
                                   <div
                                     key={q.id}
-                                    className={`flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 cursor-pointer transition-colors ${isCurrentTicket ? "bg-primary/5" : ""}`}
+                                    className={`flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 cursor-pointer transition-colors ${isCurrentTicket ? "bg-primary/5" : ""} ${isSelected ? "bg-primary/10" : ""}`}
                                     onClick={() => { onOpenChange(false); navigate(`/orcamentos/${q.id}?from_ticket=${ticket.id}`); }}
                                   >
+                                    <Checkbox
+                                      checked={isSelected}
+                                      onCheckedChange={() => toggleSel(selectedQuotes, setSelectedQuotes, q.id)}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="h-3.5 w-3.5 shrink-0"
+                                    />
                                     <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
                                       <span className="text-xs font-mono font-semibold text-primary">{q.quote_number || "—"}</span>
                                       {isCurrentTicket && <Badge className="text-[9px] h-4 px-1.5 bg-primary/10 text-primary border-primary/20">Chamado atual</Badge>}
@@ -860,29 +886,44 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                         {clientServiceRequests && clientServiceRequests.length > 0 && (
                           <div>
                             <div className="flex items-center gap-2 mb-2">
+                              <Checkbox
+                                checked={selectedPA.size === clientServiceRequests.length}
+                                onCheckedChange={() => toggleAll(clientServiceRequests.map((sr: any) => sr.id), selectedPA, setSelectedPA)}
+                                className="h-3.5 w-3.5"
+                              />
                               <Package className="h-3.5 w-3.5 text-blue-600" />
                               <span className="text-xs font-semibold">Pedidos de Acessório (PA)</span>
                               <Badge variant="secondary" className="text-[10px] h-4 px-1.5">{clientServiceRequests.length}</Badge>
+                              {selectedPA.size > 0 && <Badge className="text-[10px] h-4 px-1.5 bg-primary text-white">{selectedPA.size} selecionado{selectedPA.size > 1 ? "s" : ""}</Badge>}
                             </div>
                             <div className="rounded-lg border overflow-hidden divide-y">
-                              {clientServiceRequests.map((sr: any) => (
-                                <div
-                                  key={sr.id}
-                                  className="flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 cursor-pointer transition-colors"
-                                  onClick={() => { onOpenChange(false); navigate(`/pedidos-acessorios/${sr.id}?from_ticket=${ticket.id}`); }}
-                                >
-                                  <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
-                                    <span className="text-xs font-mono font-semibold text-blue-700">{sr.request_number || "—"}</span>
-                                    <StatusBadge status={sr.status} />
-                                    {sr.tickets?.ticket_number && (
-                                      <span className="text-[10px] text-muted-foreground">#{sr.tickets.ticket_number}</span>
-                                    )}
+                              {clientServiceRequests.map((sr: any) => {
+                                const isSelected = selectedPA.has(sr.id);
+                                return (
+                                  <div
+                                    key={sr.id}
+                                    className={`flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 cursor-pointer transition-colors ${isSelected ? "bg-primary/10" : ""}`}
+                                    onClick={() => { onOpenChange(false); navigate(`/pedidos-acessorios/${sr.id}?from_ticket=${ticket.id}`); }}
+                                  >
+                                    <Checkbox
+                                      checked={isSelected}
+                                      onCheckedChange={() => toggleSel(selectedPA, setSelectedPA, sr.id)}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="h-3.5 w-3.5 shrink-0"
+                                    />
+                                    <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
+                                      <span className="text-xs font-mono font-semibold text-blue-700">{sr.request_number || "—"}</span>
+                                      <StatusBadge status={sr.status} />
+                                      {sr.tickets?.ticket_number && (
+                                        <span className="text-[10px] text-muted-foreground">#{sr.tickets.ticket_number}</span>
+                                      )}
+                                    </div>
+                                    {sr.notes && <span className="text-[10px] text-muted-foreground truncate max-w-[150px] hidden sm:block">{sr.notes}</span>}
+                                    <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:block">{new Date(sr.created_at).toLocaleDateString("pt-BR")}</span>
+                                    <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
                                   </div>
-                                  {sr.notes && <span className="text-[10px] text-muted-foreground truncate max-w-[150px] hidden sm:block">{sr.notes}</span>}
-                                  <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:block">{new Date(sr.created_at).toLocaleDateString("pt-BR")}</span>
-                                  <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           </div>
                         )}
@@ -891,29 +932,44 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                         {clientWarrantyClaims && clientWarrantyClaims.length > 0 && (
                           <div>
                             <div className="flex items-center gap-2 mb-2">
+                              <Checkbox
+                                checked={selectedPG.size === clientWarrantyClaims.length}
+                                onCheckedChange={() => toggleAll(clientWarrantyClaims.map((wc: any) => wc.id), selectedPG, setSelectedPG)}
+                                className="h-3.5 w-3.5"
+                              />
                               <Shield className="h-3.5 w-3.5 text-amber-600" />
                               <span className="text-xs font-semibold">Pedidos de Garantia (PG)</span>
                               <Badge variant="secondary" className="text-[10px] h-4 px-1.5">{clientWarrantyClaims.length}</Badge>
+                              {selectedPG.size > 0 && <Badge className="text-[10px] h-4 px-1.5 bg-primary text-white">{selectedPG.size} selecionado{selectedPG.size > 1 ? "s" : ""}</Badge>}
                             </div>
                             <div className="rounded-lg border overflow-hidden divide-y">
-                              {clientWarrantyClaims.map((wc: any) => (
-                                <div
-                                  key={wc.id}
-                                  className="flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 cursor-pointer transition-colors"
-                                  onClick={() => { onOpenChange(false); navigate(`/pedidos-garantia/${wc.id}?from_ticket=${ticket.id}`); }}
-                                >
-                                  <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
-                                    <span className="text-xs font-mono font-semibold text-amber-700">{wc.claim_number || "—"}</span>
-                                    <StatusBadge status={wc.warranty_status} />
-                                    {wc.tickets?.ticket_number && (
-                                      <span className="text-[10px] text-muted-foreground">#{wc.tickets.ticket_number}</span>
-                                    )}
+                              {clientWarrantyClaims.map((wc: any) => {
+                                const isSelected = selectedPG.has(wc.id);
+                                return (
+                                  <div
+                                    key={wc.id}
+                                    className={`flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 cursor-pointer transition-colors ${isSelected ? "bg-primary/10" : ""}`}
+                                    onClick={() => { onOpenChange(false); navigate(`/pedidos-garantia/${wc.id}?from_ticket=${ticket.id}`); }}
+                                  >
+                                    <Checkbox
+                                      checked={isSelected}
+                                      onCheckedChange={() => toggleSel(selectedPG, setSelectedPG, wc.id)}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="h-3.5 w-3.5 shrink-0"
+                                    />
+                                    <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
+                                      <span className="text-xs font-mono font-semibold text-amber-700">{wc.claim_number || "—"}</span>
+                                      <StatusBadge status={wc.warranty_status} />
+                                      {wc.tickets?.ticket_number && (
+                                        <span className="text-[10px] text-muted-foreground">#{wc.tickets.ticket_number}</span>
+                                      )}
+                                    </div>
+                                    {wc.defect_description && <span className="text-[10px] text-muted-foreground truncate max-w-[150px] hidden sm:block">{wc.defect_description}</span>}
+                                    <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:block">{new Date(wc.created_at).toLocaleDateString("pt-BR")}</span>
+                                    <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
                                   </div>
-                                  {wc.defect_description && <span className="text-[10px] text-muted-foreground truncate max-w-[150px] hidden sm:block">{wc.defect_description}</span>}
-                                  <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:block">{new Date(wc.created_at).toLocaleDateString("pt-BR")}</span>
-                                  <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           </div>
                         )}
