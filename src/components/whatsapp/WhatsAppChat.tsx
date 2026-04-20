@@ -34,6 +34,77 @@ function useWhatsAppMessages(clientId: string | undefined) {
   });
 }
 
+function AudioPlayer({ src, outbound }: { src: string; outbound: boolean }) {
+  const [playing, setPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  const toggle = () => {
+    const a = audioRef.current;
+    if (!a) return;
+    if (playing) { a.pause(); setPlaying(false); }
+    else { a.play(); setPlaying(true); }
+  };
+
+  const onTimeUpdate = () => {
+    const a = audioRef.current;
+    if (!a) return;
+    setCurrentTime(a.currentTime);
+    setProgress(a.duration ? (a.currentTime / a.duration) * 100 : 0);
+  };
+
+  const onEnded = () => {
+    setPlaying(false);
+    setProgress(0);
+    setCurrentTime(0);
+    if (audioRef.current) audioRef.current.currentTime = 0;
+  };
+
+  const onLoadedMetadata = () => {
+    if (audioRef.current) setDuration(audioRef.current.duration);
+  };
+
+  const seek = (e: React.MouseEvent<HTMLDivElement>) => {
+    const a = audioRef.current;
+    if (!a || !a.duration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    a.currentTime = ((e.clientX - rect.left) / rect.width) * a.duration;
+  };
+
+  const fmt = (s: number) =>
+    isFinite(s) ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}` : "0:00";
+
+  return (
+    <div className="flex items-center gap-2 min-w-[180px] max-w-[220px] mt-0.5">
+      <audio ref={audioRef} src={src} preload="metadata" onTimeUpdate={onTimeUpdate} onEnded={onEnded} onLoadedMetadata={onLoadedMetadata} />
+      <button
+        onClick={toggle}
+        className={`h-7 w-7 rounded-full flex items-center justify-center shrink-0 transition-colors ${outbound ? "bg-white/20 hover:bg-white/30 text-white" : "bg-emerald-100 hover:bg-emerald-200 text-emerald-700"}`}
+      >
+        {playing ? (
+          <svg viewBox="0 0 24 24" fill="currentColor" className="h-3 w-3">
+            <rect x="6" y="4" width="4" height="16" rx="1" /><rect x="14" y="4" width="4" height="16" rx="1" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 24 24" fill="currentColor" className="h-3 w-3">
+            <path d="M8 5v14l11-7z" />
+          </svg>
+        )}
+      </button>
+      <div className="flex-1 flex flex-col gap-1 min-w-0">
+        <div className={`w-full h-1.5 rounded-full cursor-pointer ${outbound ? "bg-white/30" : "bg-muted-foreground/20"}`} onClick={seek}>
+          <div className={`h-1.5 rounded-full ${outbound ? "bg-white" : "bg-emerald-500"}`} style={{ width: `${progress}%` }} />
+        </div>
+        <span className={`text-[10px] tabular-nums ${outbound ? "text-white/70" : "text-muted-foreground"}`}>
+          {playing ? fmt(currentTime) : fmt(duration)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hideHeader, className }: WhatsAppChatProps) {
   const qc = useQueryClient();
   const { data: messages, isLoading } = useWhatsAppMessages(clientId);
@@ -303,7 +374,7 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
                         <p className="text-[10px] font-semibold text-muted-foreground mb-0.5">{msg.sender_name}</p>
                       )}
                       {msg.media_url && msg.message_text?.startsWith("🎵") ? (
-                        <audio controls src={msg.media_url} className="max-w-[220px] h-8 mt-0.5" />
+                        <AudioPlayer src={msg.media_url} outbound={msg.direction === "outbound"} />
                       ) : msg.media_url && msg.message_text?.startsWith("📷") ? (
                         <img src={msg.media_url} alt="imagem" className="max-w-[200px] rounded-lg mt-0.5 cursor-pointer" onClick={() => window.open(msg.media_url, "_blank")} />
                       ) : msg.media_url && msg.message_text?.startsWith("🎥") ? (
