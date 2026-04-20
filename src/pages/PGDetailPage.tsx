@@ -8,7 +8,32 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { motion } from "framer-motion";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { createClient } from "@supabase/supabase-js";
 import { toast } from "sonner";
+
+const SQUAD_URL = "https://lzzdmrlaizfhwqiolmsx.supabase.co";
+const SQUAD_ANON_KEY = "sb_publishable_Zmh4czz-OWM4kTfYPyE5Cw_z83wrcRc";
+const POSVENDA_BASE = "https://posvenda.liveuni.com.br";
+
+async function startSquadWorkflow(pgNumber: string, pgId: string) {
+  try {
+    const squad = createClient(SQUAD_URL, SQUAD_ANON_KEY);
+    const { data: templates } = await squad
+      .from("workflow_templates")
+      .select("id")
+      .ilike("name", "%Pós Venda%")
+      .limit(1)
+      .single();
+    if (!templates?.id) return;
+    await squad.rpc("start_workflow_instance", {
+      p_template_id: templates.id,
+      p_reference: pgNumber,
+      p_title: `${pgNumber} — ${POSVENDA_BASE}/pedidos-garantia/${pgId}`,
+    });
+  } catch {
+    // Squad integration is best-effort
+  }
+}
 import { Badge } from "@/components/ui/badge";
 import { warrantyStatusLabels, itemTypeLabels } from "@/constants/statusLabels";
 import { formatDate as fmtDate } from "@/lib/formatters";
@@ -125,6 +150,7 @@ const PGDetailPage = () => {
       await supabase.from("warranty_claims").update({ warranty_status: "aprovada" as any }).eq("id", id!);
       toast.success("Pedido de garantia aprovado e enviado ao ERP!");
       qc.invalidateQueries({ queryKey: ["warranty_claim_detail", id] });
+      startSquadWorkflow(claimNumber, id!);
     } catch (err: any) {
       if (import.meta.env.DEV) console.error("Approve error:", err);
       toast.error(err.message || "Erro ao aprovar pedido");
