@@ -127,6 +127,7 @@ const PADetailPage = () => {
   const [nomusClientResults, setNomusClientResults] = useState<{ id: number; nome: string }[]>([]);
   const [nomusClientLoading, setNomusClientLoading] = useState(false);
   const [nomusClientOpen, setNomusClientOpen] = useState(false);
+  const nomusSearchTimer = useState<ReturnType<typeof setTimeout> | null>(null);
 
   // Pre-fill fields from quote data when loaded
   useEffect(() => {
@@ -144,32 +145,35 @@ const PADetailPage = () => {
     setNomusFields(prev => ({ ...prev, [field]: value }));
   };
 
-  const searchNomusClients = async (query: string) => {
+  const searchNomusClients = (query: string) => {
     updateNomusField("cliente", query);
     setNomusClientId(null);
-    if (query.length < 2) { setNomusClientResults([]); setNomusClientOpen(false); return; }
-    setNomusClientLoading(true);
-    try {
-      const q = query.trim();
-      const res = await fetch(
-        `/api/nomus/rest/pessoas?query=nome==*${encodeURIComponent(q)}*`,
-        { headers: { "Content-Type": "application/json", "Accept": "application/json" } }
-      );
-      if (!res.ok) throw new Error(`Erro ${res.status}`);
-      const body = await res.json();
-      const list: any[] = Array.isArray(body) ? body : [];
-      const results: { id: number; nome: string }[] = list.slice(0, 20).map((p: any) => ({
-        id: p.id,
-        nome: p.nomeFantasia || p.razaoSocial || p.nome || `ID ${p.id}`,
-      }));
-      setNomusClientResults(results);
-      setNomusClientOpen(results.length > 0);
-    } catch (e: any) {
-      console.error("nomus-search error:", e);
-      toast.error(`Busca Nomus: ${e.message || "Erro desconhecido"}`);
-      setNomusClientResults([]);
-    }
-    setNomusClientLoading(false);
+    if (query.length < 3) { setNomusClientResults([]); setNomusClientOpen(false); return; }
+    if (nomusSearchTimer[0]) clearTimeout(nomusSearchTimer[0]);
+    nomusSearchTimer[0] = setTimeout(async () => {
+      setNomusClientLoading(true);
+      try {
+        const q = query.trim();
+        const res = await fetch(
+          `/api/nomus/rest/pessoas?query=nome==*${encodeURIComponent(q)}*`,
+          { headers: { "Content-Type": "application/json", "Accept": "application/json" } }
+        );
+        if (!res.ok) throw new Error(`Erro ${res.status}`);
+        const body = await res.json();
+        const list: any[] = Array.isArray(body) ? body : [];
+        const results: { id: number; nome: string }[] = list.slice(0, 20).map((p: any) => ({
+          id: p.id,
+          nome: p.nomeFantasia || p.razaoSocial || p.nome || `ID ${p.id}`,
+        }));
+        setNomusClientResults(results);
+        setNomusClientOpen(results.length > 0);
+      } catch (e: any) {
+        console.error("nomus-search error:", e);
+        toast.error(`Busca Nomus: ${e.message || "Erro desconhecido"}`);
+        setNomusClientResults([]);
+      }
+      setNomusClientLoading(false);
+    }, 600);
   };
 
   const selectNomusClient = (client: { id: number; nome: string }) => {
