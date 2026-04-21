@@ -90,11 +90,14 @@ Deno.serve(async (req) => {
 
       // Uazapi requires multipart/form-data with a "file" field
       const formData = new FormData();
+      formData.append("phone", cleanPhone);
       formData.append("number", cleanPhone);
       formData.append("mediatype", mediatype);
       if (caption) formData.append("caption", caption);
       if (!isAudio && !isImage) formData.append("fileName", filename);
       formData.append("file", new Blob([fileBytes], { type: media_mime_type }), filename);
+
+      console.log("send/media phone:", cleanPhone, "mediatype:", mediatype, "fileBytes:", fileBytes.length);
 
       sendRes = await fetch(`${UAZAPI_BASE_URL}/send/media`, {
         method: "POST",
