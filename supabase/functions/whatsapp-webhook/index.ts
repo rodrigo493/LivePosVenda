@@ -8,43 +8,66 @@ async function downloadAndStoreMedia(
   mime: string,
   clientId: string,
   directUrl?: string | null,
+  mediaMeta?: Record<string, unknown> | null,
 ): Promise<string | null> {
   try {
-    let res: Response | null = null;
+    let bytes: Uint8Array | null = null;
 
-    // 1. Try direct URL from payload (Uazapi embeds it in content object)
-    if (directUrl) {
-      res = await fetch(directUrl, { headers: { token: uazapiToken } });
-      console.log("direct_url status:", res.status, directUrl.slice(0, 80));
-      if (!res.ok) { console.log("direct_url failed, trying messageid"); res = null; }
-    }
+    const endpoint = mime.startsWith("audio/") ? "/chat/downloadaudio"
+      : mime.startsWith("image/") ? "/chat/downloadimage"
+      : mime.startsWith("video/") ? "/chat/downloadvideo"
+      : "/chat/downloaddocument";
 
-    // 2. Fall back to download by messageid
-    if (!res && messageid) {
-      res = await fetch(`${uazapiBaseUrl}/message/download`, {
+    // 1. Use Uazapi download endpoint with WhatsApp crypto metadata
+    if (mediaMeta) {
+      const payload: Record<string, unknown> = {
+        Url: mediaMeta.URL || mediaMeta.url || mediaMeta.Url || directUrl,
+        MediaKey: mediaMeta.mediaKey || mediaMeta.MediaKey,
+        Mimetype: mediaMeta.mimetype || mediaMeta.Mimetype || mime,
+        FileSHA256: mediaMeta.fileSHA256 || mediaMeta.fileSha256 || mediaMeta.FileSHA256,
+        FileLength: mediaMeta.fileLength || mediaMeta.FileLength,
+        FileEncSHA256: mediaMeta.fileEncSHA256 || mediaMeta.fileEncSha256 || mediaMeta.FileEncSHA256,
+      };
+      console.log(`${endpoint} payload:`, JSON.stringify(payload).slice(0, 300));
+      const res = await fetch(`${uazapiBaseUrl}${endpoint}`, {
         method: "POST",
-        headers: { token: uazapiToken, "Content-Type": "application/json" },
-        body: JSON.stringify({ messageid }),
+        headers: { Token: uazapiToken, "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
-      console.log("messageid_download status:", res.status);
-      if (!res.ok) { const t = await res.text(); console.error("messageid_download error:", t); return null; }
+      console.log(`${endpoint} status:`, res.status);
+      if (res.ok) {
+        const json = await res.json();
+        const b64: string = json.base64 || json.data || json.audio || json.image || json.video || json.document || "";
+        if (b64) {
+          const raw = b64.includes(",") ? b64.split(",")[1] : b64;
+          const bin = atob(raw);
+          bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        } else { console.error(`${endpoint}: no base64 in response`, JSON.stringify(json).slice(0, 200)); }
+      } else {
+        const t = await res.text();
+        console.error(`${endpoint} error:`, t.slice(0, 200));
+      }
     }
 
-    if (!res) return null;
+    // 2. Fallback: try direct URL only if absolute
+    if (!bytes && directUrl && directUrl.startsWith("http")) {
+      const res = await fetch(directUrl, { headers: { Token: uazapiToken } });
+      console.log("direct_url status:", res.status, directUrl.slice(0, 80));
+      if (res.ok) bytes = new Uint8Array(await res.arrayBuffer());
+    }
 
-    const contentType = res.headers.get("content-type") || mime;
-    // Normalize ogg/opus from WhatsApp — browsers play it as audio/ogg
-    const storeContentType = contentType.includes("ogg") ? "audio/ogg" : contentType.split(";")[0];
-    const ext = contentType.includes("ogg") ? "ogg"
-      : contentType.includes("mp4") ? "mp4"
-      : contentType.includes("webm") ? "webm"
-      : contentType.includes("jpeg") || contentType.includes("jpg") ? "jpg"
-      : contentType.includes("png") ? "png"
-      : contentType.includes("gif") ? "gif"
-      : contentType.split("/")[1]?.split(";")[0] || "bin";
-    const bytes = new Uint8Array(await res.arrayBuffer());
-    console.log("media_download OK: bytes=", bytes.length, "ext=", ext, "contentType=", storeContentType);
-    if (bytes.length === 0) { console.error("media_download: empty body, skipping upload"); return null; }
+    if (!bytes || bytes.length === 0) { console.error("media_download: no bytes obtained"); return null; }
+
+    const storeContentType = mime.includes("ogg") ? "audio/ogg" : mime.split(";")[0];
+    const ext = mime.includes("ogg") ? "ogg"
+      : mime.includes("mp4") ? "mp4"
+      : mime.includes("webm") ? "webm"
+      : mime.includes("jpeg") || mime.includes("jpg") ? "jpg"
+      : mime.includes("png") ? "png"
+      : mime.split("/")[1]?.split(";")[0] || "bin";
+
+    console.log("media bytes=", bytes.length, "ext=", ext);
     const path = `${clientId}/${Date.now()}_inbound.${ext}`;
     const { error } = await admin.storage.from("whatsapp-media").upload(path, bytes, { contentType: storeContentType, upsert: true });
     if (error) { console.error("storage upload error:", error.message); return null; }
@@ -81,11 +104,16 @@ Deno.serve(async (req) => {
     let waMessageId: string | null = null;
     let mediaMime: string | null = null;
     let directMediaUrl: string | null = null;
+    let mediaMeta: Record<string, unknown> | null = null;
 
     // Uazapi actual format: { EventType, message: { fromMe, sender_pn, chatid, text, senderName, messageid }, chat }
     if (body?.EventType && body?.message) {
       const m = body.message;
       console.log("MSG_DEBUG keys:", Object.keys(m).join(","), "| text:", m.text, "| content type:", typeof m.content, "| PTT:", m.PTT, "| EventType:", body.EventType);
+      // dump full message for media debugging
+      if (!m.text && !m.content || typeof m.content === "object" || m.PTT || m.audioMessage || m.imageMessage || m.videoMessage || m.documentMessage) {
+        console.log("MEDIA_PAYLOAD:", JSON.stringify(m).slice(0, 2000));
+      }
       if (m.fromMe === true || m.wasSentByApi === true) return new Response("OK", { status: 200 });
       senderPhone = (m.sender_pn || m.chatid || m.sender || "").toString().replace("@s.whatsapp.net", "").replace(/\D/g, "");
       const resolveMediaText = (mime: string) => {
@@ -96,9 +124,15 @@ Deno.serve(async (req) => {
       };
 
       if (typeof m.content === "object" && m.content !== null) {
-        mediaMime = (m.content as any).mimetype || null;
-        directMediaUrl = (m.content as any).url || (m.content as any).mediaUrl || (m.content as any).directPath || null;
+        const c = m.content as any;
+        mediaMime = c.mimetype || null;
+        directMediaUrl = c.URL || c.url || c.mediaUrl || c.directPath || null;
         messageText = resolveMediaText(mediaMime || "");
+        // capture crypto metadata for all media types
+        if (mediaMime) {
+          mediaMeta = c as Record<string, unknown>;
+          console.log("MEDIA_CONTENT keys:", Object.keys(c).join(","), "| mime:", mediaMime);
+        }
       } else {
         const rawContent: string | null = (typeof m.text === "string" && m.text) ? m.text
           : (typeof m.content === "string" && m.content) ? m.content : null;
@@ -108,24 +142,34 @@ Deno.serve(async (req) => {
             mediaMime = parsed.mimetype || null;
             directMediaUrl = parsed.url || parsed.mediaUrl || null;
             messageText = resolveMediaText(mediaMime || "");
+            if (mediaMime) mediaMeta = parsed;
           } catch { messageText = "📎 Mídia"; }
         } else if (!rawContent) {
           if (m.PTT === true || m.audioMessage) {
             messageText = "🎵 Áudio";
-            mediaMime = (m.audioMessage as any)?.mimetype || "audio/ogg";
-            directMediaUrl = (m.audioMessage as any)?.url || (m.audioMessage as any)?.mediaUrl || null;
+            const am = m.audioMessage as any;
+            mediaMime = am?.mimetype || "audio/ogg";
+            directMediaUrl = am?.url || am?.mediaUrl || null;
+            mediaMeta = am || null;
+            console.log("AUDIO_PTT audioMessage keys:", am ? Object.keys(am).join(",") : "null", "| PTT:", m.PTT);
           } else if (m.imageMessage) {
             messageText = "📷 Imagem";
-            mediaMime = (m.imageMessage as any)?.mimetype || "image/jpeg";
-            directMediaUrl = (m.imageMessage as any)?.url || (m.imageMessage as any)?.mediaUrl || null;
+            const im = m.imageMessage as any;
+            mediaMime = im?.mimetype || "image/jpeg";
+            directMediaUrl = im?.url || im?.mediaUrl || null;
+            mediaMeta = im || null;
           } else if (m.videoMessage) {
             messageText = "🎥 Vídeo";
-            mediaMime = (m.videoMessage as any)?.mimetype || "video/mp4";
-            directMediaUrl = (m.videoMessage as any)?.url || (m.videoMessage as any)?.mediaUrl || null;
+            const vm = m.videoMessage as any;
+            mediaMime = vm?.mimetype || "video/mp4";
+            directMediaUrl = vm?.url || vm?.mediaUrl || null;
+            mediaMeta = vm || null;
           } else if (m.documentMessage) {
             messageText = "📎 Arquivo";
-            mediaMime = (m.documentMessage as any)?.mimetype || "application/octet-stream";
-            directMediaUrl = (m.documentMessage as any)?.url || (m.documentMessage as any)?.mediaUrl || null;
+            const dm = m.documentMessage as any;
+            mediaMime = dm?.mimetype || "application/octet-stream";
+            directMediaUrl = dm?.url || dm?.mediaUrl || null;
+            mediaMeta = dm || null;
           }
         } else {
           messageText = rawContent;
@@ -269,7 +313,7 @@ Deno.serve(async (req) => {
     let mediaUrl: string | null = null;
     if (mediaMime && (waMessageId || directMediaUrl)) {
       console.log("downloading media: mime=", mediaMime, "directUrl=", directMediaUrl?.slice(0, 80), "msgid=", waMessageId);
-      mediaUrl = await downloadAndStoreMedia(admin, UAZAPI_BASE_URL, UAZAPI_INSTANCE_TOKEN, waMessageId, mediaMime, clientId, directMediaUrl);
+      mediaUrl = await downloadAndStoreMedia(admin, UAZAPI_BASE_URL, UAZAPI_INSTANCE_TOKEN, waMessageId, mediaMime, clientId, directMediaUrl, mediaMeta);
     }
 
     const { error: msgErr } = await admin.from("whatsapp_messages").insert({

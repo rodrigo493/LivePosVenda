@@ -12,8 +12,7 @@ Deno.serve(async (req) => {
     const NOMUS_API_KEY = Deno.env.get('NOMUS_API_KEY');
     const NOMUS_API_URL = Deno.env.get('NOMUS_API_URL');
     if (!NOMUS_API_KEY || !NOMUS_API_URL) {
-      return new Response(JSON.stringify({ error: 'Nomus não configurado' }), {
-        status: 500,
+      return new Response(JSON.stringify({ results: [], _debug: { error: 'Secrets não configurados', hasKey: !!NOMUS_API_KEY, hasUrl: !!NOMUS_API_URL } }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -57,8 +56,7 @@ Deno.serve(async (req) => {
 
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Erro desconhecido';
-    return new Response(JSON.stringify({ error: msg }), {
-      status: 500,
+    return new Response(JSON.stringify({ results: [], _debug: { error: msg } }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }

@@ -9,26 +9,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { motion } from "framer-motion";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { createClient } from "@supabase/supabase-js";
-
-const SQUAD_URL = "https://lzzdmrlaizfhwqiolmsx.supabase.co";
-const SQUAD_ANON_KEY = "sb_publishable_Zmh4czz-OWM4kTfYPyE5Cw_z83wrcRc";
+const SQUAD_TOKEN = "b3d70982de67515a524c9ecbaba43ac4866739b5a0a4945b4f89405d6d0708d2";
 const POSVENDA_BASE = "https://posvenda.liveuni.com.br";
 
 async function startSquadWorkflow(paNumber: string, paId: string) {
   try {
-    const squad = createClient(SQUAD_URL, SQUAD_ANON_KEY);
-    const { data: templates } = await squad
-      .from("workflow_templates")
-      .select("id")
-      .ilike("name", "%Pós Venda%")
-      .limit(1)
-      .single();
-    if (!templates?.id) return;
-    await squad.rpc("start_workflow_instance", {
-      p_template_id: templates.id,
-      p_reference: paNumber,
-      p_title: `${paNumber} — ${POSVENDA_BASE}/pedidos-acessorios/${paId}`,
+    await fetch("https://squad.liveuni.com.br/api/pos-venda", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${SQUAD_TOKEN}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ reference: paNumber, url: `${POSVENDA_BASE}/pedidos-acessorios/${paId}` }),
     });
   } catch {
     // Squad integration is best-effort, do not block main flow
