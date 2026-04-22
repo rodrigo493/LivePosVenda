@@ -155,6 +155,8 @@ const PGDetailPage = () => {
 
   const handleApprove = async () => {
     setApproving(true);
+    // Notifica o SquadOS logo ao aprovar, independente do resultado do ERP.
+    void notifySquad({ recordType: "pg", recordId: id!, reference: claimNumber });
     try {
       const orderItems = items.map((item: any) => ({
         product_code: item.products?.code || "",
@@ -178,7 +180,6 @@ const PGDetailPage = () => {
       await supabase.from("warranty_claims").update({ warranty_status: "aprovada" as any }).eq("id", id!);
       toast.success("Pedido de garantia aprovado e enviado ao ERP!");
       qc.invalidateQueries({ queryKey: ["warranty_claim_detail", id] });
-      void notifySquad({ recordType: "pg", recordId: id!, reference: claimNumber });
     } catch (err: any) {
       if (import.meta.env.DEV) console.error("Approve error:", err);
       toast.error(err.message || "Erro ao aprovar pedido");

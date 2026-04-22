@@ -450,6 +450,8 @@ const PADetailPage = () => {
     if (!nomusFields.cliente.trim()) { toast.error("Preencha o nome do cliente."); return; }
 
     setApproving(true);
+    // Notifica o SquadOS logo ao aprovar, independente do resultado do ERP.
+    void notifySquad({ recordType: "pa", recordId: id!, reference: requestNumber });
     try {
       // Resolve client ID via nginx proxy
       let idPessoaCliente = nomusClientId;
@@ -522,7 +524,6 @@ const PADetailPage = () => {
       await supabase.from("service_requests").update({ status: "resolvido" as any }).eq("id", id!);
       toast.success("Pedido criado no ERP com sucesso!");
       qc.invalidateQueries({ queryKey: ["service_request_detail", id] });
-      void notifySquad({ recordType: "pa", recordId: id!, reference: requestNumber });
     } catch (err: any) {
       if (import.meta.env.DEV) console.error("Approve error:", err);
       toast.error(err.message || "Erro ao criar pedido no ERP");
