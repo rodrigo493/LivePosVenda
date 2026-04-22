@@ -17,3 +17,6 @@ verify_jwt = false
 
 [functions.nomus-search]
 verify_jwt = true
+
+[functions.squad-notify]
+verify_jwt = false
