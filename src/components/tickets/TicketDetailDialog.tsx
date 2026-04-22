@@ -493,13 +493,17 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
       }).select().single();
       if (pgErr) throw pgErr;
       // Cria quote vazio vinculado para habilitar edicao de itens/valores
-      await supabase.from("quotes").insert({
+      const { error: quoteErr } = await supabase.from("quotes").insert({
         client_id: clientId!,
         equipment_id: equipmentId || null,
         ticket_id: ticketId || null,
         warranty_claim_id: pg.id,
         created_by: user?.id,
       });
+      if (quoteErr) {
+        console.error("[createWarrantyClaim] quote insert error:", quoteErr);
+        toast.warning(`PG criado, mas falha ao criar orcamento: ${quoteErr.message}`);
+      }
       return pg;
     },
     onSuccess: (data: any) => {
@@ -524,13 +528,17 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
       if (paErr) throw paErr;
       // Cria quote vazio vinculado para habilitar edicao de itens/valores
       // na pagina do PA (botoes Adicionar Peca/Servico).
-      await supabase.from("quotes").insert({
+      const { error: quoteErr } = await supabase.from("quotes").insert({
         client_id: clientId!,
         equipment_id: equipmentId || null,
         ticket_id: ticketId || null,
         service_request_id: pa.id,
         created_by: user?.id,
       });
+      if (quoteErr) {
+        console.error("[createServiceRequest] quote insert error:", quoteErr);
+        toast.warning(`PA criado, mas falha ao criar orcamento: ${quoteErr.message}`);
+      }
       return pa;
     },
     onSuccess: (data: any) => {
