@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
 export interface Conversation {
@@ -18,7 +18,7 @@ export function useWhatsAppConversations() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("whatsapp_messages")
-        .select("client_id, message_text, direction, created_at, clients(name, phone, whatsapp)")
+        .select("client_id, message_text, direction, created_at, clients(name, phone, whatsapp, whatsapp_last_read_at)")
         .order("created_at", { ascending: false });
 
       if (error) throw error;
@@ -26,17 +26,20 @@ export function useWhatsAppConversations() {
       const map = new Map<string, Conversation>();
       for (const msg of data || []) {
         if (!msg.client_id) continue;
+        const client = msg.clients as any;
+        const lastReadAt = client?.whatsapp_last_read_at ? new Date(client.whatsapp_last_read_at).getTime() : 0;
+        const msgTime = new Date(msg.created_at).getTime();
+        const isUnread = msg.direction === "inbound" && msgTime > lastReadAt;
         if (!map.has(msg.client_id)) {
-          const client = msg.clients as any;
           map.set(msg.client_id, {
             client_id: msg.client_id,
             client_name: client?.name || msg.client_id,
             client_phone: client?.whatsapp || client?.phone || null,
             last_message: msg.message_text,
             last_message_at: msg.created_at,
-            unread_count: msg.direction === "inbound" ? 1 : 0,
+            unread_count: isUnread ? 1 : 0,
           });
-        } else if (msg.direction === "inbound") {
+        } else if (isUnread) {
           const conv = map.get(msg.client_id)!;
           conv.unread_count += 1;
         }
@@ -45,6 +48,22 @@ export function useWhatsAppConversations() {
       return Array.from(map.values()).sort(
         (a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime()
       );
+    },
+  });
+}
+
+export function useMarkConversationRead() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (clientId: string) => {
+      const { error } = await supabase
+        .from("clients")
+        .update({ whatsapp_last_read_at: new Date().toISOString() } as any)
+        .eq("id", clientId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["whatsapp-conversations"] });
     },
   });
 }

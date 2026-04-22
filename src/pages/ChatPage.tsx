@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { MessageSquare, Search, UserPlus } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { WhatsAppChat } from "@/components/whatsapp/WhatsAppChat";
-import { useWhatsAppConversations } from "@/hooks/useWhatsAppConversations";
+import { useWhatsAppConversations, useMarkConversationRead } from "@/hooks/useWhatsAppConversations";
 import { useClients } from "@/hooks/useClients";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -31,6 +31,12 @@ export default function ChatPage() {
   const [selectedChat, setSelectedChat] = useState<ActiveChat | null>(null);
   const [search, setSearch] = useState("");
   const qc = useQueryClient();
+  const markRead = useMarkConversationRead();
+
+  useEffect(() => {
+    if (selectedChat?.client_id) markRead.mutate(selectedChat.client_id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedChat?.client_id]);
 
   useEffect(() => {
     const channel = supabase

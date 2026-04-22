@@ -191,6 +191,19 @@ const CrmPipelinePage = () => {
     }
   }, [grouped, activeId]);
 
+  // Realtime: surface new inbound WhatsApp messages on the kanban cards
+  // (badge + reordering) without waiting for a page refresh.
+  useEffect(() => {
+    const channel = supabase
+      .channel("pipeline-whatsapp-realtime")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "whatsapp_messages" }, () => {
+        qc.invalidateQueries({ queryKey: ["whatsapp-conversations"] });
+        qc.invalidateQueries({ queryKey: ["pipeline-tickets"] });
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [qc]);
+
   const activeTicket = useMemo(() => {
     if (!activeId) return null;
     for (const items of Object.values(columns)) {

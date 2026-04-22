@@ -24,6 +24,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { notifySquad } from "@/lib/squadNotify";
+import { useMarkConversationRead } from "@/hooks/useWhatsAppConversations";
 import { toast } from "sonner";
 import { PIPELINE_STAGES, useMovePipelineStage } from "@/hooks/usePipeline";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -336,6 +337,12 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
 
   // Reset tab when dialog opens
   useEffect(() => { if (open) setActiveTab("info"); }, [open]);
+
+  const markRead = useMarkConversationRead();
+  useEffect(() => {
+    if (open && ticket?.client_id) markRead.mutate(ticket.client_id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, ticket?.client_id]);
   useEffect(() => {
     if (!open || !ticket) return;
     setTicketDescription(ticket.description || "");
