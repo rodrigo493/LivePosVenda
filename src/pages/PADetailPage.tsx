@@ -9,20 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { motion } from "framer-motion";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-const SQUAD_TOKEN = "b3d70982de67515a524c9ecbaba43ac4866739b5a0a4945b4f89405d6d0708d2";
-const POSVENDA_BASE = "https://posvenda.liveuni.com.br";
-
-async function startSquadWorkflow(paNumber: string, paId: string) {
-  try {
-    await fetch("https://squad.liveuni.com.br/api/pos-venda", {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${SQUAD_TOKEN}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ reference: paNumber, url: `${POSVENDA_BASE}/pedidos-acessorios/${paId}` }),
-    });
-  } catch {
-    // Squad integration is best-effort, do not block main flow
-  }
-}
+import { notifySquad } from "@/lib/squadNotify";
 import { toast } from "sonner";
 import { format, parse, isValid } from "date-fns";
 import { Badge } from "@/components/ui/badge";
@@ -466,7 +453,7 @@ const PADetailPage = () => {
       await supabase.from("service_requests").update({ status: "resolvido" as any }).eq("id", id!);
       toast.success("Pedido criado no ERP com sucesso!");
       qc.invalidateQueries({ queryKey: ["service_request_detail", id] });
-      startSquadWorkflow(requestNumber, id!);
+      void notifySquad({ recordType: "pa", recordId: id!, reference: requestNumber });
     } catch (err: any) {
       if (import.meta.env.DEV) console.error("Approve error:", err);
       toast.error(err.message || "Erro ao criar pedido no ERP");
