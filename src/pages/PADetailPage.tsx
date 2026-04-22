@@ -629,7 +629,7 @@ const PADetailPage = () => {
       )}
 
       {/* Financial summary cards */}
-      {items.length > 0 && (
+      {linkedQuote && (
         <>
           <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-4">
             {[
@@ -656,12 +656,12 @@ const PADetailPage = () => {
       )}
 
       {/* Add items buttons */}
-      {editing && linkedQuote && (
+      {linkedQuote && (
         <div className="flex gap-2 mb-4">
-          <Button size="sm" className="gap-1.5" variant={searchMode === "peca" ? "default" : "outline"} onClick={() => { setSearchMode(searchMode === "peca" ? null : "peca"); setShowNewServiceForm(false); }}>
+          <Button size="sm" className="gap-1.5" variant={searchMode === "peca" ? "default" : "outline"} onClick={() => { setEditing(true); setSearchMode(searchMode === "peca" ? null : "peca"); setShowNewServiceForm(false); }}>
             <Package className="h-3.5 w-3.5" /> Adicionar Peça
           </Button>
-          <Button size="sm" className="gap-1.5" variant={searchMode === "servico" ? "default" : "outline"} onClick={() => { setSearchMode(searchMode === "servico" ? null : "servico"); setShowNewServiceForm(false); }}>
+          <Button size="sm" className="gap-1.5" variant={searchMode === "servico" ? "default" : "outline"} onClick={() => { setEditing(true); setSearchMode(searchMode === "servico" ? null : "servico"); setShowNewServiceForm(false); }}>
             <Wrench className="h-3.5 w-3.5" /> Adicionar Serviço
           </Button>
         </div>
