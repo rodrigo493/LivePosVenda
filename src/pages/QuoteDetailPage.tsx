@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
+import { notifySquad } from "@/lib/squadNotify";
 import { useQueryClient } from "@tanstack/react-query";
 import { quoteStatusLabels as statusLabels, itemTypeLabels } from "@/constants/statusLabels";
 
@@ -518,6 +519,7 @@ const QuoteDetailPage = () => {
                 }).select().single();
                 if (error) { toast.error(error.message || "Erro ao criar PA"); return; }
                 await supabase.from("quotes").update({ service_request_id: paData.id } as any).eq("id", id!);
+                void notifySquad({ recordType: "pa", recordId: paData.id, reference: paNumber });
                 toast.success(`Pedido de Acessório ${paNumber} criado!`);
                 qc.invalidateQueries({ queryKey: ["quotes"] });
                 qc.invalidateQueries({ queryKey: ["service_requests_pa"] });
@@ -539,6 +541,7 @@ const QuoteDetailPage = () => {
                 }).select().single();
                 if (error) { toast.error(error.message || "Erro ao criar PG"); return; }
                 await supabase.from("quotes").update({ warranty_claim_id: pgData.id } as any).eq("id", id!);
+                void notifySquad({ recordType: "pg", recordId: pgData.id, reference: pgNumber });
                 toast.success(`Pedido de Garantia ${pgNumber} criado!`);
                 qc.invalidateQueries({ queryKey: ["quotes"] });
                 qc.invalidateQueries({ queryKey: ["warranty_claims_pg"] });
