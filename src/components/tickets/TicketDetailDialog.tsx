@@ -939,11 +939,6 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                                     <Select
                                       value={sr.status === "cancelado" ? "cancelado" : sr.status === "resolvido" ? "resolvido" : "em_andamento"}
                                       onValueChange={async (val) => {
-                                        if (val === "resolvido") {
-                                          onOpenChange(false);
-                                          setTimeout(() => navigate(`/pedidos-acessorios/${sr.id}?from_ticket=${ticket.id}`), 150);
-                                          return;
-                                        }
                                         const { error } = await supabase.from("service_requests").update({ status: val as any }).eq("id", sr.id);
                                         if (error) { toast.error("Erro ao atualizar"); return; }
                                         toast.success("Status atualizado");

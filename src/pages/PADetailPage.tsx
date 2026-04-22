@@ -356,12 +356,29 @@ const PADetailPage = () => {
   };
 
   const handleStatusChange = async (val: string) => {
-    if (editing) {
-      setEditStatus(val);
-    } else {
-      const { error } = await supabase.from("service_requests").update({ status: val as any }).eq("id", id!);
-      if (error) toast.error("Erro ao atualizar");
-      else { toast.success("Status atualizado"); qc.invalidateQueries({ queryKey: ["service_request_detail", id] }); }
+    setEditStatus(val);
+    const { error } = await supabase.from("service_requests").update({ status: val as any }).eq("id", id!);
+    if (error) toast.error("Erro ao atualizar");
+    else { toast.success("Status atualizado"); qc.invalidateQueries({ queryKey: ["service_request_detail", id] }); }
+  };
+
+  const handleSaveBasic = async () => {
+    setSaving(true);
+    try {
+      const { error } = await supabase.from("service_requests").update({
+        notes: currentNotes,
+        estimated_cost: parseFloat(currentCost) || 0,
+      }).eq("id", id!);
+      if (error) throw error;
+      toast.success("Alterações salvas!");
+      setNotes(null);
+      setCost(null);
+      qc.invalidateQueries({ queryKey: ["service_request_detail", id] });
+    } catch (err: any) {
+      if (import.meta.env.DEV) console.error("Save error:", err);
+      toast.error(err.message || "Erro ao salvar");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -479,9 +496,15 @@ const PADetailPage = () => {
         <StatusBadge status={statusLabels[currentStatus] || currentStatus} />
         {/* Edit / Save / Cancel buttons */}
         {!editing ? (
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={handleEnterEdit}>
-            <Pencil className="h-3.5 w-3.5" /> Editar
-          </Button>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={handleEnterEdit}>
+              <Pencil className="h-3.5 w-3.5" /> Editar Itens
+            </Button>
+            <Button size="sm" className="gap-1.5" onClick={handleSaveBasic} disabled={saving}>
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+              Salvar
+            </Button>
+          </div>
         ) : (
           <div className="flex gap-2">
             <Button size="sm" variant="ghost" className="gap-1.5" onClick={handleCancelEdit}>
@@ -756,7 +779,6 @@ const PADetailPage = () => {
             onChange={(e) => setNotes(e.target.value)}
             placeholder="Observações do pedido de acessório..."
             rows={3}
-            disabled={!editing}
           />
         </div>
         <div>
@@ -766,8 +788,7 @@ const PADetailPage = () => {
             step="0.01"
             value={currentCost}
             onChange={(e) => setCost(e.target.value)}
-            disabled={!editing}
-            className="w-full px-3 py-2 text-sm rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono disabled:opacity-50"
+            className="w-full px-3 py-2 text-sm rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono"
           />
         </div>
       </div>
@@ -776,7 +797,7 @@ const PADetailPage = () => {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <div>
           <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Status do PA</label>
-          <Select value={currentStatus} onValueChange={handleStatusChange} disabled={!editing}>
+          <Select value={currentStatus} onValueChange={handleStatusChange}>
             <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="em_analise">Em Análise</SelectItem>
