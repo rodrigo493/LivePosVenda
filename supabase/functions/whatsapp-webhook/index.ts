@@ -1,69 +1,100 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+function looksLikeValidMedia(bytes: Uint8Array, mime: string): boolean {
+  if (bytes.length < 8) return false;
+  // Reject JSON error blobs that upstream sometimes returns with status 200
+  if (bytes[0] === 0x7B || bytes[0] === 0x5B) return false; // "{" or "["
+  const m = mime.toLowerCase();
+  const sig = (...arr: number[]) => arr.every((b, i) => bytes[i] === b);
+  if (m.startsWith("image/jpeg") || m.includes("jpg")) return sig(0xFF, 0xD8, 0xFF);
+  if (m.startsWith("image/png")) return sig(0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A);
+  if (m.startsWith("image/gif")) return sig(0x47, 0x49, 0x46, 0x38);
+  if (m.startsWith("image/webp")) return sig(0x52, 0x49, 0x46, 0x46) && bytes[8] === 0x57 && bytes[9] === 0x45;
+  if (m.includes("ogg")) return sig(0x4F, 0x67, 0x67, 0x53);
+  if (m.includes("webm") || m.includes("matroska")) return sig(0x1A, 0x45, 0xDF, 0xA3);
+  if (m.includes("mp4") || m.includes("m4a") || m.includes("quicktime")) {
+    // ISO-BMFF: 4 bytes size + "ftyp"
+    return bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70;
+  }
+  if (m.startsWith("audio/mpeg") || m.endsWith("/mp3")) {
+    return sig(0x49, 0x44, 0x33) || (bytes[0] === 0xFF && (bytes[1] & 0xE0) === 0xE0);
+  }
+  if (m.startsWith("application/pdf")) return sig(0x25, 0x50, 0x44, 0x46);
+  return true; // unknown mime: trust size only
+}
+
 async function downloadAndStoreMedia(
   admin: ReturnType<typeof createClient>,
   uazapiBaseUrl: string,
   uazapiToken: string,
-  messageid: string | null,
+  _messageid: string | null,
   mime: string,
   clientId: string,
-  directUrl?: string | null,
+  _directUrl?: string | null,
   mediaMeta?: Record<string, unknown> | null,
 ): Promise<string | null> {
   try {
-    let bytes: Uint8Array | null = null;
+    if (!mediaMeta) { console.error("media_download: no crypto metadata, skipping"); return null; }
 
     const endpoint = mime.startsWith("audio/") ? "/chat/downloadaudio"
       : mime.startsWith("image/") ? "/chat/downloadimage"
       : mime.startsWith("video/") ? "/chat/downloadvideo"
       : "/chat/downloaddocument";
 
-    // 1. Use Uazapi download endpoint with WhatsApp crypto metadata (retry on transient failures)
-    if (mediaMeta) {
-      const payload: Record<string, unknown> = {
-        Url: mediaMeta.URL || mediaMeta.url || mediaMeta.Url || directUrl,
-        MediaKey: mediaMeta.mediaKey || mediaMeta.MediaKey,
-        Mimetype: mediaMeta.mimetype || mediaMeta.Mimetype || mime,
-        FileSHA256: mediaMeta.fileSHA256 || mediaMeta.fileSha256 || mediaMeta.FileSHA256,
-        FileLength: mediaMeta.fileLength || mediaMeta.FileLength,
-        FileEncSHA256: mediaMeta.fileEncSHA256 || mediaMeta.fileEncSha256 || mediaMeta.FileEncSHA256,
-      };
-      console.log(`${endpoint} payload:`, JSON.stringify(payload).slice(0, 300));
-      for (let attempt = 1; attempt <= 3 && !bytes; attempt++) {
-        try {
-          const res = await fetch(`${uazapiBaseUrl}${endpoint}`, {
-            method: "POST",
-            headers: { Token: uazapiToken, "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          });
-          console.log(`${endpoint} attempt=${attempt} status:`, res.status);
-          if (res.ok) {
-            const json = await res.json();
-            const b64: string = json.base64 || json.data || json.audio || json.image || json.video || json.document || "";
-            if (b64) {
-              const raw = b64.includes(",") ? b64.split(",")[1] : b64;
-              const bin = atob(raw);
-              bytes = new Uint8Array(bin.length);
-              for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const payload: Record<string, unknown> = {
+      Url: mediaMeta.URL || mediaMeta.url || mediaMeta.Url,
+      MediaKey: mediaMeta.mediaKey || mediaMeta.MediaKey,
+      Mimetype: mediaMeta.mimetype || mediaMeta.Mimetype || mime,
+      FileSHA256: mediaMeta.fileSHA256 || mediaMeta.fileSha256 || mediaMeta.FileSHA256,
+      FileLength: mediaMeta.fileLength || mediaMeta.FileLength,
+      FileEncSHA256: mediaMeta.fileEncSHA256 || mediaMeta.fileEncSha256 || mediaMeta.FileEncSHA256,
+    };
+
+    // Uazapi requires Url + MediaKey to decrypt. Skip the direct CDN fallback:
+    // the WhatsApp CDN returns AES-encrypted bytes and salvaging them without
+    // the key produces garbage that we would upload as-is.
+    if (!payload.Url || !payload.MediaKey) {
+      console.error(`${endpoint}: missing Url/MediaKey in crypto metadata, cannot decrypt`);
+      return null;
+    }
+    console.log(`${endpoint} payload:`, JSON.stringify(payload).slice(0, 300));
+
+    let bytes: Uint8Array | null = null;
+    for (let attempt = 1; attempt <= 3 && !bytes; attempt++) {
+      try {
+        const res = await fetch(`${uazapiBaseUrl}${endpoint}`, {
+          method: "POST",
+          headers: { Token: uazapiToken, "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        console.log(`${endpoint} attempt=${attempt} status:`, res.status);
+        if (res.ok) {
+          const json = await res.json();
+          const b64: string = json.base64 || json.data || json.audio || json.image || json.video || json.document || json.file || "";
+          if (b64) {
+            const raw = b64.includes(",") ? b64.split(",")[1] : b64;
+            const bin = atob(raw);
+            const buf = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+            if (!looksLikeValidMedia(buf, mime)) {
+              console.error(`${endpoint} attempt=${attempt} decoded bytes fail signature check. first16=`,
+                Array.from(buf.slice(0, 16)).map((b) => b.toString(16).padStart(2, "0")).join(" "));
+            } else {
+              bytes = buf;
               break;
-            } else { console.error(`${endpoint}: no base64 in response`, JSON.stringify(json).slice(0, 200)); }
+            }
           } else {
-            const t = await res.text();
-            console.error(`${endpoint} attempt=${attempt} error:`, t.slice(0, 200));
+            console.error(`${endpoint}: no base64 in response`, JSON.stringify(json).slice(0, 200));
           }
-        } catch (e) { console.error(`${endpoint} attempt=${attempt} exception:`, e); }
-        if (!bytes && attempt < 3) await new Promise((r) => setTimeout(r, attempt * 800));
-      }
+        } else {
+          const t = await res.text();
+          console.error(`${endpoint} attempt=${attempt} error:`, t.slice(0, 200));
+        }
+      } catch (e) { console.error(`${endpoint} attempt=${attempt} exception:`, e); }
+      if (!bytes && attempt < 3) await new Promise((r) => setTimeout(r, attempt * 800));
     }
 
-    // 2. Fallback: try direct URL only if absolute
-    if (!bytes && directUrl && directUrl.startsWith("http")) {
-      const res = await fetch(directUrl, { headers: { Token: uazapiToken } });
-      console.log("direct_url status:", res.status, directUrl.slice(0, 80));
-      if (res.ok) bytes = new Uint8Array(await res.arrayBuffer());
-    }
-
-    if (!bytes || bytes.length === 0) { console.error("media_download: no bytes obtained"); return null; }
+    if (!bytes || bytes.length === 0) { console.error("media_download: no valid bytes obtained"); return null; }
 
     const storeContentType = mime.includes("ogg") ? "audio/ogg" : mime.split(";")[0];
     const ext = mime.includes("ogg") ? "ogg"
