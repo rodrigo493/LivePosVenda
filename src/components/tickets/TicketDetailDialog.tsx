@@ -487,12 +487,20 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
     mutationFn: async () => {
       const { data: pgNumData } = await supabase.rpc("generate_pg_number");
       const claimNumber = pgNumData || `PG-${Date.now()}`;
-      const { data, error } = await supabase.from("warranty_claims").insert({
+      const { data: pg, error: pgErr } = await supabase.from("warranty_claims").insert({
         ticket_id: ticketId!,
         claim_number: claimNumber,
       }).select().single();
-      if (error) throw error;
-      return data;
+      if (pgErr) throw pgErr;
+      // Cria quote vazio vinculado para habilitar edicao de itens/valores
+      await supabase.from("quotes").insert({
+        client_id: clientId!,
+        equipment_id: equipmentId || null,
+        ticket_id: ticketId || null,
+        warranty_claim_id: pg.id,
+        created_by: user?.id,
+      });
+      return pg;
     },
     onSuccess: (data: any) => {
       qc.invalidateQueries({ queryKey: ["client-warranty-claims"] });
@@ -508,13 +516,22 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
     mutationFn: async () => {
       const { data: paNumData } = await supabase.rpc("generate_pa_number");
       const requestNumber = paNumData || `PA-${Date.now()}`;
-      const { data, error } = await supabase.from("service_requests").insert({
+      const { data: pa, error: paErr } = await supabase.from("service_requests").insert({
         ticket_id: ticketId!,
         request_number: requestNumber,
         request_type: "troca_peca" as any,
       }).select().single();
-      if (error) throw error;
-      return data;
+      if (paErr) throw paErr;
+      // Cria quote vazio vinculado para habilitar edicao de itens/valores
+      // na pagina do PA (botoes Adicionar Peca/Servico).
+      await supabase.from("quotes").insert({
+        client_id: clientId!,
+        equipment_id: equipmentId || null,
+        ticket_id: ticketId || null,
+        service_request_id: pa.id,
+        created_by: user?.id,
+      });
+      return pa;
     },
     onSuccess: (data: any) => {
       qc.invalidateQueries({ queryKey: ["client-service-requests"] });
