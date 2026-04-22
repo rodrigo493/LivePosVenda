@@ -22,6 +22,7 @@ import { SuggestedParts } from "@/components/products/SuggestedParts";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { notifySquad } from "@/lib/squadNotify";
 import { toast } from "sonner";
 import { PIPELINE_STAGES, useMovePipelineStage } from "@/hooks/usePipeline";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -484,32 +485,47 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
 
   const createWarrantyClaim = useMutation({
     mutationFn: async () => {
+      const { data: pgNumData } = await supabase.rpc("generate_pg_number");
+      const claimNumber = pgNumData || `PG-${Date.now()}`;
       const { data, error } = await supabase.from("warranty_claims").insert({
         ticket_id: ticketId!,
+        claim_number: claimNumber,
       }).select().single();
       if (error) throw error;
       return data;
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       qc.invalidateQueries({ queryKey: ["client-warranty-claims"] });
-      toast.success("Garantia criada com sucesso");
+      toast.success(`PG ${data.claim_number} criado`);
+      void notifySquad({ recordType: "pg", recordId: data.id, reference: data.claim_number });
+      onOpenChange(false);
+      setTimeout(() => navigate(`/pedidos-garantia/${data.id}?from_ticket=${ticketId}`), 150);
     },
-    onError: () => toast.error("Erro ao criar garantia"),
+    onError: (err: any) => toast.error(err?.message || "Erro ao criar PG"),
   });
 
   const createServiceRequest = useMutation({
     mutationFn: async () => {
+      const { data: paNumData } = await supabase.rpc("generate_pa_number");
+      const requestNumber = paNumData || `PA-${Date.now()}`;
       const { data, error } = await supabase.from("service_requests").insert({
         ticket_id: ticketId!,
+        request_number: requestNumber,
+        request_type: "troca_peca" as any,
       }).select().single();
       if (error) throw error;
       return data;
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       qc.invalidateQueries({ queryKey: ["client-service-requests"] });
-      toast.success("Assistência criada com sucesso");
+      toast.success(`PA ${data.request_number} criado`);
+      // Notifica SquadOS (fire-and-forget)
+      void notifySquad({ recordType: "pa", recordId: data.id, reference: data.request_number });
+      // Abre a pagina completa do PA recem-criado
+      onOpenChange(false);
+      setTimeout(() => navigate(`/pedidos-acessorios/${data.id}?from_ticket=${ticketId}`), 150);
     },
-    onError: () => toast.error("Erro ao criar assistência"),
+    onError: (err: any) => toast.error(err?.message || "Erro ao criar PA"),
   });
 
   const createTask = useMutation({
