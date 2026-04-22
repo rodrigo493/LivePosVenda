@@ -335,6 +335,10 @@ Deno.serve(async (req) => {
     });
 
     if (msgErr) {
+      // 23505 = unique_violation: concurrent webhook raced us. Treat as duplicate.
+      if ((msgErr as { code?: string }).code === "23505") {
+        return new Response(JSON.stringify({ duplicate: true }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
       return new Response(JSON.stringify({ error: "msg_insert", detail: msgErr }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
 
