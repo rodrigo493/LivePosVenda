@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Trash2, FileText, Download, Eye, Minus, Plus, Save, Wrench, Package, Pencil, Shield } from "lucide-react";
+import { ArrowLeft, Trash2, FileText, Download, Eye, Minus, Plus, Save, Wrench, Package, Pencil } from "lucide-react";
+import { ApprovalActionDialog } from "@/components/shared/ApprovalActionDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -16,9 +17,7 @@ import { exportDocumentToExcel, printPdf, type ExportDocument } from "@/lib/expo
 import { ExportMenu } from "@/components/shared/ExportMenu";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
-import { notifySquad } from "@/lib/squadNotify";
 import { useQueryClient } from "@tanstack/react-query";
 import { quoteStatusLabels as statusLabels, itemTypeLabels } from "@/constants/statusLabels";
 
@@ -498,64 +497,17 @@ const QuoteDetailPage = () => {
         )}
       </div>
 
-      {/* Approval Prompt: PA or PG */}
-      <Dialog open={approvalPrompt} onOpenChange={setApprovalPrompt}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Orçamento Aprovado</DialogTitle>
-            <DialogDescription>O que deseja criar a partir deste orçamento?</DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col gap-3 pt-2">
-            <Button
-              className="w-full gap-2"
-              onClick={async () => {
-                const { data: paNumData } = await supabase.rpc("generate_pa_number");
-                const paNumber = paNumData || quote.quote_number.replace(/^OC\./, "PA.");
-                const { data: paData, error } = await supabase.from("service_requests").insert({
-                  ticket_id: quote.ticket_id!,
-                  request_type: "troca_peca" as any,
-                  notes: "Gerado a partir de orçamento aprovado",
-                  request_number: paNumber,
-                }).select().single();
-                if (error) { toast.error(error.message || "Erro ao criar PA"); return; }
-                await supabase.from("quotes").update({ service_request_id: paData.id } as any).eq("id", id!);
-                void notifySquad({ recordType: "pa", recordId: paData.id, reference: paNumber });
-                toast.success(`Pedido de Acessório ${paNumber} criado!`);
-                qc.invalidateQueries({ queryKey: ["quotes"] });
-                qc.invalidateQueries({ queryKey: ["service_requests_pa"] });
-                setApprovalPrompt(false);
-              }}
-            >
-              <Package className="h-4 w-4" /> Pedido de Acessório (PA)
-            </Button>
-            <Button
-              variant="outline"
-              className="w-full gap-2"
-              onClick={async () => {
-                const { data: pgNumData } = await supabase.rpc("generate_pg_number");
-                const pgNumber = pgNumData || quote.quote_number.replace(/^OC\./, "PG.");
-                const { data: pgData, error } = await supabase.from("warranty_claims").insert({
-                  ticket_id: quote.ticket_id!,
-                  defect_description: "Gerado a partir de orçamento aprovado",
-                  claim_number: pgNumber,
-                }).select().single();
-                if (error) { toast.error(error.message || "Erro ao criar PG"); return; }
-                await supabase.from("quotes").update({ warranty_claim_id: pgData.id } as any).eq("id", id!);
-                void notifySquad({ recordType: "pg", recordId: pgData.id, reference: pgNumber });
-                toast.success(`Pedido de Garantia ${pgNumber} criado!`);
-                qc.invalidateQueries({ queryKey: ["quotes"] });
-                qc.invalidateQueries({ queryKey: ["warranty_claims_pg"] });
-                setApprovalPrompt(false);
-              }}
-            >
-              <Shield className="h-4 w-4" /> Pedido de Garantia (PG)
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => setApprovalPrompt(false)}>
-              Apenas aprovar, sem criar pedido
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <ApprovalActionDialog
+        open={approvalPrompt}
+        onOpenChange={setApprovalPrompt}
+        quote={{
+          id: quote.id,
+          quote_number: quote.quote_number,
+          ticket_id: quote.ticket_id,
+          client_id: quote.client_id,
+          equipment_id: quote.equipment_id,
+        }}
+      />
     </div>
   );
 };

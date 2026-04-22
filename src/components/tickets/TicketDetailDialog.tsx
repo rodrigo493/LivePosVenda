@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { CrudDialog } from "@/components/shared/CrudDialog";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { ApprovalActionDialog } from "@/components/shared/ApprovalActionDialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -288,6 +289,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   const [selectedQuotes, setSelectedQuotes] = useState<Set<string>>(new Set());
   const [selectedPA, setSelectedPA] = useState<Set<string>>(new Set());
   const [selectedPG, setSelectedPG] = useState<Set<string>>(new Set());
+  const [approvalQuote, setApprovalQuote] = useState<{ id: string; quote_number: string; ticket_id: string | null; client_id: string | null; equipment_id: string | null } | null>(null);
 
   const toggleSel = (set: Set<string>, setFn: (s: Set<string>) => void, id: string) => {
     const next = new Set(set);
@@ -297,7 +299,6 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   const toggleAll = (ids: string[], set: Set<string>, setFn: (s: Set<string>) => void) => {
     setFn(set.size === ids.length ? new Set() : new Set(ids));
   };
-  const [approvalPrompt, setApprovalPrompt] = useState<{ quoteId: string; ticketId: string; quoteNumber: string } | null>(null);
   const moveStage = useMovePipelineStage();
   const ticketId = ticket?.id;
   const equipmentId = ticket?.equipment_id;
@@ -913,10 +914,22 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                                     <Select
                                       value={q.status}
                                       onValueChange={async (val) => {
-                                        const { error } = await supabase.from("quotes").update({ status: val }).eq("id", q.id);
+                                        const { error } = await supabase
+                                          .from("quotes")
+                                          .update({ status: val, ...(val === "aprovado" ? { approved_at: new Date().toISOString() } : {}) })
+                                          .eq("id", q.id);
                                         if (error) { toast.error("Erro ao atualizar"); return; }
                                         toast.success("Status atualizado");
                                         qc.invalidateQueries({ queryKey: ["client-quotes"] });
+                                        if (val === "aprovado") {
+                                          setApprovalQuote({
+                                            id: q.id,
+                                            quote_number: q.quote_number,
+                                            ticket_id: q.ticket_id,
+                                            client_id: q.client_id,
+                                            equipment_id: q.equipment_id,
+                                          });
+                                        }
                                       }}
                                     >
                                       <SelectTrigger className="h-6 w-[130px] text-[10px] shrink-0">
@@ -1534,72 +1547,11 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
       />
     </Dialog>
 
-    {/* Approval Prompt: PA or PG */}
-    <Dialog open={!!approvalPrompt} onOpenChange={(o) => !o && setApprovalPrompt(null)}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Orçamento Aprovado</DialogTitle>
-          <DialogDescription>O que deseja criar a partir deste orçamento?</DialogDescription>
-        </DialogHeader>
-        <div className="flex flex-col gap-3 pt-2">
-          <Button
-            className="w-full gap-2"
-            onClick={async () => {
-              if (!approvalPrompt) return;
-              const { data: paNumData } = await supabase.rpc("generate_pa_number");
-              const paNumber = paNumData || approvalPrompt.quoteNumber.replace(/^OC\./, "PA.");
-              const { data: paData, error } = await supabase.from("service_requests").insert({
-                ticket_id: approvalPrompt.ticketId,
-                request_type: "troca_peca" as any,
-                notes: "Gerado a partir de orçamento aprovado",
-                request_number: paNumber,
-              }).select().single();
-              if (error) { toast.error("Erro ao criar PA: " + error.message); if (import.meta.env.DEV) console.error("PA insert error:", error); return; }
-              // Link quote to PA
-              const { error: linkErr } = await supabase.from("quotes").update({ service_request_id: paData.id } as any).eq("id", approvalPrompt.quoteId);
-              if (linkErr && import.meta.env.DEV) console.error("Quote link error:", linkErr);
-              toast.success(`Pedido de Acessório ${paNumber} criado!`);
-              qc.invalidateQueries({ queryKey: ["service_requests_pa"] });
-              qc.invalidateQueries({ queryKey: ["client-service-requests"] });
-              qc.invalidateQueries({ queryKey: ["client-quotes"] });
-              setApprovalPrompt(null);
-              setActiveTab("client-services");
-            }}
-          >
-            <Package className="h-4 w-4" /> Pedido de Acessório (PA)
-          </Button>
-          <Button
-            variant="outline"
-            className="w-full gap-2"
-            onClick={async () => {
-              if (!approvalPrompt) return;
-              const { data: pgNumData } = await supabase.rpc("generate_pg_number");
-              const pgNumber = pgNumData || approvalPrompt.quoteNumber.replace(/^OC\./, "PG.");
-              const { data: pgData, error } = await supabase.from("warranty_claims").insert({
-                ticket_id: approvalPrompt.ticketId,
-                defect_description: "Gerado a partir de orçamento aprovado",
-                claim_number: pgNumber,
-              }).select().single();
-              if (error) { toast.error("Erro ao criar PG: " + error.message); if (import.meta.env.DEV) console.error("PG insert error:", error); return; }
-              // Link quote to PG
-              const { error: linkErr } = await supabase.from("quotes").update({ warranty_claim_id: pgData.id } as any).eq("id", approvalPrompt.quoteId);
-              if (linkErr && import.meta.env.DEV) console.error("Quote link error:", linkErr);
-              toast.success(`Pedido de Garantia ${pgNumber} criado!`);
-              qc.invalidateQueries({ queryKey: ["warranty_claims_pg"] });
-              qc.invalidateQueries({ queryKey: ["client-warranty-claims"] });
-              qc.invalidateQueries({ queryKey: ["client-quotes"] });
-              setApprovalPrompt(null);
-              setActiveTab("client-warranties");
-            }}
-          >
-            <Shield className="h-4 w-4" /> Pedido de Garantia (PG)
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => setApprovalPrompt(null)}>
-            Apenas aprovar, sem criar pedido
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+    <ApprovalActionDialog
+      open={!!approvalQuote}
+      onOpenChange={(o) => !o && setApprovalQuote(null)}
+      quote={approvalQuote}
+    />
     </>
   );
 }
