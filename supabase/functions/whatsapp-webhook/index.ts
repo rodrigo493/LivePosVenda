@@ -18,7 +18,7 @@ async function downloadAndStoreMedia(
       : mime.startsWith("video/") ? "/chat/downloadvideo"
       : "/chat/downloaddocument";
 
-    // 1. Use Uazapi download endpoint with WhatsApp crypto metadata
+    // 1. Use Uazapi download endpoint with WhatsApp crypto metadata (retry on transient failures)
     if (mediaMeta) {
       const payload: Record<string, unknown> = {
         Url: mediaMeta.URL || mediaMeta.url || mediaMeta.Url || directUrl,
@@ -29,24 +29,30 @@ async function downloadAndStoreMedia(
         FileEncSHA256: mediaMeta.fileEncSHA256 || mediaMeta.fileEncSha256 || mediaMeta.FileEncSHA256,
       };
       console.log(`${endpoint} payload:`, JSON.stringify(payload).slice(0, 300));
-      const res = await fetch(`${uazapiBaseUrl}${endpoint}`, {
-        method: "POST",
-        headers: { Token: uazapiToken, "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      console.log(`${endpoint} status:`, res.status);
-      if (res.ok) {
-        const json = await res.json();
-        const b64: string = json.base64 || json.data || json.audio || json.image || json.video || json.document || "";
-        if (b64) {
-          const raw = b64.includes(",") ? b64.split(",")[1] : b64;
-          const bin = atob(raw);
-          bytes = new Uint8Array(bin.length);
-          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-        } else { console.error(`${endpoint}: no base64 in response`, JSON.stringify(json).slice(0, 200)); }
-      } else {
-        const t = await res.text();
-        console.error(`${endpoint} error:`, t.slice(0, 200));
+      for (let attempt = 1; attempt <= 3 && !bytes; attempt++) {
+        try {
+          const res = await fetch(`${uazapiBaseUrl}${endpoint}`, {
+            method: "POST",
+            headers: { Token: uazapiToken, "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          console.log(`${endpoint} attempt=${attempt} status:`, res.status);
+          if (res.ok) {
+            const json = await res.json();
+            const b64: string = json.base64 || json.data || json.audio || json.image || json.video || json.document || "";
+            if (b64) {
+              const raw = b64.includes(",") ? b64.split(",")[1] : b64;
+              const bin = atob(raw);
+              bytes = new Uint8Array(bin.length);
+              for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+              break;
+            } else { console.error(`${endpoint}: no base64 in response`, JSON.stringify(json).slice(0, 200)); }
+          } else {
+            const t = await res.text();
+            console.error(`${endpoint} attempt=${attempt} error:`, t.slice(0, 200));
+          }
+        } catch (e) { console.error(`${endpoint} attempt=${attempt} exception:`, e); }
+        if (!bytes && attempt < 3) await new Promise((r) => setTimeout(r, attempt * 800));
       }
     }
 
