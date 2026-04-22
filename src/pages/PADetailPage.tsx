@@ -92,6 +92,32 @@ const PADetailPage = () => {
   // Editable item data (quantity, unit_price per item)
   const [editableItems, setEditableItems] = useState<Record<string, { quantity: string; unit_price: string; description: string }>>({});
 
+  // Quote-level editable fields (espelhando a tela de Orçamento)
+  const [quoteNotes, setQuoteNotes] = useState<string>("");
+  const [quoteValidUntil, setQuoteValidUntil] = useState<string>("");
+  const [savingQuoteDetails, setSavingQuoteDetails] = useState(false);
+  useEffect(() => {
+    if (!linkedQuote) return;
+    setQuoteNotes((linkedQuote.notes as string) ?? "");
+    setQuoteValidUntil((linkedQuote.valid_until as string) ?? "");
+  }, [linkedQuote?.id, linkedQuote?.notes, linkedQuote?.valid_until]);
+
+  async function saveQuoteDetails() {
+    if (!linkedQuote) return;
+    setSavingQuoteDetails(true);
+    try {
+      const { error } = await supabase
+        .from("quotes")
+        .update({ notes: quoteNotes || null, valid_until: quoteValidUntil || null })
+        .eq("id", linkedQuote.id);
+      if (error) { toast.error(error.message); return; }
+      toast.success("Detalhes do orçamento salvos");
+      qc.invalidateQueries({ queryKey: ["pa_linked_quote", id] });
+    } finally {
+      setSavingQuoteDetails(false);
+    }
+  }
+
   // Nomus ERP fields
   const [nomusFields, setNomusFields] = useState({
     pedido: "",
@@ -743,17 +769,22 @@ const PADetailPage = () => {
       )}
 
       {/* Suggested parts */}
-      {editing && linkedQuote && (
+      {linkedQuote && (
         <SuggestedParts modelId={equipModelId} modelName={modelName} onSelect={handleProductSelect} />
       )}
 
       {/* Items table */}
-      {items.length > 0 && (
+      {linkedQuote && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="bg-card rounded-xl border shadow-sm overflow-hidden mb-6">
           <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/50">
             <h3 className="font-display font-semibold text-sm">Itens do Pedido ({items.length})</h3>
             {linkedQuote && <Badge variant="outline" className="text-[10px]">Origem: {linkedQuote.quote_number}</Badge>}
           </div>
+          {items.length === 0 ? (
+            <div className="p-8 text-center text-muted-foreground text-sm">
+              Nenhum item adicionado. Use os botões acima para adicionar peças ou serviços.
+            </div>
+          ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
@@ -821,7 +852,45 @@ const PADetailPage = () => {
               </tbody>
             </table>
           </div>
+          )}
         </motion.div>
+      )}
+
+      {/* Quote-level details (mirror of Orçamento page) */}
+      {linkedQuote && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div className="md:col-span-2">
+            <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">
+              Observações / Condições Comerciais
+            </label>
+            <Textarea
+              value={quoteNotes}
+              onChange={(e) => setQuoteNotes(e.target.value)}
+              placeholder="Condições de pagamento, prazo estimado, garantia de serviço..."
+              rows={3}
+            />
+          </div>
+          <div className="flex flex-col">
+            <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">
+              Validade do Orçamento
+            </label>
+            <input
+              type="date"
+              value={quoteValidUntil ? quoteValidUntil.slice(0, 10) : ""}
+              onChange={(e) => setQuoteValidUntil(e.target.value)}
+              className="w-full px-3 py-2 text-sm rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono"
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5 mt-2"
+              disabled={savingQuoteDetails}
+              onClick={saveQuoteDetails}
+            >
+              <Save className="h-3.5 w-3.5" /> {savingQuoteDetails ? "Salvando..." : "Salvar Detalhes"}
+            </Button>
+          </div>
+        </div>
       )}
 
       {/* Editable fields */}
