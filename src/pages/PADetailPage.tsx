@@ -10,6 +10,9 @@ import { motion } from "framer-motion";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { notifySquad } from "@/lib/squadNotify";
+import { generateQuotePdf } from "@/lib/generateQuotePdf";
+import { exportDocumentToExcel, printPdf, type ExportDocument } from "@/lib/exportHelpers";
+import { ExportMenu } from "@/components/shared/ExportMenu";
 import { toast } from "sonner";
 import { format, parse, isValid } from "date-fns";
 import { Badge } from "@/components/ui/badge";
@@ -238,6 +241,55 @@ const PADetailPage = () => {
   const modelName = sr.tickets?.equipments?.equipment_models?.name || "—";
   const serialNumber = sr.tickets?.equipments?.serial_number || "";
   const equipModelId = (sr.tickets?.equipments as any)?.model_id || undefined;
+
+  const buildPaPdfPayload = () => ({
+    quoteNumber: requestNumber,
+    date: new Date(sr.created_at).toLocaleDateString("pt-BR"),
+    company: { name: "Live Care Pilates", phone: "(11) 99999-9999", email: "contato@livecare.com.br" },
+    client: {
+      name: clientName,
+      equipment: modelName !== "—" ? modelName : undefined,
+      serial: serialNumber || undefined,
+    },
+    items: items.map((item: any) => ({
+      code: item.products?.code || "—",
+      description: item.description,
+      quantity: item.quantity,
+      unitPrice: Number(item.unit_price),
+      total: item.quantity * Number(item.unit_price),
+      isWarranty: String(item.item_type).includes("garantia"),
+    })),
+    subtotal: totals.subtotalPecas + totals.subtotalServicos,
+    freight: totals.frete,
+    discount: totals.desconto,
+    totalCharged: totals.charged,
+    warrantyTotal: totals.warranty,
+    notes: currentNotes || undefined,
+    docType: "pa" as const,
+  });
+
+  const buildPaExcelPayload = (): ExportDocument => {
+    const p = buildPaPdfPayload();
+    return {
+      title: "Pedido de Acessório",
+      number: p.quoteNumber,
+      date: p.date,
+      clientName: p.client.name,
+      equipment: p.client.equipment,
+      serial: p.client.serial,
+      items: p.items,
+      subtotal: p.subtotal,
+      freight: p.freight,
+      discount: p.discount,
+      totalCharged: p.totalCharged,
+      warrantyTotal: p.warrantyTotal,
+      notes: p.notes,
+    };
+  };
+
+  const handleExportPdf = () => { generateQuotePdf(buildPaPdfPayload()).save(`${requestNumber}.pdf`); };
+  const handleExportExcel = () => exportDocumentToExcel(buildPaExcelPayload());
+  const handlePrint = () => printPdf(generateQuotePdf(buildPaPdfPayload()));
 
   const handleProductSelect = async (product: any, itemType: string) => {
     if (!linkedQuote) {
@@ -494,6 +546,7 @@ const PADetailPage = () => {
           <p className="text-xs text-muted-foreground">{clientName} • {modelName}{serialNumber ? ` • S/N ${serialNumber}` : ""}</p>
         </div>
         <StatusBadge status={statusLabels[currentStatus] || currentStatus} />
+        <ExportMenu onPdf={handleExportPdf} onExcel={handleExportExcel} onPrint={handlePrint} />
         {/* Edit / Save / Cancel buttons */}
         {!editing ? (
           <div className="flex gap-2">

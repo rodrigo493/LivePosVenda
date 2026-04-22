@@ -1,6 +1,14 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
+export type DocumentType = "quote" | "pa" | "pg";
+
+const HEADER_LABELS: Record<DocumentType, string> = {
+  quote: "ORÇAMENTO",
+  pa: "PEDIDO DE ACESSÓRIO",
+  pg: "PEDIDO DE GARANTIA",
+};
+
 interface QuotePdfData {
   quoteNumber: string;
   date: string;
@@ -21,6 +29,7 @@ interface QuotePdfData {
   totalCharged: number;
   warrantyTotal: number;
   notes?: string;
+  docType?: DocumentType;
 }
 
 export function generateQuotePdf(data: QuotePdfData) {
@@ -36,10 +45,11 @@ export function generateQuotePdf(data: QuotePdfData) {
   if (data.company.phone) doc.text(`Tel: ${data.company.phone}`, 14, 26);
   if (data.company.email) doc.text(`Email: ${data.company.email}`, 14, 31);
 
-  // Quote number right-aligned
+  // Document header right-aligned
+  const headerLabel = HEADER_LABELS[data.docType ?? "quote"];
   doc.setFontSize(14);
   doc.setFont("helvetica", "bold");
-  doc.text(`ORÇAMENTO`, pageWidth - 14, 20, { align: "right" });
+  doc.text(headerLabel, pageWidth - 14, 20, { align: "right" });
   doc.setFontSize(11);
   doc.text(data.quoteNumber, pageWidth - 14, 27, { align: "right" });
   doc.setFontSize(9);

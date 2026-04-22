@@ -12,6 +12,8 @@ import { SuggestedParts } from "@/components/products/SuggestedParts";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { generateQuotePdf } from "@/lib/generateQuotePdf";
+import { exportDocumentToExcel, printPdf, type ExportDocument } from "@/lib/exportHelpers";
+import { ExportMenu } from "@/components/shared/ExportMenu";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -113,38 +115,70 @@ const QuoteDetailPage = () => {
     toast.success("Detalhes salvos com sucesso");
   };
 
+  const buildPdfPayload = () => ({
+    quoteNumber: quote!.quote_number,
+    date: new Date(quote!.created_at).toLocaleDateString("pt-BR"),
+    validUntil: currentValidUntil ? new Date(currentValidUntil + "T12:00:00").toLocaleDateString("pt-BR") : undefined,
+    company: { name: "Live Care Pilates", phone: "(11) 99999-9999", email: "contato@livecare.com.br" },
+    client: {
+      name: quote!.clients?.name || "",
+      equipment: quote!.equipments?.equipment_models?.name,
+      serial: quote!.equipments?.serial_number,
+    },
+    items: (quote!.quote_items || []).map((item: any) => ({
+      code: item.products?.code || "—",
+      description: item.description,
+      quantity: item.quantity,
+      unitPrice: Number(item.unit_price),
+      total: item.quantity * Number(item.unit_price),
+      isWarranty: String(item.item_type).includes("garantia"),
+    })),
+    subtotal: totals.subtotalPecas + totals.subtotalServicos,
+    freight: totals.frete,
+    discount: totals.desconto,
+    totalCharged: totals.charged,
+    warrantyTotal: totals.warranty,
+    notes: currentNotes || undefined,
+    docType: "quote" as const,
+  });
+
+  const buildExcelPayload = (): ExportDocument => {
+    const p = buildPdfPayload();
+    return {
+      title: "Orçamento",
+      number: p.quoteNumber,
+      date: p.date,
+      clientName: p.client.name,
+      equipment: p.client.equipment,
+      serial: p.client.serial,
+      items: p.items,
+      subtotal: p.subtotal,
+      freight: p.freight,
+      discount: p.discount,
+      totalCharged: p.totalCharged,
+      warrantyTotal: p.warrantyTotal,
+      notes: p.notes,
+    };
+  };
+
   const handleGeneratePdf = (download = false) => {
     if (!quote) return;
-    const doc = generateQuotePdf({
-      quoteNumber: quote.quote_number,
-      date: new Date(quote.created_at).toLocaleDateString("pt-BR"),
-      validUntil: currentValidUntil ? new Date(currentValidUntil + "T12:00:00").toLocaleDateString("pt-BR") : undefined,
-      company: { name: "Live Care Pilates", phone: "(11) 99999-9999", email: "contato@livecare.com.br" },
-      client: {
-        name: quote.clients?.name || "",
-        equipment: quote.equipments?.equipment_models?.name,
-        serial: quote.equipments?.serial_number,
-      },
-      items: (quote.quote_items || []).map((item: any) => ({
-        code: item.products?.code || "—",
-        description: item.description,
-        quantity: item.quantity,
-        unitPrice: Number(item.unit_price),
-        total: item.quantity * Number(item.unit_price),
-        isWarranty: String(item.item_type).includes("garantia"),
-      })),
-      subtotal: totals.subtotalPecas + totals.subtotalServicos,
-      freight: totals.frete,
-      discount: totals.desconto,
-      totalCharged: totals.charged,
-      warrantyTotal: totals.warranty,
-      notes: currentNotes || undefined,
-    });
+    const doc = generateQuotePdf(buildPdfPayload());
     if (download) doc.save(`${quote.quote_number}.pdf`);
     else {
       const pdfWindow = window.open(doc.output("bloburl"), "_blank", "noopener,noreferrer");
       if (pdfWindow) pdfWindow.opener = null;
     }
+  };
+
+  const handleExportExcel = () => {
+    if (!quote) return;
+    exportDocumentToExcel(buildExcelPayload());
+  };
+
+  const handlePrint = () => {
+    if (!quote) return;
+    printPdf(generateQuotePdf(buildPdfPayload()));
   };
 
   if (isLoading) return <div className="p-8 text-center text-muted-foreground">Carregando...</div>;
@@ -169,6 +203,7 @@ const QuoteDetailPage = () => {
           <p className="text-xs text-muted-foreground">{quote.clients?.name} • {modelName || "Sem equipamento"}{quote.equipments?.serial_number ? ` • S/N ${quote.equipments.serial_number}` : ""}</p>
         </div>
         <div className="flex items-center gap-2">
+          <ExportMenu onPdf={() => handleGeneratePdf(true)} onExcel={handleExportExcel} onPrint={handlePrint} />
           {!editMode && quote.status !== "rascunho" && (
             <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setEditMode(true)}>
               <Pencil className="h-3.5 w-3.5" /> Editar

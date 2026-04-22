@@ -9,6 +9,9 @@ import { motion } from "framer-motion";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { notifySquad } from "@/lib/squadNotify";
+import { generateQuotePdf } from "@/lib/generateQuotePdf";
+import { exportDocumentToExcel, printPdf, type ExportDocument } from "@/lib/exportHelpers";
+import { ExportMenu } from "@/components/shared/ExportMenu";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { warrantyStatusLabels, itemTypeLabels } from "@/constants/statusLabels";
@@ -84,6 +87,55 @@ const PGDetailPage = () => {
   const modelName = wc.tickets?.equipments?.equipment_models?.name || "—";
   const serialNumber = wc.tickets?.equipments?.serial_number || "";
 
+  const buildPgPdfPayload = () => ({
+    quoteNumber: claimNumber,
+    date: new Date(wc.created_at).toLocaleDateString("pt-BR"),
+    company: { name: "Live Care Pilates", phone: "(11) 99999-9999", email: "contato@livecare.com.br" },
+    client: {
+      name: clientName,
+      equipment: modelName !== "—" ? modelName : undefined,
+      serial: serialNumber || undefined,
+    },
+    items: items.map((item: any) => ({
+      code: item.products?.code || "—",
+      description: item.description,
+      quantity: item.quantity,
+      unitPrice: Number(item.unit_price),
+      total: item.quantity * Number(item.unit_price),
+      isWarranty: String(item.item_type).includes("garantia"),
+    })),
+    subtotal: totals.subtotalPecas + totals.subtotalServicos,
+    freight: totals.frete,
+    discount: totals.desconto,
+    totalCharged: totals.charged,
+    warrantyTotal: totals.warranty,
+    notes: currentDefect || undefined,
+    docType: "pg" as const,
+  });
+
+  const buildPgExcelPayload = (): ExportDocument => {
+    const p = buildPgPdfPayload();
+    return {
+      title: "Pedido de Garantia",
+      number: p.quoteNumber,
+      date: p.date,
+      clientName: p.client.name,
+      equipment: p.client.equipment,
+      serial: p.client.serial,
+      items: p.items,
+      subtotal: p.subtotal,
+      freight: p.freight,
+      discount: p.discount,
+      totalCharged: p.totalCharged,
+      warrantyTotal: p.warrantyTotal,
+      notes: p.notes,
+    };
+  };
+
+  const handleExportPdf = () => { generateQuotePdf(buildPgPdfPayload()).save(`${claimNumber}.pdf`); };
+  const handleExportExcel = () => exportDocumentToExcel(buildPgExcelPayload());
+  const handlePrint = () => printPdf(generateQuotePdf(buildPgPdfPayload()));
+
   const handleSave = async () => {
     const { error } = await supabase.from("warranty_claims").update({
       defect_description: currentDefect,
@@ -151,6 +203,7 @@ const PGDetailPage = () => {
           <p className="text-xs text-muted-foreground">{clientName} • {modelName}{serialNumber ? ` • S/N ${serialNumber}` : ""}</p>
         </div>
         <StatusBadge status={warrantyStatusLabels[wc.warranty_status] || wc.warranty_status} />
+        <ExportMenu onPdf={handleExportPdf} onExcel={handleExportExcel} onPrint={handlePrint} />
       </div>
 
       {/* Client & Equipment */}
