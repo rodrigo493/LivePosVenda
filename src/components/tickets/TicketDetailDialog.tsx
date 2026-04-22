@@ -842,13 +842,11 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                                 return (
                                   <div
                                     key={q.id}
-                                    className={`flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 cursor-pointer transition-colors ${isCurrentTicket ? "bg-primary/5" : ""} ${isSelected ? "bg-primary/10" : ""}`}
-                                    onClick={() => { onOpenChange(false); navigate(`/orcamentos/${q.id}?from_ticket=${ticket.id}`); }}
+                                    className={`flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 transition-colors ${isCurrentTicket ? "bg-primary/5" : ""} ${isSelected ? "bg-primary/10" : ""}`}
                                   >
                                     <Checkbox
                                       checked={isSelected}
                                       onCheckedChange={() => toggleSel(selectedQuotes, setSelectedQuotes, q.id)}
-                                      onClick={(e) => e.stopPropagation()}
                                       className="h-3.5 w-3.5 shrink-0"
                                     />
                                     <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
@@ -857,7 +855,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                                       {q.service_request_id && (
                                         <Badge
                                           className="text-[9px] h-4 px-1.5 bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-200 cursor-pointer"
-                                          onClick={(e) => { e.stopPropagation(); onOpenChange(false); navigate(`/pedidos-acessorios/${q.service_request_id}?from_ticket=${ticket.id}`); }}
+                                          onClick={() => { onOpenChange(false); navigate(`/pedidos-acessorios/${q.service_request_id}?from_ticket=${ticket.id}`); }}
                                         >
                                           PA · {q.service_requests?.request_number || "—"}
                                         </Badge>
@@ -865,7 +863,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                                       {q.warranty_claim_id && (
                                         <Badge
                                           className="text-[9px] h-4 px-1.5 bg-amber-100 text-amber-800 border-amber-200 hover:bg-amber-200 cursor-pointer"
-                                          onClick={(e) => { e.stopPropagation(); onOpenChange(false); navigate(`/pedidos-garantia/${q.warranty_claim_id}?from_ticket=${ticket.id}`); }}
+                                          onClick={() => { onOpenChange(false); navigate(`/pedidos-garantia/${q.warranty_claim_id}?from_ticket=${ticket.id}`); }}
                                         >
                                           PG · {q.warranty_claims?.claim_number || "—"}
                                         </Badge>
@@ -880,7 +878,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                                         qc.invalidateQueries({ queryKey: ["client-quotes"] });
                                       }}
                                     >
-                                      <SelectTrigger onClick={(e) => e.stopPropagation()} className="h-6 w-[130px] text-[10px] shrink-0">
+                                      <SelectTrigger className="h-6 w-[130px] text-[10px] shrink-0">
                                         <SelectValue />
                                       </SelectTrigger>
                                       <SelectContent>
@@ -893,7 +891,15 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                                     </Select>
                                     <span className="text-xs font-mono shrink-0">{fmtCurrency(total)}</span>
                                     <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:block">{new Date(q.created_at).toLocaleDateString("pt-BR")}</span>
-                                    <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-6 w-6 shrink-0"
+                                      title="Abrir tela completa"
+                                      onClick={() => { onOpenChange(false); navigate(`/orcamentos/${q.id}?from_ticket=${ticket.id}`); }}
+                                    >
+                                      <ExternalLink className="h-3 w-3" />
+                                    </Button>
                                   </div>
                                 );
                               })}
@@ -921,13 +927,11 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                                 return (
                                   <div
                                     key={sr.id}
-                                    className={`flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 cursor-pointer transition-colors ${isSelected ? "bg-primary/10" : ""}`}
-                                    onClick={() => { onOpenChange(false); navigate(`/pedidos-acessorios/${sr.id}?from_ticket=${ticket.id}`); }}
+                                    className={`flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 transition-colors ${isSelected ? "bg-primary/10" : ""}`}
                                   >
                                     <Checkbox
                                       checked={isSelected}
                                       onCheckedChange={() => toggleSel(selectedPA, setSelectedPA, sr.id)}
-                                      onClick={(e) => e.stopPropagation()}
                                       className="h-3.5 w-3.5 shrink-0"
                                     />
                                     <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
@@ -945,7 +949,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                                         qc.invalidateQueries({ queryKey: ["client-service-requests"] });
                                       }}
                                     >
-                                      <SelectTrigger onClick={(e) => e.stopPropagation()} className="h-6 w-[130px] text-[10px] shrink-0">
+                                      <SelectTrigger className="h-6 w-[130px] text-[10px] shrink-0">
                                         <SelectValue />
                                       </SelectTrigger>
                                       <SelectContent>
@@ -956,7 +960,15 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                                     </Select>
                                     {sr.notes && <span className="text-[10px] text-muted-foreground truncate max-w-[100px] hidden sm:block">{sr.notes}</span>}
                                     <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:block">{new Date(sr.created_at).toLocaleDateString("pt-BR")}</span>
-                                    <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-6 w-6 shrink-0"
+                                      title="Abrir tela completa"
+                                      onClick={() => { onOpenChange(false); navigate(`/pedidos-acessorios/${sr.id}?from_ticket=${ticket.id}`); }}
+                                    >
+                                      <ExternalLink className="h-3 w-3" />
+                                    </Button>
                                   </div>
                                 );
                               })}
@@ -984,13 +996,11 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                                 return (
                                   <div
                                     key={wc.id}
-                                    className={`flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 cursor-pointer transition-colors ${isSelected ? "bg-primary/10" : ""}`}
-                                    onClick={() => { onOpenChange(false); navigate(`/pedidos-garantia/${wc.id}?from_ticket=${ticket.id}`); }}
+                                    className={`flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 transition-colors ${isSelected ? "bg-primary/10" : ""}`}
                                   >
                                     <Checkbox
                                       checked={isSelected}
                                       onCheckedChange={() => toggleSel(selectedPG, setSelectedPG, wc.id)}
-                                      onClick={(e) => e.stopPropagation()}
                                       className="h-3.5 w-3.5 shrink-0"
                                     />
                                     <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
@@ -1008,7 +1018,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                                         qc.invalidateQueries({ queryKey: ["client-warranty-claims"] });
                                       }}
                                     >
-                                      <SelectTrigger onClick={(e) => e.stopPropagation()} className="h-6 w-[130px] text-[10px] shrink-0">
+                                      <SelectTrigger className="h-6 w-[130px] text-[10px] shrink-0">
                                         <SelectValue />
                                       </SelectTrigger>
                                       <SelectContent>
@@ -1019,7 +1029,15 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                                     </Select>
                                     {wc.defect_description && <span className="text-[10px] text-muted-foreground truncate max-w-[100px] hidden sm:block">{wc.defect_description}</span>}
                                     <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:block">{new Date(wc.created_at).toLocaleDateString("pt-BR")}</span>
-                                    <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-6 w-6 shrink-0"
+                                      title="Abrir tela completa"
+                                      onClick={() => { onOpenChange(false); navigate(`/pedidos-garantia/${wc.id}?from_ticket=${ticket.id}`); }}
+                                    >
+                                      <ExternalLink className="h-3 w-3" />
+                                    </Button>
                                   </div>
                                 );
                               })}
