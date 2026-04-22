@@ -124,6 +124,26 @@ Deno.serve(async (req) => {
   }
 
   try {
+    // Reject payloads from other Uazapi instances that may share this webhook URL.
+    // The Uazapi server forwards the instance token in the "token" request header
+    // and/or in the body as `instanceToken`/`token`. If UAZAPI_EXPECTED_TOKEN is
+    // set, drop anything that doesn't match.
+    const expectedInstanceToken = Deno.env.get("UAZAPI_EXPECTED_TOKEN");
+    if (expectedInstanceToken) {
+      const headerToken = req.headers.get("token") || req.headers.get("Token") || "";
+      // Read body once and reuse below
+      const rawBody = await req.text();
+      let parsed: any = null;
+      try { parsed = rawBody ? JSON.parse(rawBody) : null; } catch { parsed = null; }
+      const bodyToken: string = parsed?.token || parsed?.instanceToken || parsed?.instance_token || parsed?.owner || "";
+      if (headerToken !== expectedInstanceToken && bodyToken !== expectedInstanceToken) {
+        console.log("Reject payload: instance token mismatch. header=", headerToken.slice(0, 8), " body=", String(bodyToken).slice(0, 8), " instanceName=", parsed?.instanceName);
+        return new Response(JSON.stringify({ ignored: true, reason: "wrong_instance" }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      // Re-construct request with the body so the rest of the handler can re-read it
+      (req as any).__cachedBody = parsed;
+    }
+
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const POSVENDA_USER_ID = Deno.env.get("POSVENDA_USER_ID") || null;
@@ -131,7 +151,7 @@ Deno.serve(async (req) => {
     const UAZAPI_BASE_URL = Deno.env.get("UAZAPI_BASE_URL") || "https://liveuni.uazapi.com";
 
     const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-    const body = await req.json();
+    const body = (req as any).__cachedBody ?? await req.json();
 
     console.log("Uazapi webhook:", JSON.stringify(body).slice(0, 500));
 
