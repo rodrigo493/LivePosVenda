@@ -34,15 +34,39 @@ function useWhatsAppMessages(clientId: string | undefined) {
   });
 }
 
-async function forceDownload(url: string, filename: string) {
+function extFromMime(mime: string): string {
+  const m = mime.toLowerCase();
+  if (m.includes("ogg")) return "ogg";
+  if (m.includes("mpeg") && m.includes("audio")) return "mp3";
+  if (m.includes("mp4") && m.includes("audio")) return "m4a";
+  if (m.includes("mp4")) return "mp4";
+  if (m.includes("webm")) return "webm";
+  if (m.includes("jpeg") || m.includes("jpg")) return "jpg";
+  if (m.includes("png")) return "png";
+  if (m.includes("gif")) return "gif";
+  if (m.includes("pdf")) return "pdf";
+  const tail = m.split("/")[1]?.split(";")[0];
+  return tail || "bin";
+}
+
+function buildFilename(prefix: string, mime: string): string {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+  return `${prefix}_${stamp}.${extFromMime(mime)}`;
+}
+
+async function forceDownload(url: string, fallbackFilename: string, prefix?: string) {
   try {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const blob = await res.blob();
+    const ctype = blob.type || res.headers.get("Content-Type") || "";
+    const finalName = prefix && ctype ? buildFilename(prefix, ctype) : fallbackFilename;
     const obj = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = obj;
-    a.download = filename;
+    a.download = finalName;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -50,7 +74,7 @@ async function forceDownload(url: string, filename: string) {
   } catch {
     const a = document.createElement("a");
     a.href = url;
-    a.download = filename;
+    a.download = fallbackFilename;
     a.target = "_blank";
     a.rel = "noreferrer";
     document.body.appendChild(a);
@@ -62,12 +86,14 @@ async function forceDownload(url: string, filename: string) {
 function DownloadButton({
   url,
   filename,
+  prefix,
   outbound,
   label = "Baixar",
   compact = false,
 }: {
   url: string;
   filename: string;
+  prefix?: string;
   outbound: boolean;
   label?: string;
   compact?: boolean;
@@ -79,7 +105,7 @@ function DownloadButton({
     return (
       <button
         type="button"
-        onClick={(e) => { e.stopPropagation(); forceDownload(url, filename); }}
+        onClick={(e) => { e.stopPropagation(); forceDownload(url, filename, prefix); }}
         className={`shrink-0 rounded-full p-1 transition-colors ${base}`}
         title={label}
       >
@@ -90,7 +116,7 @@ function DownloadButton({
   return (
     <button
       type="button"
-      onClick={(e) => { e.stopPropagation(); forceDownload(url, filename); }}
+      onClick={(e) => { e.stopPropagation(); forceDownload(url, filename, prefix); }}
       className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] transition-colors ${base}`}
       title={label}
     >
@@ -155,7 +181,7 @@ function AudioPlayer({ src, outbound }: { src: string; outbound: boolean }) {
         </svg>
         <span className={`text-[11px] ${outbound ? "text-white/70" : "text-muted-foreground"}`}>Áudio</span>
         <div className="ml-auto">
-          <DownloadButton url={src} filename={filename} outbound={outbound} label="Baixar" />
+          <DownloadButton url={src} filename={filename} prefix="audio" outbound={outbound} label="Baixar" />
         </div>
       </div>
     );
@@ -194,7 +220,7 @@ function AudioPlayer({ src, outbound }: { src: string; outbound: boolean }) {
           {playing ? fmt(currentTime) : fmt(duration)}
         </span>
       </div>
-      <DownloadButton url={src} filename={filename} outbound={outbound} label="Baixar áudio" compact />
+      <DownloadButton url={src} filename={filename} prefix="audio" outbound={outbound} label="Baixar áudio" compact />
     </div>
   );
 }
@@ -498,6 +524,7 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
                             <DownloadButton
                               url={msg.media_url}
                               filename={msg.media_url.split("/").pop()?.split("?")[0] || `imagem_${msg.id}.jpg`}
+                              prefix="imagem"
                               outbound={msg.direction === "outbound"}
                               label="Baixar imagem"
                               compact
@@ -510,6 +537,7 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
                           <DownloadButton
                             url={msg.media_url}
                             filename={msg.media_url.split("/").pop()?.split("?")[0] || `video_${msg.id}.mp4`}
+                            prefix="video"
                             outbound={msg.direction === "outbound"}
                             label="Baixar vídeo"
                           />
@@ -520,6 +548,7 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
                           <DownloadButton
                             url={msg.media_url}
                             filename={msg.media_url.split("/").pop()?.split("?")[0] || `arquivo_${msg.id}`}
+                            prefix="arquivo"
                             outbound={msg.direction === "outbound"}
                             label="Baixar"
                             compact
