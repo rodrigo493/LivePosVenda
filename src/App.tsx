@@ -5,6 +5,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { AppLayout } from "@/components/layout/AppLayout";
+import { CrmPermissionsProvider } from "@/contexts/CrmPermissionsContext";
 import AuthPage from "./pages/AuthPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 const ChatPage = lazy(() => import("./pages/ChatPage"));
@@ -36,6 +37,7 @@ const HistoricalImportPage = lazy(() => import("./pages/HistoricalImportPage"));
 const CrmPipelinePage = lazy(() => import("./pages/CrmPipelinePage"));
 const MyDashboardPage = lazy(() => import("./pages/MyDashboardPage"));
 const ManualPage = lazy(() => import("./pages/ManualPage"));
+const CrmPermissionsPage = lazy(() => import("./pages/CrmPermissionsPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient({
@@ -87,40 +89,43 @@ function AppRoutes() {
   }
 
   return (
-    <AppLayout>
-      <Suspense fallback={<PageLoader />}>
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/clientes" element={<ClientsPage />} />
-          <Route path="/equipamentos" element={<EquipmentPage />} />
-          <Route path="/chamados" element={<TicketsPage />} />
-          <Route path="/garantias" element={<WarrantiesPage />} />
-          <Route path="/assistencia" element={<ServiceRequestsPage />} />
-          <Route path="/pedidos-acessorios" element={<PedidosAcessoriosPage />} />
-          <Route path="/pedidos-acessorios/:id" element={<PADetailPage />} />
-          <Route path="/pedidos-garantia" element={<PedidosGarantiaPage />} />
-          <Route path="/pedidos-garantia/:id" element={<PGDetailPage />} />
-          <Route path="/orcamentos" element={<QuotesPage />} />
-          <Route path="/orcamentos/:id" element={<QuoteDetailPage />} />
-          <Route path="/ordens-servico" element={<WorkOrdersPage />} />
-          <Route path="/ordens-servico/:id" element={<WorkOrderDetailPage />} />
-          <Route path="/manutencao" element={<MaintenancePage />} />
-          <Route path="/produtos" element={<ProductsPage />} />
-          <Route path="/servicos" element={<ServicesPage />} />
-          <Route path="/tecnicos" element={<TechniciansPage />} />
-          <Route path="/relatorios" element={<ReportsPage />} />
-          <Route path="/engenharia" element={<EngineeringPage />} />
-          <Route path="/portal" element={<PortalPage />} />
-          <Route path="/configuracoes" element={<SettingsPage />} />
-          <Route path="/importar-historico" element={<HistoricalImportPage />} />
-          <Route path="/crm" element={<CrmPipelinePage />} />
-          <Route path="/chat" element={<ChatPage />} />
-          <Route path="/meu-painel" element={<MyDashboardPage />} />
-          <Route path="/manual" element={<ManualPage />} />
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </Suspense>
-    </AppLayout>
+    <CrmPermissionsProvider>
+      <AppLayout>
+        <Suspense fallback={<PageLoader />}>
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/clientes" element={<ClientsPage />} />
+            <Route path="/equipamentos" element={<EquipmentPage />} />
+            <Route path="/chamados" element={<TicketsPage />} />
+            <Route path="/garantias" element={<WarrantiesPage />} />
+            <Route path="/assistencia" element={<ServiceRequestsPage />} />
+            <Route path="/pedidos-acessorios" element={<PedidosAcessoriosPage />} />
+            <Route path="/pedidos-acessorios/:id" element={<PADetailPage />} />
+            <Route path="/pedidos-garantia" element={<PedidosGarantiaPage />} />
+            <Route path="/pedidos-garantia/:id" element={<PGDetailPage />} />
+            <Route path="/orcamentos" element={<QuotesPage />} />
+            <Route path="/orcamentos/:id" element={<QuoteDetailPage />} />
+            <Route path="/ordens-servico" element={<WorkOrdersPage />} />
+            <Route path="/ordens-servico/:id" element={<WorkOrderDetailPage />} />
+            <Route path="/manutencao" element={<MaintenancePage />} />
+            <Route path="/produtos" element={<ProductsPage />} />
+            <Route path="/servicos" element={<ServicesPage />} />
+            <Route path="/tecnicos" element={<TechniciansPage />} />
+            <Route path="/relatorios" element={<ReportsPage />} />
+            <Route path="/engenharia" element={<EngineeringPage />} />
+            <Route path="/portal" element={<PortalPage />} />
+            <Route path="/configuracoes" element={<SettingsPage />} />
+            <Route path="/importar-historico" element={<HistoricalImportPage />} />
+            <Route path="/crm" element={<CrmPipelinePage />} />
+            <Route path="/chat" element={<ChatPage />} />
+            <Route path="/meu-painel" element={<MyDashboardPage />} />
+            <Route path="/manual" element={<ManualPage />} />
+            <Route path="/crm-permissions" element={<CrmPermissionsPage />} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </Suspense>
+      </AppLayout>
+    </CrmPermissionsProvider>
   );
 }
 
