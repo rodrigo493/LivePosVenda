@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Send, MessageSquare, Paperclip, X, Mic, Download } from "lucide-react";
+import { Send, MessageSquare, Paperclip, X, Mic, Download, CornerUpLeft, ChevronDown, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -32,6 +32,14 @@ function useWhatsAppMessages(clientId: string | undefined) {
       return data;
     },
   });
+}
+
+function getMessagePreview(msg: any): string {
+  if (msg.message_text?.startsWith("🎵")) return "🎵 Áudio";
+  if (msg.message_text?.startsWith("📷")) return "📷 Imagem";
+  if (msg.message_text?.startsWith("🎥")) return "🎥 Vídeo";
+  if (msg.message_text?.startsWith("📎")) return "📎 Arquivo";
+  return (msg.message_text || "").slice(0, 80);
 }
 
 function extFromMime(mime: string): string {
@@ -238,6 +246,8 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
   const [mediaFile, setMediaFile] = useState<{ base64: string; mime: string; name: string } | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [replyTo, setReplyTo] = useState<{ id: string; preview: string; direction: string } | null>(null);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -411,7 +421,9 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token;
-      const body: Record<string, any> = { client_id: clientId, ticket_id: ticketId, phone: clientPhone, message: draft.trim() || undefined };
+      const quotedPrefix = replyTo ? `↩ _${replyTo.preview}_\n\n` : "";
+      const messageText = (quotedPrefix + (draft.trim() || "")).trim() || undefined;
+      const body: Record<string, any> = { client_id: clientId, ticket_id: ticketId, phone: clientPhone, message: messageText };
       if (mediaFile) { body.media_base64 = mediaFile.base64; body.media_mime_type = mediaFile.mime; body.media_filename = mediaFile.name; }
       const res = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-whatsapp`,
@@ -421,6 +433,7 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
       if (!res.ok) throw new Error(result.error || "Erro ao enviar");
       setDraft("");
       setMediaFile(null);
+      setReplyTo(null);
       qc.invalidateQueries({ queryKey: ["whatsapp-messages", clientId] });
     } catch (err: any) {
       toast.error(err.message || "Erro ao enviar mensagem");
@@ -492,82 +505,101 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
                     {group.date}
                   </span>
                 </div>
-                {group.msgs.map((msg: any) => (
-                  <div key={msg.id} className={`flex mb-1.5 ${msg.direction === "outbound" ? "justify-end" : "justify-start"}`}>
-                    <div className={`max-w-[75%] rounded-2xl px-3.5 py-2 text-sm ${msg.direction === "outbound" ? "bg-emerald-600 text-white rounded-br-md" : "bg-muted rounded-bl-md"}`}>
-                      {msg.direction === "inbound" && msg.sender_name && (
-                        <p className="text-[10px] font-semibold text-muted-foreground mb-0.5">{msg.sender_name}</p>
-                      )}
-                      {msg.message_text?.startsWith("🎵") ? (
-                        msg.media_url
-                          ? <AudioPlayer src={msg.media_url} outbound={msg.direction === "outbound"} />
-                          : <span className="text-[12px] opacity-70 flex items-center gap-1.5">
-                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-3.5 w-3.5 shrink-0"><path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" /></svg>
-                              Áudio (não disponível)
-                            </span>
-                      ) : msg.message_text?.startsWith("📷") && !msg.media_url ? (
-                        <span className="text-[12px] opacity-70 flex items-center gap-1.5">
-                          📷 Imagem (não disponível — peça reenvio)
-                        </span>
-                      ) : msg.message_text?.startsWith("🎥") && !msg.media_url ? (
-                        <span className="text-[12px] opacity-70 flex items-center gap-1.5">
-                          🎥 Vídeo (não disponível — peça reenvio)
-                        </span>
-                      ) : msg.message_text?.startsWith("📎") && !msg.media_url ? (
-                        <span className="text-[12px] opacity-70 flex items-center gap-1.5">
-                          📎 Arquivo (não disponível — peça reenvio)
-                        </span>
-                      ) : msg.media_url && msg.message_text?.startsWith("📷") ? (
-                        <div className="relative inline-block group">
-                          <img
-                            src={msg.media_url}
-                            alt="imagem"
-                            className="max-w-[200px] rounded-lg mt-0.5 cursor-pointer block"
-                            onClick={() => window.open(msg.media_url, "_blank")}
-                          />
-                          <div className="absolute top-1 right-1">
-                            <DownloadButton
-                              url={msg.media_url}
-                              filename={msg.media_url.split("/").pop()?.split("?")[0] || `imagem_${msg.id}.jpg`}
-                              prefix="imagem"
-                              outbound={msg.direction === "outbound"}
-                              label="Baixar imagem"
-                              compact
-                            />
+                {group.msgs.map((msg: any) => {
+                  const outbound = msg.direction === "outbound";
+                  const isTextMsg = !!msg.message_text && !msg.message_text.startsWith("🎵") && !msg.message_text.startsWith("📷") && !msg.message_text.startsWith("🎥") && !msg.message_text.startsWith("📎");
+                  const hasMedia = !!msg.media_url;
+                  return (
+                    <div key={msg.id} className={`flex mb-1.5 group/msg ${outbound ? "justify-end" : "justify-start"}`}>
+                      <div className="relative max-w-[75%]">
+                        {/* Hover action button */}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === msg.id ? null : msg.id); }}
+                          className={`absolute top-1.5 ${outbound ? "-left-6" : "-right-6"} opacity-0 group-hover/msg:opacity-100 transition-opacity h-5 w-5 rounded-full bg-background border shadow-sm flex items-center justify-center z-10 hover:bg-muted`}
+                          title="Ações"
+                        >
+                          <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                        </button>
+
+                        {/* Dropdown menu */}
+                        {openMenuId === msg.id && (
+                          <div className={`absolute top-6 ${outbound ? "right-0" : "left-0"} z-30 bg-popover text-popover-foreground border rounded-xl shadow-xl py-1 min-w-[160px]`}>
+                            <button
+                              onClick={() => { setReplyTo({ id: msg.id, preview: getMessagePreview(msg), direction: msg.direction }); setOpenMenuId(null); }}
+                              className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-muted text-left"
+                            >
+                              <CornerUpLeft className="h-3.5 w-3.5 text-muted-foreground" /> Responder
+                            </button>
+                            {isTextMsg && (
+                              <button
+                                onClick={() => { navigator.clipboard.writeText(msg.message_text || ""); toast.success("Texto copiado"); setOpenMenuId(null); }}
+                                className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-muted text-left"
+                              >
+                                <Copy className="h-3.5 w-3.5 text-muted-foreground" /> Copiar
+                              </button>
+                            )}
+                            {hasMedia && (
+                              <button
+                                onClick={() => { forceDownload(msg.media_url, msg.media_url.split("/").pop()?.split("?")[0] || "arquivo"); setOpenMenuId(null); }}
+                                className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-muted text-left"
+                              >
+                                <Download className="h-3.5 w-3.5 text-muted-foreground" /> Baixar
+                              </button>
+                            )}
                           </div>
+                        )}
+
+                        {/* Message bubble */}
+                        <div className={`rounded-2xl px-3.5 py-2 text-sm ${outbound ? "bg-emerald-600 text-white rounded-br-md" : "bg-muted rounded-bl-md"}`}>
+                          {!outbound && msg.sender_name && (
+                            <p className="text-[10px] font-semibold text-muted-foreground mb-0.5">{msg.sender_name}</p>
+                          )}
+                          {msg.message_text?.startsWith("🎵") ? (
+                            msg.media_url
+                              ? <AudioPlayer src={msg.media_url} outbound={outbound} />
+                              : <span className="text-[12px] opacity-70 flex items-center gap-1.5">
+                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-3.5 w-3.5 shrink-0"><path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" /></svg>
+                                  Áudio (não disponível)
+                                </span>
+                          ) : msg.message_text?.startsWith("📷") && !msg.media_url ? (
+                            <span className="text-[12px] opacity-70 flex items-center gap-1.5">📷 Imagem (não disponível — peça reenvio)</span>
+                          ) : msg.message_text?.startsWith("🎥") && !msg.media_url ? (
+                            <span className="text-[12px] opacity-70 flex items-center gap-1.5">🎥 Vídeo (não disponível — peça reenvio)</span>
+                          ) : msg.message_text?.startsWith("📎") && !msg.media_url ? (
+                            <span className="text-[12px] opacity-70 flex items-center gap-1.5">📎 Arquivo (não disponível — peça reenvio)</span>
+                          ) : msg.media_url && msg.message_text?.startsWith("📷") ? (
+                            <div className="relative inline-block group/img">
+                              <img
+                                src={msg.media_url}
+                                alt="imagem"
+                                className="max-w-[200px] rounded-lg mt-0.5 cursor-pointer block"
+                                onClick={() => window.open(msg.media_url, "_blank")}
+                              />
+                              <div className="absolute top-1 right-1">
+                                <DownloadButton url={msg.media_url} filename={msg.media_url.split("/").pop()?.split("?")[0] || `imagem_${msg.id}.jpg`} prefix="imagem" outbound={outbound} label="Baixar imagem" compact />
+                              </div>
+                            </div>
+                          ) : msg.media_url && msg.message_text?.startsWith("🎥") ? (
+                            <div className="flex flex-col gap-1 mt-0.5">
+                              <video controls src={msg.media_url} className="max-w-[220px] rounded-lg" />
+                              <DownloadButton url={msg.media_url} filename={msg.media_url.split("/").pop()?.split("?")[0] || `video_${msg.id}.mp4`} prefix="video" outbound={outbound} label="Baixar vídeo" />
+                            </div>
+                          ) : msg.media_url ? (
+                            <div className="flex items-center gap-2">
+                              <a href={msg.media_url} target="_blank" rel="noreferrer" className="underline text-[13px]">{msg.message_text}</a>
+                              <DownloadButton url={msg.media_url} filename={msg.media_url.split("/").pop()?.split("?")[0] || `arquivo_${msg.id}`} prefix="arquivo" outbound={outbound} label="Baixar" compact />
+                            </div>
+                          ) : (
+                            <p className="whitespace-pre-wrap text-[13px] leading-relaxed">{msg.message_text}</p>
+                          )}
+                          <p className={`text-[9px] mt-1 text-right ${outbound ? "text-white/60" : "text-muted-foreground"}`}>
+                            {formatTime(msg.created_at)}
+                          </p>
                         </div>
-                      ) : msg.media_url && msg.message_text?.startsWith("🎥") ? (
-                        <div className="flex flex-col gap-1 mt-0.5">
-                          <video controls src={msg.media_url} className="max-w-[220px] rounded-lg" />
-                          <DownloadButton
-                            url={msg.media_url}
-                            filename={msg.media_url.split("/").pop()?.split("?")[0] || `video_${msg.id}.mp4`}
-                            prefix="video"
-                            outbound={msg.direction === "outbound"}
-                            label="Baixar vídeo"
-                          />
-                        </div>
-                      ) : msg.media_url ? (
-                        <div className="flex items-center gap-2">
-                          <a href={msg.media_url} target="_blank" rel="noreferrer" className="underline text-[13px]">{msg.message_text}</a>
-                          <DownloadButton
-                            url={msg.media_url}
-                            filename={msg.media_url.split("/").pop()?.split("?")[0] || `arquivo_${msg.id}`}
-                            prefix="arquivo"
-                            outbound={msg.direction === "outbound"}
-                            label="Baixar"
-                            compact
-                          />
-                        </div>
-                      ) : (
-                        <p className="whitespace-pre-wrap text-[13px] leading-relaxed">{msg.message_text}</p>
-                      )}
-                      <p className={`text-[9px] mt-1 text-right ${msg.direction === "outbound" ? "text-white/60" : "text-muted-foreground"}`}>
-                        {formatTime(msg.created_at)}
-                      </p>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ))
           )}
@@ -575,8 +607,13 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
         </div>
       </ScrollArea>
 
+      {/* Click-outside overlay to close message menu */}
+      {openMenuId && (
+        <div className="fixed inset-0 z-20" onClick={() => setOpenMenuId(null)} />
+      )}
+
       {/* Input area */}
-      <div className="border-t pt-3 mt-2">
+      <div className="border-t pt-3 mt-2 pr-20">
         {isRecording ? (
           /* Recording UI — waveform + timer + cancel/send */
           <div className="flex items-center gap-2">
@@ -609,6 +646,18 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
         ) : (
           /* Normal input UI */
           <>
+            {replyTo && (
+              <div className="flex items-center gap-2 mb-2 px-2.5 py-1.5 bg-muted rounded-lg border-l-[3px] border-emerald-500">
+                <CornerUpLeft className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] font-semibold text-emerald-600">Respondendo</p>
+                  <p className="text-xs text-muted-foreground truncate">{replyTo.preview}</p>
+                </div>
+                <button onClick={() => setReplyTo(null)} className="shrink-0 text-muted-foreground hover:text-foreground">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
             {mediaFile && (
               <div className="flex items-center gap-2 mb-2 px-2 py-1.5 bg-muted rounded-lg text-xs">
                 <Paperclip className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
