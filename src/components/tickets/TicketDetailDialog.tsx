@@ -421,9 +421,21 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
         if (error) throw error;
         setPsMemoriaId(data.id);
       }
+      // Sync sintoma/solução para os campos do ticket (aba Detalhes)
+      if (ticketId && (psSintoma || psSolucao)) {
+        const { error: ticketErr } = await supabase
+          .from("tickets")
+          .update({ description: psSintoma, internal_notes: psSolucao, updated_at: new Date().toISOString() })
+          .eq("id", ticketId);
+        if (ticketErr) throw ticketErr;
+      }
     },
     onSuccess: (_d, vars) => {
+      setTicketDescription(psSintoma);
+      setTicketInternalNotes(psSolucao);
       qc.invalidateQueries({ queryKey: ["ticket-memoria", ticketId] });
+      qc.invalidateQueries({ queryKey: ["pipeline-tickets"] });
+      qc.invalidateQueries({ queryKey: ["client-tickets", clientId] });
       toast.success(vars?.aprovar ? "Solução aprovada na base de conhecimento!" : "Rascunho salvo!");
       if (vars?.aprovar) setPsAprovada(true);
     },
