@@ -51,6 +51,7 @@ export function useCreateTask() {
       priority?: string;
       created_by?: string;
     }) => {
+      // due_time not yet in generated types — cast until supabase gen types is rerun
       const { data, error } = await (supabase as any).from("tasks").insert(task).select().single();
       if (error) throw error;
       return data;

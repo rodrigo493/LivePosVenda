@@ -11,7 +11,8 @@ function timeToMinutes(timeStr: string): number {
 
 export function calcTaskTop(dueTime: string): number {
   const minutes = timeToMinutes(dueTime);
-  return (minutes - GRID_START_HOUR * 60) * (HOUR_HEIGHT / 60);
+  const raw = (minutes - GRID_START_HOUR * 60) * (HOUR_HEIGHT / 60);
+  return Math.max(0, raw);
 }
 
 export function isTaskOverdue(task: TaskRow): boolean {

@@ -10,6 +10,7 @@ import { WeeklyCalendar } from "@/components/tasks/WeeklyCalendar";
 import { TaskCreateDialog } from "@/components/tasks/TaskCreateDialog";
 import { useTasks } from "@/hooks/useTasks";
 import type { TaskRow } from "@/hooks/useTasks";
+import { toast } from "sonner";
 
 type ViewMode = "semana" | "dia";
 
@@ -152,7 +153,9 @@ export default function TasksAgendaPage() {
         days={days}
         tasks={tasks}
         onTaskClick={(task: TaskRow) => {
-          console.log("task:", task.title);
+          toast.info(`${task.title}${task.due_time ? ` — ${task.due_time.slice(0, 5)}` : ""}`, {
+            description: task.clients?.name ?? task.description ?? undefined,
+          });
         }}
         onSlotClick={handleSlotClick}
       />

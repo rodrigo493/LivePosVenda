@@ -27,17 +27,16 @@ export function TaskCreateDialog({ open, onOpenChange, defaultDate, defaultTime 
   const createTask = useCreateTask();
   const { data: users } = useAllUsers();
 
-  const todayStr = new Date().toISOString().slice(0, 10);
-
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [dueDate, setDueDate] = useState(defaultDate ?? todayStr);
+  const [dueDate, setDueDate] = useState(defaultDate ?? new Date().toISOString().slice(0, 10));
   const [dueTime, setDueTime] = useState(defaultTime ?? "09:00");
   const [priority, setPriority] = useState("media");
   const [assignedTo, setAssignedTo] = useState(user?.id ?? "");
 
   useEffect(() => {
     if (open) {
+      const todayStr = new Date().toISOString().slice(0, 10);
       setTitle("");
       setDescription("");
       setDueDate(defaultDate ?? todayStr);
