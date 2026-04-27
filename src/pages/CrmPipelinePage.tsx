@@ -127,6 +127,11 @@ const CrmPipelinePage = () => {
     conversations?.forEach((c) => { if (c.unread_count > 0) map.set(c.client_id, c.unread_count); });
     return map;
   }, [conversations]);
+  const whatsappLastActivity = useMemo(() => {
+    const map = new Map<string, string>();
+    conversations?.forEach((c) => { map.set(c.client_id, c.last_message_at); });
+    return map;
+  }, [conversations]);
   const moveStage = useMovePipelineStage();
   const createClient = useCreateClient();
   const createTicket = useCreateTicket();
@@ -234,6 +239,7 @@ const CrmPipelinePage = () => {
         _isDelayed: days >= stageDelay,
         _isNoContact: t.pipeline_stage === "sem_atendimento",
         _unreadWhatsapp: whatsappUnread.get(t.client_id) || 0,
+        _lastWhatsappAt: whatsappLastActivity.get(t.client_id) || null,
       };
       const target = map[t.pipeline_stage] ? t.pipeline_stage : "sem_atendimento";
       map[target].push(enriched);
@@ -242,13 +248,18 @@ const CrmPipelinePage = () => {
     Object.values(map).forEach((arr) =>
       arr.sort((a: any, b: any) => {
         if (!!a._unreadWhatsapp !== !!b._unreadWhatsapp) return a._unreadWhatsapp ? -1 : 1;
+        if (a._lastWhatsappAt || b._lastWhatsappAt) {
+          if (!a._lastWhatsappAt) return 1;
+          if (!b._lastWhatsappAt) return -1;
+          return new Date(b._lastWhatsappAt).getTime() - new Date(a._lastWhatsappAt).getTime();
+        }
         if (a._isDelayed !== b._isDelayed) return a._isDelayed ? -1 : 1;
         return (priorityOrder[a.priority] ?? 2) - (priorityOrder[b.priority] ?? 2);
       })
     );
 
     return map;
-  }, [tickets, delayMap, searchTerm, stages, whatsappUnread]);
+  }, [tickets, delayMap, searchTerm, stages, whatsappUnread, whatsappLastActivity]);
 
   // Sync columns from grouped when not dragging and not mutating
   useEffect(() => {
