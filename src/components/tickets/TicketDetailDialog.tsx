@@ -322,6 +322,9 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   const [stagePopoverOpen, setStagePopoverOpen] = useState(false);
   const [pipelinePopoverOpen, setPipelinePopoverOpen] = useState(false);
   const [userPopoverOpen, setUserPopoverOpen] = useState(false);
+  // Estado local para refletir mudanças de funil/responsável sem depender do prop stale
+  const [localPipelineId, setLocalPipelineId] = useState<string | null>(ticket?.pipeline_id ?? null);
+  const [localAssignedTo, setLocalAssignedTo] = useState<string | null>(ticket?.assigned_to ?? null);
   const [selectedQuotes, setSelectedQuotes] = useState<Set<string>>(new Set());
   const [selectedPA, setSelectedPA] = useState<Set<string>>(new Set());
   const [selectedPG, setSelectedPG] = useState<Set<string>>(new Set());
@@ -500,6 +503,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
     setTicketDescription(ticket.description || "");
     setTicketInternalNotes(ticket.internal_notes || "");
     setTicketType(ticket.ticket_type || "");
+    setLocalPipelineId(ticket.pipeline_id ?? null);
+    setLocalAssignedTo(ticket.assigned_to ?? null);
     // Reset PS form on new ticket open
     setPsModelo(ticket.equipments?.equipment_models?.name || "");
     setPsSintoma(ticket.description?.slice(0, 400) || "");
@@ -638,13 +643,13 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
         .update({ pipeline_id: pipelineId, pipeline_stage: firstStageKey, pipeline_position: 9999, updated_at: new Date().toISOString() })
         .eq("id", ticketId);
       if (error) throw error;
-      // Garante que o responsável atual tem acesso ao novo funil
-      const assignedTo = ticket?.assigned_to;
-      if (assignedTo) {
+      // Usa localAssignedTo (sempre atualizado, nunca stale)
+      if (localAssignedTo) {
         await (supabase as any)
           .from("pipeline_user_access")
-          .upsert({ user_id: assignedTo, pipeline_id: pipelineId }, { onConflict: "user_id,pipeline_id" });
+          .upsert({ user_id: localAssignedTo, pipeline_id: pipelineId }, { onConflict: "user_id,pipeline_id" });
       }
+      setLocalPipelineId(pipelineId);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["pipeline-tickets"] });
@@ -661,13 +666,13 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
         .update({ assigned_to: newUserId, updated_at: new Date().toISOString() } as any)
         .eq("id", ticketId!);
       if (error) throw error;
-      // Garante que o novo responsável tem acesso ao funil do ticket
-      const pipelineId = ticket?.pipeline_id;
-      if (newUserId && pipelineId) {
+      // Usa localPipelineId (sempre atualizado, nunca stale)
+      if (newUserId && localPipelineId) {
         await (supabase as any)
           .from("pipeline_user_access")
-          .upsert({ user_id: newUserId, pipeline_id: pipelineId }, { onConflict: "user_id,pipeline_id" });
+          .upsert({ user_id: newUserId, pipeline_id: localPipelineId }, { onConflict: "user_id,pipeline_id" });
       }
+      setLocalAssignedTo(newUserId);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["pipeline-tickets"] });
@@ -945,7 +950,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                   <PopoverTrigger asChild>
                     <button className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-medium bg-muted hover:bg-muted/80 transition-colors cursor-pointer">
                       <Settings2 className="h-3 w-3 text-muted-foreground" />
-                      {allPipelines.find((p) => p.id === ticket.pipeline_id)?.name || "Funil"}
+                      {allPipelines.find((p) => p.id === localPipelineId)?.name || "Funil"}
                       <ChevronDown className="h-3 w-3 text-muted-foreground" />
                     </button>
                   </PopoverTrigger>
@@ -955,7 +960,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                       <button
                         key={pipeline.id}
                         onClick={async () => {
-                          if (pipeline.id === ticket.pipeline_id) { setPipelinePopoverOpen(false); return; }
+                          if (pipeline.id === localPipelineId) { setPipelinePopoverOpen(false); return; }
                           const { data: stages } = await (supabase as any)
                             .from("pipeline_stages")
                             .select("key, position")
@@ -967,7 +972,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                           setPipelinePopoverOpen(false);
                         }}
                         className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-muted transition-colors text-left ${
-                          ticket.pipeline_id === pipeline.id ? "bg-muted font-semibold" : ""
+                          localPipelineId === pipeline.id ? "bg-muted font-semibold" : ""
                         }`}
                       >
                         {pipeline.name}
@@ -981,7 +986,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                   <PopoverTrigger asChild>
                     <button className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-medium bg-muted hover:bg-muted/80 transition-colors cursor-pointer">
                       <User className="h-3 w-3 text-muted-foreground" />
-                      {allUsers.find((u) => u.user_id === ticket.assigned_to)?.full_name?.split(" ")[0] || "Responsável"}
+                      {allUsers.find((u) => u.user_id === localAssignedTo)?.full_name?.split(" ")[0] || "Responsável"}
                       <ChevronDown className="h-3 w-3 text-muted-foreground" />
                     </button>
                   </PopoverTrigger>
@@ -989,7 +994,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                     <p className="text-[10px] text-muted-foreground px-2 py-1 font-semibold uppercase tracking-wider">Atribuir a</p>
                     <button
                       onClick={() => { changeAssignedTo.mutate(null); setUserPopoverOpen(false); }}
-                      className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-muted transition-colors text-left ${!ticket.assigned_to ? "bg-muted font-semibold" : ""}`}
+                      className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-muted transition-colors text-left ${!localAssignedTo ? "bg-muted font-semibold" : ""}`}
                     >
                       <span className="text-muted-foreground italic">Sem responsável</span>
                     </button>
@@ -998,7 +1003,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                         key={u.user_id}
                         onClick={() => { changeAssignedTo.mutate(u.user_id); setUserPopoverOpen(false); }}
                         className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-muted transition-colors text-left ${
-                          ticket.assigned_to === u.user_id ? "bg-muted font-semibold" : ""
+                          localAssignedTo === u.user_id ? "bg-muted font-semibold" : ""
                         }`}
                       >
                         <User className="h-3 w-3 text-muted-foreground flex-shrink-0" />
