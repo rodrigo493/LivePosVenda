@@ -157,6 +157,15 @@ const CrmPipelinePage = () => {
     }
   }, [searchParams, tickets, setSearchParams]);
 
+  // Keep detailTicket in sync with fresh query data (so dialog shows latest description/solution)
+  useEffect(() => {
+    if (!detailTicket?.id || !tickets?.length) return;
+    const updated = tickets.find((t: any) => t.id === detailTicket.id);
+    if (updated && (updated.description !== detailTicket.description || updated.internal_notes !== detailTicket.internal_notes)) {
+      setDetailTicket(updated);
+    }
+  }, [tickets]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Build grouped data from server tickets
   const grouped = useMemo(() => {
     const map: Record<string, any[]> = {};

@@ -399,12 +399,12 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   });
 
   const salvarMemoriaDraft = useMutation({
-    mutationFn: async ({ aprovar = false }: { aprovar?: boolean } = {}) => {
+    mutationFn: async ({ aprovar = false, sintoma = psSintoma, solucao = psSolucao }: { aprovar?: boolean; sintoma?: string; solucao?: string } = {}) => {
       const payload: Record<string, unknown> = {
         modelo_aparelho: psModelo || ticket?.equipments?.equipment_models?.name || "Não identificado",
-        sintoma: psSintoma,
+        sintoma,
         causa_raiz: psCausaRaiz,
-        solucao_md: psSolucao,
+        solucao_md: solucao,
         pecas: psPecasInput ? psPecasInput.split("\n").filter(Boolean).map((s: string) => s.trim()) : [],
         tags: psTags ? psTags.split(",").filter(Boolean).map((s: string) => s.trim()) : [],
         evidencias_urls: psEvidencias,
@@ -428,17 +428,19 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
         setPsMemoriaId(data.id);
       }
       // Sync sintoma/solução para os campos do ticket (aba Detalhes)
-      if (ticketId && (psSintoma || psSolucao)) {
+      if (ticketId && (sintoma || solucao)) {
         const { error: ticketErr } = await supabase
           .from("tickets")
-          .update({ description: psSintoma, internal_notes: psSolucao, updated_at: new Date().toISOString() })
+          .update({ description: sintoma, internal_notes: solucao, updated_at: new Date().toISOString() })
           .eq("id", ticketId);
         if (ticketErr) throw ticketErr;
       }
     },
     onSuccess: (_d, vars) => {
-      setTicketDescription(psSintoma);
-      setTicketInternalNotes(psSolucao);
+      const sintoma = vars?.sintoma ?? psSintoma;
+      const solucao = vars?.solucao ?? psSolucao;
+      setTicketDescription(sintoma);
+      setTicketInternalNotes(solucao);
       qc.invalidateQueries({ queryKey: ["ticket-memoria", ticketId] });
       qc.invalidateQueries({ queryKey: ["pipeline-tickets"] });
       qc.invalidateQueries({ queryKey: ["client-tickets", clientId] });
@@ -2025,7 +2027,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => salvarMemoriaDraft.mutate({})}
+                        onClick={() => salvarMemoriaDraft.mutate({ sintoma: psSintoma, solucao: psSolucao })}
                         disabled={salvarMemoriaDraft.isPending || !psSintoma.trim() || !psSolucao.trim()}
                       >
                         <FileText className="h-3.5 w-3.5 mr-1.5" />
@@ -2035,7 +2037,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                         <Button
                           size="sm"
                           className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                          onClick={() => salvarMemoriaDraft.mutate({ aprovar: true })}
+                          onClick={() => salvarMemoriaDraft.mutate({ aprovar: true, sintoma: psSintoma, solucao: psSolucao })}
                           disabled={salvarMemoriaDraft.isPending || !psSintoma.trim() || !psSolucao.trim() || psAprovada}
                         >
                           <Check className="h-3.5 w-3.5 mr-1.5" />
