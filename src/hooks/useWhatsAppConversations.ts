@@ -28,13 +28,16 @@ export function useWhatsAppConversations() {
       for (const msg of data || []) {
         if (!msg.client_id) continue;
         const client = msg.clients as any;
-        const lastReadAt = client?.whatsapp_last_read_at ? new Date(client.whatsapp_last_read_at).getTime() : 0;
+        // Skip orphaned messages (no client record) or clients without a real name
+        if (!client || !client.name) continue;
+        const lastReadAt = client.whatsapp_last_read_at ? new Date(client.whatsapp_last_read_at).getTime() : null;
         const msgTime = new Date(msg.created_at).getTime();
-        const isUnread = msg.direction === "inbound" && msgTime > lastReadAt;
+        // Only mark as unread if there's a known read timestamp to compare against
+        const isUnread = msg.direction === "inbound" && lastReadAt !== null && msgTime > lastReadAt;
         if (!map.has(msg.client_id)) {
           map.set(msg.client_id, {
             client_id: msg.client_id,
-            client_name: client?.name || msg.client_id,
+            client_name: client.name,
             client_phone: client?.whatsapp || client?.phone || null,
             last_message: msg.message_text,
             last_message_at: msg.created_at,
