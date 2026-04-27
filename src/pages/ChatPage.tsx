@@ -79,7 +79,7 @@ export default function ChatPage() {
       const first = filteredConversations[0];
       setSelectedChat({ client_id: first.client_id, client_name: first.client_name, client_phone: first.client_phone || "" });
     }
-  }, [filteredConversations, clientParam]);
+  }, [filteredConversations, clientParam, setSearchParams]);
 
   const selectConversation = (conv: typeof filteredConversations[0]) => {
     setSelectedChat({ client_id: conv.client_id, client_name: conv.client_name, client_phone: conv.client_phone || "" });
