@@ -1,5 +1,127 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+// ---------------------------------------------------------------------------
+// Manual HKDF-SHA256 (RFC 5869).
+// Avoids potential Deno WebCrypto deriveBits quirks for HKDF.
+// ---------------------------------------------------------------------------
+async function hkdfSha256(ikm: Uint8Array, salt: Uint8Array, info: Uint8Array, length: number): Promise<Uint8Array> {
+  // HKDF-Extract: PRK = HMAC-SHA256(salt, IKM)
+  const saltKey = await crypto.subtle.importKey("raw", salt, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const prk = new Uint8Array(await crypto.subtle.sign("HMAC", saltKey, ikm));
+  // HKDF-Expand: T(1) || T(2) || ... until length bytes produced
+  const prkKey = await crypto.subtle.importKey("raw", prk, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const out = new Uint8Array(length);
+  let prev = new Uint8Array(0);
+  let written = 0;
+  for (let i = 1; written < length; i++) {
+    const input = new Uint8Array(prev.length + info.length + 1);
+    input.set(prev, 0);
+    input.set(info, prev.length);
+    input[prev.length + info.length] = i;
+    const t = new Uint8Array(await crypto.subtle.sign("HMAC", prkKey, input));
+    const n = Math.min(length - written, t.length);
+    out.set(t.subarray(0, n), written);
+    written += n;
+    prev = t;
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Strategy 1: Decrypt WhatsApp media directly from the CDN.
+// WhatsApp encrypts media with AES-256-CBC. The mediaKey in the webhook
+// payload is the symmetric key. This avoids any dependency on Uazapi's
+// download API and works as long as the CDN URL hasn't expired.
+// Algorithm spec: https://github.com/tulir/whatsmeow (whatsapp.go crypto)
+// ---------------------------------------------------------------------------
+async function decryptWhatsAppMedia(
+  cdnUrl: string,
+  mediaKeyRaw: string | Record<string, unknown>,
+  mime: string,
+  dbg: Record<string, unknown>,
+): Promise<Uint8Array | null> {
+  try {
+    // mediaKey may arrive as a base64 string (Go JSON) or a Node.js Buffer object.
+    let mediaKeyBytes: Uint8Array;
+    if (typeof mediaKeyRaw === "string") {
+      // Normalize URL-safe base64 (WuzAPI/Uazapi may use - and _ instead of + and /)
+      const normalized = mediaKeyRaw.replace(/-/g, "+").replace(/_/g, "/");
+      const padded = normalized + "=".repeat((4 - normalized.length % 4) % 4);
+      const bin = atob(padded);
+      mediaKeyBytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) mediaKeyBytes[i] = bin.charCodeAt(i);
+    } else if (mediaKeyRaw && typeof mediaKeyRaw === "object" && Array.isArray((mediaKeyRaw as any).data)) {
+      // Node.js Buffer serialization: { type: "Buffer", data: [bytes...] }
+      mediaKeyBytes = new Uint8Array((mediaKeyRaw as any).data);
+    } else {
+      dbg.cdnError = "mediaKey_unknown_format";
+      return null;
+    }
+
+    if (mediaKeyBytes.length < 32) {
+      dbg.cdnError = `mediaKey_too_short_${mediaKeyBytes.length}`;
+      return null;
+    }
+
+    const m = mime.toLowerCase();
+    const mediaType = m.startsWith("image/") ? "Image"
+      : m.startsWith("video/") ? "Video"
+      : m.startsWith("audio/") ? "Audio"
+      : "Document";
+
+    dbg.cdnUrl = cdnUrl.split("?")[0]; // strip auth params from debug
+    dbg.mediaKeyDecodedLen = mediaKeyBytes.length;
+    const res = await fetch(cdnUrl, {
+      headers: {
+        "User-Agent": "WhatsApp/2.24.6.77 A",
+        "Accept": "*/*",
+        "Accept-Encoding": "identity",
+      },
+    });
+    dbg.cdnStatus = res.status;
+    dbg.cdnContentType = res.headers.get("content-type") ?? "none";
+    if (!res.ok) {
+      dbg.cdnError = `http_${res.status}`;
+      console.error("CDN download failed:", res.status, cdnUrl.slice(0, 80));
+      return null;
+    }
+    const encrypted = new Uint8Array(await res.arrayBuffer());
+    dbg.encLen = encrypted.length;
+    dbg.encLenMod16 = (encrypted.length - 10) % 16;
+    dbg.first8hex = Array.from(encrypted.slice(0, 8)).map((b) => b.toString(16).padStart(2, "0")).join("");
+    console.log("CDN response:", encrypted.length, "bytes, type:", dbg.cdnContentType, "mod16:", dbg.encLenMod16);
+
+    if (encrypted.length < 26) { dbg.cdnError = "encrypted_too_short"; return null; }
+
+    // Uazapi (WuzAPI fork) uses HKDF WITHOUT null byte in the info string.
+    // Standard WhatsApp (whatsmeow) uses WITH null byte. Try no-null first.
+    const encWithoutMac = encrypted.slice(0, encrypted.length - 10);
+    let decrypted: Uint8Array | null = null;
+    for (const suffix of ["", "\x00"]) {
+      const info = new TextEncoder().encode(`WhatsApp ${mediaType} Keys${suffix}`);
+      const exp = await hkdfSha256(mediaKeyBytes, new Uint8Array(32), info, 112);
+      const iv = exp.subarray(0, 16);
+      const cipherKey = exp.subarray(16, 48);
+      try {
+        const aesKey = await crypto.subtle.importKey("raw", cipherKey, { name: "AES-CBC" }, false, ["decrypt"]);
+        const buf = await crypto.subtle.decrypt({ name: "AES-CBC", iv }, aesKey, encWithoutMac);
+        decrypted = new Uint8Array(buf);
+        dbg.decryptVariant = suffix ? "hkdf_null" : "hkdf_no_null";
+        dbg.cdnBytes = decrypted.length;
+        console.log("CDN decrypt ok variant=", dbg.decryptVariant, decrypted.length, "bytes");
+        break;
+      } catch { /* try next */ }
+    }
+
+    if (!decrypted) { dbg.cdnError = "all_variants_failed"; return null; }
+    return decrypted;
+  } catch (e) {
+    dbg.cdnError = `exception: ${e}`;
+    console.error("decryptWhatsAppMedia exception:", e);
+    return null;
+  }
+}
+
 function looksLikeValidMedia(bytes: Uint8Array, mime: string): boolean {
   if (bytes.length < 8) return false;
   // Reject JSON error blobs that upstream sometimes returns with status 200
@@ -89,13 +211,45 @@ async function downloadAndStoreMedia(
     dbg.attempts = [];
 
     let bytes: Uint8Array | null = null;
+
+    // Strategy 1: Direct WhatsApp CDN decryption — bypasses Uazapi download API entirely.
+    // Uses the mediaKey + CDN URL from the webhook payload (present in most Uazapi versions).
+    if (mediaMeta) {
+      const cdnUrl = String(mediaMeta.url || mediaMeta.URL || mediaMeta.Url || "");
+      const mediaKeyRaw = mediaMeta.mediaKey || mediaMeta.MediaKey;
+      if (cdnUrl.startsWith("https://") && mediaKeyRaw) {
+        dbg.strategy1 = "attempt";
+        const decrypted = await decryptWhatsAppMedia(
+          cdnUrl,
+          mediaKeyRaw as string | Record<string, unknown>,
+          mime,
+          dbg,
+        );
+        if (decrypted && looksLikeValidMedia(decrypted, mime)) {
+          bytes = decrypted;
+          dbg.strategy1 = "ok";
+          console.log("Strategy1 CDN ok:", decrypted.length, "bytes");
+        } else {
+          dbg.strategy1 = `failed cdnError=${dbg.cdnError ?? "bad_sig"}`;
+          console.log("Strategy1 CDN failed, fallback Uazapi API");
+        }
+      } else {
+        dbg.strategy1 = `skip no_url=${!cdnUrl} no_key=${!mediaKeyRaw}`;
+      }
+    }
+
+    // Strategy 2: Uazapi download API (fallback when CDN decryption unavailable or fails).
+    // WuzAPI/Uazapi uses GET with query params, not POST with JSON body.
     for (let attempt = 1; attempt <= 3 && !bytes; attempt++) {
       const attemptInfo: Record<string, unknown> = { attempt };
       try {
-        const res = await fetch(`${uazapiBaseUrl}${endpoint}`, {
-          method: "POST",
-          headers: { Token: uazapiToken, "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
+        const apiUrl = new URL(`${uazapiBaseUrl}${endpoint}`);
+        if (messageId) apiUrl.searchParams.set("messageId", messageId);
+        if (chatId) apiUrl.searchParams.set("chatId", chatId);
+        attemptInfo.apiUrl = apiUrl.toString().slice(0, 200);
+        const res = await fetch(apiUrl.toString(), {
+          method: "GET",
+          headers: { Token: uazapiToken },
         });
         attemptInfo.status = res.status;
         console.log(`${endpoint} attempt=${attempt} status:`, res.status);
@@ -442,7 +596,9 @@ Deno.serve(async (req) => {
       message_text: messageText,
       media_url: mediaUrl,
       media_mime_type: mediaMime,
-      media_debug: mediaUrl ? null : (Object.keys(mediaDbg).length ? mediaDbg : null),
+      media_debug: mediaUrl
+        ? (mediaDbg.decryptVariant ? { ok: true, variant: mediaDbg.decryptVariant } : null)
+        : (Object.keys(mediaDbg).length ? mediaDbg : null),
       sender_name: senderName,
       sender_phone: senderPhone,
       manychat_message_id: waMessageId,
