@@ -24,20 +24,20 @@ export function useCreateStage() {
       pipelineId,
       label,
       color,
-      delayDays,
+      delayMinutes,
       position,
     }: {
       pipelineId: string;
       label: string;
       color: string;
-      delayDays: number;
+      delayMinutes: number;
       position: number;
     }) => {
       const key = toKey(label);
       const { data, error } = await (supabase as any)
         .from("pipeline_stages")
-        .insert({ pipeline_id: pipelineId, key, label, color, delay_days: delayDays, position })
-        .select("id, pipeline_id, key, label, color, delay_days, position")
+        .insert({ pipeline_id: pipelineId, key, label, color, delay_minutes: delayMinutes, position })
+        .select("id, pipeline_id, key, label, color, delay_minutes, position")
         .single();
       if (error) throw error;
       return data as PipelineStageDB;
@@ -58,17 +58,17 @@ export function useUpdateStage() {
       pipelineId,
       label,
       color,
-      delayDays,
+      delayMinutes,
     }: {
       id: string;
       pipelineId: string;
       label: string;
       color: string;
-      delayDays: number;
+      delayMinutes: number;
     }) => {
       const { error } = await (supabase as any)
         .from("pipeline_stages")
-        .update({ label, color, delay_days: delayDays })
+        .update({ label, color, delay_minutes: delayMinutes })
         .eq("id", id);
       if (error) throw error;
     },

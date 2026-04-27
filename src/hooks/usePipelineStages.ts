@@ -8,7 +8,7 @@ export interface PipelineStageDB {
   key: string;
   label: string;
   color: string;
-  delay_days: number;
+  delay_minutes: number;
   position: number;
 }
 
@@ -19,7 +19,7 @@ export function usePipelineStages(pipelineId: string | null | undefined) {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("pipeline_stages")
-        .select("id, pipeline_id, key, label, color, delay_days, position")
+        .select("id, pipeline_id, key, label, color, delay_minutes, position")
         .eq("pipeline_id", pipelineId)
         .order("position", { ascending: true });
       if (error) throw error;

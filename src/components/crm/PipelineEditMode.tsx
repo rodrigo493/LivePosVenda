@@ -78,7 +78,7 @@ export function PipelineEditMode({
 
   function handleStageUpdate(
     stageId: string,
-    updates: Partial<Pick<PipelineStageDB, "label" | "color" | "delay_days">>
+    updates: Partial<Pick<PipelineStageDB, "label" | "color" | "delay_minutes">>
   ) {
     onStagesChange(
       stages.map((s) => (s.id === stageId ? { ...s, ...updates } : s))

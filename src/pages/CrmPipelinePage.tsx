@@ -116,7 +116,7 @@ const CrmPipelinePage = () => {
 
   const delayMap = useMemo(() => {
     const map: Record<string, number> = {};
-    stages.forEach((s) => { map[s.key] = s.delay_days; });
+    stages.forEach((s) => { map[s.key] = s.delay_minutes; });
     return map;
   }, [stages]);
 
@@ -412,7 +412,7 @@ const CrmPipelinePage = () => {
       key: "",
       label: "Nova etapa",
       color: "hsl(210 80% 55%)",
-      delay_days: 3,
+      delay_minutes: 1440,
       position: editStages.length,
     };
     setEditStages((prev) => [...prev, newStage]);
@@ -450,7 +450,7 @@ const CrmPipelinePage = () => {
       await Promise.all(
         existing.map((s, i) =>
           (supabase as any).from("pipeline_stages").update({
-            label: s.label, color: s.color, delay_days: s.delay_days, position: i,
+            label: s.label, color: s.color, delay_minutes: s.delay_minutes, position: i,
           }).eq("id", s.id)
         )
       );
@@ -462,7 +462,7 @@ const CrmPipelinePage = () => {
         const key = s.label.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") + "_" + Date.now().toString(36);
         const { data, error } = await (supabase as any)
           .from("pipeline_stages")
-          .insert({ pipeline_id: currentPipeline.id, key, label: s.label, color: s.color, delay_days: s.delay_days, position: existing.length + i })
+          .insert({ pipeline_id: currentPipeline.id, key, label: s.label, color: s.color, delay_minutes: s.delay_minutes, position: existing.length + i })
           .select("id").single();
         if (error) throw error;
         idMap[s.id] = data.id;

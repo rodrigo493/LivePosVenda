@@ -20,7 +20,7 @@ interface EditableStageColumnProps {
   stage: PipelineStageDB;
   automations: LocalAutomation[];
   cardCount: number;
-  onUpdate: (updates: Partial<Pick<PipelineStageDB, "label" | "color" | "delay_days">>) => void;
+  onUpdate: (updates: Partial<Pick<PipelineStageDB, "label" | "color" | "delay_minutes">>) => void;
   onDelete: () => void;
   onAutomationsChange: (automations: LocalAutomation[]) => void;
 }
@@ -129,16 +129,25 @@ export function EditableStageColumn({
       </div>
 
       {/* Delay */}
-      <div className="px-3 pb-3 flex items-center gap-2">
+      <div className="px-3 pb-3 flex items-center gap-2 flex-wrap">
         <span className="text-xs text-muted-foreground flex-shrink-0">⏱ Atrasado após</span>
         <Input
           type="number"
-          min={1}
-          value={stage.delay_days}
-          onChange={(e) => onUpdate({ delay_days: Number(e.target.value) })}
-          className="h-8 w-20 text-xs"
+          min={0}
+          value={Math.floor(stage.delay_minutes / 60)}
+          onChange={(e) => onUpdate({ delay_minutes: Number(e.target.value) * 60 + (stage.delay_minutes % 60) })}
+          className="h-8 w-16 text-xs"
         />
-        <span className="text-xs text-muted-foreground flex-shrink-0">dia(s)</span>
+        <span className="text-xs text-muted-foreground flex-shrink-0">h</span>
+        <Input
+          type="number"
+          min={0}
+          max={59}
+          value={stage.delay_minutes % 60}
+          onChange={(e) => onUpdate({ delay_minutes: Math.floor(stage.delay_minutes / 60) * 60 + Math.min(59, Number(e.target.value)) })}
+          className="h-8 w-16 text-xs"
+        />
+        <span className="text-xs text-muted-foreground flex-shrink-0">min</span>
       </div>
 
       {/* Divisor */}

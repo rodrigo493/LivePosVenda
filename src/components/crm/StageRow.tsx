@@ -22,7 +22,7 @@ const STAGE_COLORS = [
 
 interface StageRowProps {
   stage: PipelineStageDB;
-  onEdit: (id: string, label: string, color: string, delayDays: number) => void;
+  onEdit: (id: string, label: string, color: string, delayMinutes: number) => void;
   onDelete: (id: string) => void;
 }
 
@@ -30,21 +30,21 @@ export function StageRow({ stage, onEdit, onDelete }: StageRowProps) {
   const [editing, setEditing] = useState(false);
   const [label, setLabel] = useState(stage.label);
   const [color, setColor] = useState(stage.color);
-  const [delayDays, setDelayDays] = useState(stage.delay_days);
+  const [delayMinutes, setDelayMinutes] = useState(stage.delay_minutes);
 
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: stage.id });
   const style = { transform: CSS.Transform.toString(transform), transition };
 
   function handleSave() {
     if (!label.trim()) return;
-    onEdit(stage.id, label.trim(), color, delayDays);
+    onEdit(stage.id, label.trim(), color, delayMinutes);
     setEditing(false);
   }
 
   function handleCancel() {
     setLabel(stage.label);
     setColor(stage.color);
-    setDelayDays(stage.delay_days);
+    setDelayMinutes(stage.delay_minutes);
     setEditing(false);
   }
 
@@ -91,14 +91,26 @@ export function StageRow({ stage, onEdit, onDelete }: StageRowProps) {
             </div>
           </div>
           <div>
-            <label className="text-xs text-muted-foreground">Dias para "atrasado"</label>
-            <Input
-              type="number"
-              min={1}
-              value={delayDays}
-              onChange={(e) => setDelayDays(Number(e.target.value))}
-              className="h-8 w-24 mt-1"
-            />
+            <label className="text-xs text-muted-foreground">Tempo para "atrasado"</label>
+            <div className="flex items-center gap-2 mt-1">
+              <Input
+                type="number"
+                min={0}
+                value={Math.floor(delayMinutes / 60)}
+                onChange={(e) => setDelayMinutes(Number(e.target.value) * 60 + (delayMinutes % 60))}
+                className="h-8 w-20"
+              />
+              <span className="text-xs text-muted-foreground">h</span>
+              <Input
+                type="number"
+                min={0}
+                max={59}
+                value={delayMinutes % 60}
+                onChange={(e) => setDelayMinutes(Math.floor(delayMinutes / 60) * 60 + Math.min(59, Number(e.target.value)))}
+                className="h-8 w-20"
+              />
+              <span className="text-xs text-muted-foreground">min</span>
+            </div>
           </div>
           <div className="flex gap-2 justify-end">
             <Button variant="ghost" size="sm" onClick={handleCancel}>

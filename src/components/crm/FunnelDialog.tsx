@@ -81,18 +81,18 @@ export function FunnelDialog({ open, onOpenChange, mode, pipeline, onCreated }: 
       key: "",
       label: "Nova etapa",
       color: "hsl(210 80% 55%)",
-      delay_days: 3,
+      delay_minutes: 1440,
       position: localStages.length,
     };
     setLocalStages((prev) => [...prev, newStage]);
   }
 
-  async function handleEditStage(id: string, label: string, color: string, delayDays: number) {
+  async function handleEditStage(id: string, label: string, color: string, delayMinutes: number) {
     setLocalStages((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, label, color, delay_days: delayDays } : s))
+      prev.map((s) => (s.id === id ? { ...s, label, color, delay_minutes: delayMinutes } : s))
     );
     if (pipeline?.id && !id.startsWith("temp-")) {
-      await updateStage.mutateAsync({ id, pipelineId: pipeline.id, label, color, delayDays });
+      await updateStage.mutateAsync({ id, pipelineId: pipeline.id, label, color, delayMinutes });
     }
   }
 
@@ -117,7 +117,7 @@ export function FunnelDialog({ open, onOpenChange, mode, pipeline, onCreated }: 
           pipelineId: newPipeline.id,
           label: s.label,
           color: s.color,
-          delayDays: s.delay_days,
+          delayMinutes: s.delay_minutes,
           position: i,
         });
       }
@@ -138,7 +138,7 @@ export function FunnelDialog({ open, onOpenChange, mode, pipeline, onCreated }: 
           pipelineId: pipeline.id,
           label: s.label,
           color: s.color,
-          delayDays: s.delay_days,
+          delayMinutes: s.delay_minutes,
           position: existingStages.length + i,
         });
       }
