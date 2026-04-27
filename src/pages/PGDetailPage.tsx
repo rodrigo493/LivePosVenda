@@ -1,8 +1,9 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Shield, Save, CheckCircle, Loader2, ExternalLink } from "lucide-react";
+import { ArrowLeft, Shield, Save, Loader2, Send, CalendarIcon, Pencil, X, Wrench, Plus, Trash2, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { motion } from "framer-motion";
@@ -13,15 +14,39 @@ import { generateQuotePdf } from "@/lib/generateQuotePdf";
 import { exportDocumentToExcel, printPdf, type ExportDocument } from "@/lib/exportHelpers";
 import { ExportMenu } from "@/components/shared/ExportMenu";
 import { toast } from "sonner";
+import { format, parse, isValid } from "date-fns";
 import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { cn } from "@/lib/utils";
+import { ProductSearch } from "@/components/products/ProductSearch";
+import { SuggestedParts } from "@/components/products/SuggestedParts";
+import { useAddQuoteItem, useDeleteQuoteItem } from "@/hooks/useQuotes";
+import { useCreateProduct } from "@/hooks/useProducts";
 import { warrantyStatusLabels, itemTypeLabels } from "@/constants/statusLabels";
-import { formatDate as fmtDate } from "@/lib/formatters";
+import { ExternalLink } from "lucide-react";
+
+const partTypes = [
+  { value: "peca_cobrada", label: "Peça (Cobrada)" },
+  { value: "peca_garantia", label: "Peça (Garantia)" },
+];
+
+const serviceTypes = [
+  { value: "servico_cobrado", label: "Serviço (Cobrado)" },
+  { value: "servico_garantia", label: "Serviço (Garantia)" },
+  { value: "frete", label: "Frete" },
+  { value: "desconto", label: "Desconto" },
+];
 
 const PGDetailPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const fromTicketId = searchParams.get("from_ticket");
+  const addItem = useAddQuoteItem();
+  const deleteItemMutation = useDeleteQuoteItem();
+  const createProduct = useCreateProduct();
   const qc = useQueryClient();
 
   const { data: wc, isLoading } = useQuery({
@@ -29,7 +54,7 @@ const PGDetailPage = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("warranty_claims")
-        .select("*, tickets(ticket_number, title, clients(name), equipments(serial_number, equipment_models(name)))")
+        .select("*, tickets(ticket_number, title, clients(name), equipments(serial_number, model_id, equipment_models(name)))")
         .eq("id", id!)
         .single();
       if (error) throw error;
@@ -51,18 +76,148 @@ const PGDetailPage = () => {
     },
   });
 
+  // Edit mode state
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+
   const [defect, setDefect] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [parts, setParts] = useState<string | null>(null);
   const [costVal, setCostVal] = useState<string | null>(null);
   const [approving, setApproving] = useState(false);
+  const [searchMode, setSearchMode] = useState<"peca" | "servico" | null>(null);
+  const [showNewServiceForm, setShowNewServiceForm] = useState(false);
+  const [newService, setNewService] = useState({ name: "", description: "", cost: "", itemType: "servico_garantia" });
+
+  // Editable item data (quantity, unit_price per item)
+  const [editableItems, setEditableItems] = useState<Record<string, { quantity: string; unit_price: string; description: string }>>({});
+
+  // Nomus ERP fields
+  const [nomusFields, setNomusFields] = useState({
+    pedido: "",
+    empresa: "TS",
+    cliente: "",
+    tipoMovimentacao: "VENDAS DE MERCADORIAS",
+    dataEmissao: format(new Date(), "dd/MM/yyyy"),
+    dataEntregaPadrao: "",
+    cfop: "",
+  });
+  const [nomusClientId, setNomusClientId] = useState<number | null>(null);
+  const [nomusClientResults, setNomusClientResults] = useState<{ id: number; nome: string }[]>([]);
+  const [nomusClientLoading, setNomusClientLoading] = useState(false);
+  const [nomusClientOpen, setNomusClientOpen] = useState(false);
+  const nomusSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Pre-fill fields from wc data when loaded
+  useEffect(() => {
+    if (!wc) return;
+    const clientName = wc.tickets?.clients?.name || "";
+    const claimNum = (wc as any).claim_number || "";
+    setNomusFields(prev => ({
+      ...prev,
+      pedido: prev.pedido || claimNum,
+      cliente: prev.cliente || clientName,
+    }));
+  }, [wc]);
+
+  const updateNomusField = (field: string, value: string) => {
+    setNomusFields(prev => ({ ...prev, [field]: value }));
+  };
+
+  const searchNomusClients = (query: string) => {
+    updateNomusField("cliente", query);
+    setNomusClientId(null);
+    if (query.length < 3) { setNomusClientResults([]); setNomusClientOpen(false); return; }
+    if (nomusSearchTimer.current) clearTimeout(nomusSearchTimer.current);
+    nomusSearchTimer.current = setTimeout(async () => {
+      setNomusClientLoading(true);
+      try {
+        const q = query.trim();
+        const res = await fetch(
+          `/api/nomus/rest/pessoas?query=nome=like=%25${encodeURIComponent(q)}%25`,
+          { headers: { "Content-Type": "application/json", "Accept": "application/json" } }
+        );
+        if (!res.ok) throw new Error(`Erro ${res.status}`);
+        const body = await res.json();
+        const list: any[] = Array.isArray(body) ? body : [];
+        const results: { id: number; nome: string }[] = list.slice(0, 20).map((p: any) => ({
+          id: p.id,
+          nome: p.nomeFantasia || p.razaoSocial || p.nome || `ID ${p.id}`,
+        }));
+        setNomusClientResults(results);
+        setNomusClientOpen(results.length > 0);
+      } catch (e: any) {
+        console.error("nomus-search error:", e);
+        toast.error(`Busca Nomus: ${e.message || "Erro desconhecido"}`);
+        setNomusClientResults([]);
+      }
+      setNomusClientLoading(false);
+    }, 600);
+  };
+
+  const selectNomusClient = (client: { id: number; nome: string }) => {
+    setNomusClientId(client.id);
+    updateNomusField("cliente", client.nome);
+    setNomusClientOpen(false);
+  };
 
   const items = linkedQuote?.quote_items || [];
+
+  // Editable item-level ERP data
+  const [itemErpData, setItemErpData] = useState<Record<string, { produto: string; quantidade: string; valorUnitario: string }>>({});
+
+  // Initialize item ERP data and editable items from quote items
+  useEffect(() => {
+    if (items.length === 0) return;
+    setItemErpData(prev => {
+      const next = { ...prev };
+      for (const item of items) {
+        if (!next[item.id]) {
+          next[item.id] = {
+            produto: item.products?.code || item.description || "",
+            quantidade: String(item.quantity || 1),
+            valorUnitario: Number(item.unit_price || 0).toFixed(2),
+          };
+        }
+      }
+      return next;
+    });
+    setEditableItems(prev => {
+      const next = { ...prev };
+      for (const item of items) {
+        if (!next[item.id]) {
+          next[item.id] = {
+            quantity: String(item.quantity || 1),
+            unit_price: Number(item.unit_price || 0).toFixed(2),
+            description: item.description || "",
+          };
+        }
+      }
+      return next;
+    });
+  }, [items]);
+
+  const updateItemErp = (itemId: string, field: string, value: string) => {
+    setItemErpData(prev => ({
+      ...prev,
+      [itemId]: { ...prev[itemId], [field]: value },
+    }));
+  };
+
+  const updateEditableItem = (itemId: string, field: string, value: string) => {
+    setEditableItems(prev => ({
+      ...prev,
+      [itemId]: { ...prev[itemId], [field]: value },
+    }));
+  };
+
   const totals = useMemo(() => {
     let warranty = 0, subtotalPecas = 0, subtotalServicos = 0, frete = 0, desconto = 0, internalCost = 0;
     for (const item of items) {
-      const linePrice = item.quantity * Number(item.unit_price);
-      const lineCost = item.quantity * Number(item.unit_cost);
+      const qty = editing ? Number(editableItems[item.id]?.quantity || item.quantity) : item.quantity;
+      const price = editing ? Number(editableItems[item.id]?.unit_price || item.unit_price) : Number(item.unit_price);
+      const lineCost = qty * Number(item.unit_cost);
+      const linePrice = qty * price;
       internalCost += lineCost;
       if (item.item_type === "desconto") desconto += linePrice;
       else if (item.item_type === "frete") { frete += linePrice; }
@@ -73,7 +228,7 @@ const PGDetailPage = () => {
     const charged = subtotalPecas + subtotalServicos + frete - desconto;
     const margin = charged > 0 ? ((charged - (internalCost - warranty)) / charged * 100) : 0;
     return { subtotalPecas, subtotalServicos, warranty, charged, internalCost, margin, frete, desconto };
-  }, [items]);
+  }, [items, editing, editableItems]);
 
   if (isLoading) return <div className="p-8 text-center text-muted-foreground">Carregando...</div>;
   if (!wc) return <div className="p-8 text-center text-muted-foreground">Pedido de garantia não encontrado.</div>;
@@ -86,6 +241,7 @@ const PGDetailPage = () => {
   const clientName = wc.tickets?.clients?.name || "—";
   const modelName = wc.tickets?.equipments?.equipment_models?.name || "—";
   const serialNumber = wc.tickets?.equipments?.serial_number || "";
+  const equipModelId = (wc.tickets?.equipments as any)?.model_id || undefined;
 
   const buildPgPdfPayload = () => ({
     quoteNumber: claimNumber,
@@ -136,15 +292,134 @@ const PGDetailPage = () => {
   const handleExportExcel = () => exportDocumentToExcel(buildPgExcelPayload());
   const handlePrint = () => printPdf(generateQuotePdf(buildPgPdfPayload()));
 
+  const handleProductSelect = async (product: any, itemType: string) => {
+    if (!linkedQuote) {
+      toast.error("Nenhum orçamento vinculado para adicionar itens.");
+      return;
+    }
+    const tax = (Number(product.ipi_percent || 0) + Number(product.icms_percent || 0) + Number(product.pis_percent || 0) + Number(product.cofins_percent || 0) + Number(product.csll_percent || 0) + Number(product.irpj_percent || 0)) / 100;
+    const cost = Number(product.base_cost) * (1 + tax);
+    const price = itemType.includes("garantia") ? 0 : cost * (1 + Number(product.margin_percent || 30) / 100);
+    await addItem.mutateAsync({
+      quote_id: linkedQuote.id,
+      product_id: product.id,
+      description: product.name,
+      item_type: itemType,
+      quantity: 1,
+      unit_cost: cost,
+      unit_price: price,
+    });
+    toast.success(`${product.name} adicionado ao pedido`);
+    qc.invalidateQueries({ queryKey: ["pg_linked_quote", id] });
+  };
+
+  const handleDeleteItem = async (itemId: string) => {
+    await deleteItemMutation.mutateAsync(itemId);
+    toast.success("Item removido");
+    qc.invalidateQueries({ queryKey: ["pg_linked_quote", id] });
+  };
+
+  const handleEnterEdit = () => {
+    setEditing(true);
+    const next: Record<string, { quantity: string; unit_price: string; description: string }> = {};
+    for (const item of items) {
+      next[item.id] = {
+        quantity: String(item.quantity || 1),
+        unit_price: Number(item.unit_price || 0).toFixed(2),
+        description: item.description || "",
+      };
+    }
+    setEditableItems(next);
+  };
+
+  const handleCancelEdit = () => {
+    setEditing(false);
+  };
+
+  const handleSaveAll = async () => {
+    setSaving(true);
+    try {
+      // 1. Save warranty_claim fields
+      const { error: wcError } = await supabase.from("warranty_claims").update({
+        defect_description: currentDefect,
+        technical_analysis: currentAnalysis,
+        covered_parts: currentParts,
+        internal_cost: parseFloat(currentCost) || 0,
+      }).eq("id", id!);
+      if (wcError) throw wcError;
+
+      // 2. Save each edited item
+      const itemUpdates = items.map(async (item: any) => {
+        const ed = editableItems[item.id];
+        if (!ed) return;
+        const newQty = Number(ed.quantity) || item.quantity;
+        const newPrice = Number(ed.unit_price) || Number(item.unit_price);
+        const newDesc = ed.description || item.description;
+        const { error } = await supabase.from("quote_items").update({
+          quantity: newQty,
+          unit_price: newPrice,
+          description: newDesc,
+        }).eq("id", item.id);
+        if (error) throw error;
+      });
+      await Promise.all(itemUpdates);
+
+      // 3. Recalculate quote totals
+      if (linkedQuote) {
+        let newSubtotal = 0;
+        let newDiscount = 0;
+        let newFreight = 0;
+        for (const item of items) {
+          const ed = editableItems[item.id];
+          const qty = Number(ed?.quantity || item.quantity);
+          const price = Number(ed?.unit_price || item.unit_price);
+          const lineTotal = qty * price;
+          if (item.item_type === "desconto") newDiscount += lineTotal;
+          else if (item.item_type === "frete") newFreight += lineTotal;
+          else newSubtotal += lineTotal;
+        }
+        const newTotal = newSubtotal + newFreight - newDiscount;
+        await supabase.from("quotes").update({
+          subtotal: newSubtotal,
+          discount: newDiscount,
+          freight: newFreight,
+          total: newTotal,
+        }).eq("id", linkedQuote.id);
+      }
+
+      toast.success("Todas as alterações foram salvas!");
+      setEditing(false);
+      qc.invalidateQueries({ queryKey: ["warranty_claim_detail", id] });
+      qc.invalidateQueries({ queryKey: ["pg_linked_quote", id] });
+    } catch (err: any) {
+      if (import.meta.env.DEV) console.error("Save error:", err);
+      toast.error(err.message || "Erro ao salvar alterações");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleSave = async () => {
-    const { error } = await supabase.from("warranty_claims").update({
-      defect_description: currentDefect,
-      technical_analysis: currentAnalysis,
-      covered_parts: currentParts,
-      internal_cost: parseFloat(currentCost) || 0,
-    }).eq("id", id!);
-    if (error) toast.error("Erro ao salvar");
-    else { toast.success("Salvo com sucesso"); qc.invalidateQueries({ queryKey: ["warranty_claim_detail", id] }); }
+    setSaving(true);
+    try {
+      const { error } = await supabase.from("warranty_claims").update({
+        defect_description: currentDefect,
+        technical_analysis: currentAnalysis,
+        covered_parts: currentParts,
+        internal_cost: parseFloat(currentCost) || 0,
+      }).eq("id", id!);
+      if (error) throw error;
+      toast.success("Salvo com sucesso");
+      setDefect(null);
+      setAnalysis(null);
+      setParts(null);
+      setCostVal(null);
+      qc.invalidateQueries({ queryKey: ["warranty_claim_detail", id] });
+    } catch (err: any) {
+      toast.error(err.message || "Erro ao salvar");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleStatusChange = async (val: string) => {
@@ -153,41 +428,100 @@ const PGDetailPage = () => {
     else { toast.success("Status atualizado"); qc.invalidateQueries({ queryKey: ["warranty_claim_detail", id] }); }
   };
 
+  const resolveNomusProductId = async (code: string): Promise<number | null> => {
+    try {
+      const res = await fetch(`/api/nomus/rest/produtos?query=codigo==${encodeURIComponent(code)}`, {
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      });
+      if (!res.ok) return null;
+      const products = await res.json();
+      return Array.isArray(products) && products.length > 0 ? products[0].id : null;
+    } catch { return null; }
+  };
+
   const handleApprove = async () => {
+    if (!nomusFields.dataEntregaPadrao) { toast.error("Preencha a Data de Entrega Padrão."); return; }
+    if (!nomusFields.cliente.trim()) { toast.error("Preencha o nome do cliente."); return; }
+
     setApproving(true);
-    // Notifica o SquadOS logo ao aprovar, independente do resultado do ERP.
     void notifySquad({ recordType: "pg", recordId: id!, reference: claimNumber });
     try {
-      const orderItems = items.map((item: any) => ({
-        product_code: item.products?.code || "",
-        description: item.description,
-        quantity: item.quantity,
-        unit_price: Number(item.unit_price),
+      let idPessoaCliente = nomusClientId;
+      if (!idPessoaCliente) {
+        const q = nomusFields.cliente.trim();
+        const cRes = await fetch(
+          `/api/nomus/rest/pessoas?query=nome=like=%25${encodeURIComponent(q)}%25`,
+          { headers: { "Content-Type": "application/json", "Accept": "application/json" } }
+        );
+        if (cRes.ok) {
+          const cBody = await cRes.json();
+          const cList = Array.isArray(cBody) ? cBody : [];
+          if (cList.length > 0) idPessoaCliente = cList[0].id;
+        }
+      }
+      if (!idPessoaCliente) {
+        toast.error(`Cliente "${nomusFields.cliente}" não encontrado no ERP Nomus.`);
+        return;
+      }
+
+      const today = new Date();
+      const fallbackDate = `${String(today.getDate()).padStart(2, "0")}/${String(today.getMonth() + 1).padStart(2, "0")}/${today.getFullYear()}`;
+
+      const itensPedido = await Promise.all(items.map(async (item: any, idx: number) => {
+        const erpData = itemErpData[item.id];
+        const code = erpData?.produto || item.products?.code || "";
+        const idProduto = await resolveNomusProductId(code);
+        if (!idProduto) throw new Error(`Produto "${code}" não encontrado no ERP Nomus.`);
+        return {
+          idProduto,
+          item: String(idx + 1),
+          quantidade: String(Number(erpData?.quantidade || item.quantity || 1)),
+          valorUnitario: String(Number(erpData?.valorUnitario || item.unit_price || 0).toFixed(2)),
+          observacoes: item.description || "",
+          informacoesAdicionaisProduto: "",
+          percentualAcrescimo: "0", percentualDesconto: "0",
+          valorAcrescimo: "0", valorDesconto: "0",
+          status: 1, idTipoMovimentacao: 60,
+          dataEntrega: nomusFields.dataEntregaPadrao || fallbackDate,
+        };
       }));
 
-      const res = await supabase.functions.invoke("nomus-create-order", {
-        body: {
-          order_type: "garantia",
-          order_code: claimNumber,
-          items: orderItems,
-          notes: currentDefect,
-          client_name: clientName,
-        },
+      const payload = {
+        codigoPedido: nomusFields.pedido || claimNumber,
+        dataEmissao: nomusFields.dataEmissao || fallbackDate,
+        idCondicaoPagamento: 28,
+        idEmpresa: 2,
+        idFormaPagamento: 10,
+        idPessoaCliente,
+        idTipoMovimentacao: 60,
+        idTipoPedido: 1,
+        observacoes: currentDefect || `Pedido de Garantia - ${nomusFields.cliente}`,
+        observacoesInternas: `Gerado pelo Live Care - ${nomusFields.pedido || claimNumber}`,
+        itensPedido,
+        ...(nomusFields.cfop ? { cfop: nomusFields.cfop } : {}),
+      };
+
+      const orderRes = await fetch("/api/nomus/rest/pedidos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify(payload),
       });
 
-      if (res.error) throw new Error(res.error.message || "Erro ao enviar ao ERP");
-      
+      if (!orderRes.ok) {
+        const errText = await orderRes.text();
+        throw new Error(`Erro Nomus [${orderRes.status}]: ${errText}`);
+      }
+
       await supabase.from("warranty_claims").update({ warranty_status: "aprovada" as any }).eq("id", id!);
-      toast.success("Pedido de garantia aprovado e enviado ao ERP!");
+      toast.success("Pedido criado no ERP com sucesso!");
       qc.invalidateQueries({ queryKey: ["warranty_claim_detail", id] });
     } catch (err: any) {
       if (import.meta.env.DEV) console.error("Approve error:", err);
-      toast.error(err.message || "Erro ao aprovar pedido");
+      toast.error(err.message || "Erro ao criar pedido no ERP");
     } finally {
       setApproving(false);
     }
   };
-
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -205,9 +539,36 @@ const PGDetailPage = () => {
         </div>
         <StatusBadge status={warrantyStatusLabels[wc.warranty_status] || wc.warranty_status} />
         <ExportMenu onPdf={handleExportPdf} onExcel={handleExportExcel} onPrint={handlePrint} />
+        {!editing ? (
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={handleEnterEdit}>
+              <Pencil className="h-3.5 w-3.5" /> Editar Itens
+            </Button>
+            <Button size="sm" className="gap-1.5" onClick={handleSave} disabled={saving}>
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+              Salvar
+            </Button>
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <Button size="sm" variant="ghost" className="gap-1.5" onClick={handleCancelEdit}>
+              <X className="h-3.5 w-3.5" /> Cancelar
+            </Button>
+            <Button size="sm" className="gap-1.5" onClick={handleSaveAll} disabled={saving}>
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+              Salvar Tudo
+            </Button>
+          </div>
+        )}
       </div>
 
-      {/* Client & Equipment */}
+      {editing && (
+        <div className="bg-primary/5 border border-primary/20 rounded-lg px-4 py-2 mb-4 text-xs text-primary font-medium flex items-center gap-2">
+          <Pencil className="h-3.5 w-3.5" /> Modo de edição ativo — altere os campos e clique em "Salvar Tudo"
+        </div>
+      )}
+
+      {/* Client & Equipment info cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
         <div className="bg-card rounded-xl border p-4">
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2 font-semibold">Cliente</p>
@@ -258,7 +619,7 @@ const PGDetailPage = () => {
       )}
 
       {/* Financial summary cards */}
-      {items.length > 0 && (
+      {linkedQuote && (
         <>
           <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-4">
             {[
@@ -275,8 +636,6 @@ const PGDetailPage = () => {
               </div>
             ))}
           </div>
-
-          {/* Total final */}
           <div className="bg-primary/10 border border-primary/20 rounded-xl p-4 mb-6 flex items-center justify-between">
             <span className="text-sm font-semibold">Total Cobrado do Cliente</span>
             <span className="text-2xl font-bold font-mono text-primary">R$ {totals.charged.toFixed(2)}</span>
@@ -284,47 +643,182 @@ const PGDetailPage = () => {
         </>
       )}
 
+      {/* Add items buttons */}
+      {linkedQuote && (
+        <div className="flex gap-2 mb-4">
+          <Button size="sm" className="gap-1.5" variant={searchMode === "peca" ? "default" : "outline"} onClick={() => { setEditing(true); setSearchMode(searchMode === "peca" ? null : "peca"); setShowNewServiceForm(false); }}>
+            <Package className="h-3.5 w-3.5" /> Adicionar Peça
+          </Button>
+          <Button size="sm" className="gap-1.5" variant={searchMode === "servico" ? "default" : "outline"} onClick={() => { setEditing(true); setSearchMode(searchMode === "servico" ? null : "servico"); setShowNewServiceForm(false); }}>
+            <Wrench className="h-3.5 w-3.5" /> Adicionar Serviço
+          </Button>
+        </div>
+      )}
+
+      {/* Product search */}
+      {editing && searchMode && linkedQuote && (
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mb-4 space-y-3">
+          <ProductSearch
+            modelFilter={modelName}
+            onSelect={handleProductSelect}
+            itemTypes={searchMode === "peca" ? partTypes : serviceTypes}
+          />
+          {searchMode === "servico" && (
+            <div className="space-y-3">
+              {!showNewServiceForm ? (
+                <Button variant="outline" size="sm" className="gap-1.5 w-full border-dashed" onClick={() => setShowNewServiceForm(true)}>
+                  <Plus className="h-3.5 w-3.5" /> Criar novo serviço manualmente
+                </Button>
+              ) : (
+                <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="bg-card rounded-xl border p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold flex items-center gap-2"><Wrench className="h-4 w-4 text-primary" /> Novo Serviço</p>
+                    <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setShowNewServiceForm(false)}>Cancelar</Button>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                    <div className="md:col-span-2">
+                      <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Nome do serviço *</Label>
+                      <Input placeholder="Ex: Mão de obra técnica..." value={newService.name} onChange={(e) => setNewService(s => ({ ...s, name: e.target.value }))} className="mt-1" />
+                    </div>
+                    <div>
+                      <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Custo (R$) *</Label>
+                      <Input type="number" step="0.01" placeholder="0.00" value={newService.cost} onChange={(e) => setNewService(s => ({ ...s, cost: e.target.value }))} className="mt-1 font-mono" />
+                    </div>
+                    <div>
+                      <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Tipo</Label>
+                      <Select value={newService.itemType} onValueChange={(v) => setNewService(s => ({ ...s, itemType: v }))}>
+                        <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {serviceTypes.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Descrição (opcional)</Label>
+                    <Input placeholder="Detalhes do serviço..." value={newService.description} onChange={(e) => setNewService(s => ({ ...s, description: e.target.value }))} className="mt-1" />
+                  </div>
+                  <div className="flex justify-end">
+                    <Button size="sm" className="gap-1.5" disabled={!newService.name.trim() || !newService.cost || createProduct.isPending}
+                      onClick={async () => {
+                        const costNum = Number(newService.cost);
+                        const code = `SRV-${Date.now().toString(36).toUpperCase()}`;
+                        const product = await createProduct.mutateAsync({
+                          name: newService.name.trim(), code, base_cost: costNum,
+                          description: newService.description || null,
+                          category: "servico", product_type: "servico", margin_percent: 30,
+                        });
+                        const isWarranty = newService.itemType.includes("garantia");
+                        const price = isWarranty ? 0 : costNum * 1.3;
+                        await addItem.mutateAsync({
+                          quote_id: linkedQuote.id, product_id: product.id,
+                          description: newService.name.trim(), item_type: newService.itemType,
+                          quantity: 1, unit_cost: costNum, unit_price: price,
+                        });
+                        toast.success(`Serviço "${newService.name}" criado e adicionado`);
+                        setNewService({ name: "", description: "", cost: "", itemType: "servico_garantia" });
+                        setShowNewServiceForm(false);
+                        qc.invalidateQueries({ queryKey: ["pg_linked_quote", id] });
+                      }}>
+                      <Plus className="h-3.5 w-3.5" /> {createProduct.isPending ? "Criando..." : "Criar e Adicionar"}
+                    </Button>
+                  </div>
+                </motion.div>
+              )}
+            </div>
+          )}
+        </motion.div>
+      )}
+
+      {/* Suggested parts */}
+      {linkedQuote && (
+        <SuggestedParts modelId={equipModelId} modelName={modelName} onSelect={handleProductSelect} />
+      )}
+
       {/* Items table */}
-      {items.length > 0 && (
+      {linkedQuote && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="bg-card rounded-xl border shadow-sm overflow-hidden mb-6">
           <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/50">
             <h3 className="font-display font-semibold text-sm">Itens do Pedido ({items.length})</h3>
             {linkedQuote && <Badge variant="outline" className="text-[10px]">Origem: {linkedQuote.quote_number}</Badge>}
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b bg-muted/30">
-                  {["Código", "Descrição", "Tipo", "Qtd", "Preço Unit.", "Subtotal"].map((h) => (
-                    <th key={h} className="text-left text-[11px] uppercase tracking-wider text-muted-foreground font-medium px-3 py-2">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((item: any) => {
-                  const isWarranty = String(item.item_type).includes("garantia");
-                  return (
-                    <tr key={item.id} className={`border-b last:border-0 hover:bg-muted/20 transition-colors ${isWarranty ? "bg-success/5" : ""}`}>
-                      <td className="px-3 py-2.5 text-xs font-mono">{item.products?.code || "—"}</td>
-                      <td className="px-3 py-2.5 text-xs">{item.description}</td>
-                      <td className="px-3 py-2.5"><StatusBadge status={itemTypeLabels[item.item_type] || item.item_type} /></td>
-                      <td className="px-3 py-2.5 text-xs font-mono">{item.quantity}</td>
-                      <td className="px-3 py-2.5 text-xs font-mono">
-                        {isWarranty ? <span className="text-success">Garantia</span> : `R$ ${Number(item.unit_price).toFixed(2)}`}
-                      </td>
-                      <td className="px-3 py-2.5 text-xs font-mono font-medium">
-                        {isWarranty ? <span className="text-success">Coberto</span> : `R$ ${(item.quantity * Number(item.unit_price)).toFixed(2)}`}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          {items.length === 0 ? (
+            <div className="p-8 text-center text-muted-foreground text-sm">
+              Nenhum item adicionado. Use os botões acima para adicionar peças ou serviços.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b bg-muted/30">
+                    {["Código", "Descrição", "Tipo", "Qtd", "Preço Unit.", "Subtotal", ...(editing ? [""] : [])].map((h) => (
+                      <th key={h} className="text-left text-[11px] uppercase tracking-wider text-muted-foreground font-medium px-3 py-2">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((item: any) => {
+                    const isWarranty = String(item.item_type).includes("garantia");
+                    const ed = editableItems[item.id];
+                    const qty = editing && ed ? Number(ed.quantity) : item.quantity;
+                    const price = editing && ed ? Number(ed.unit_price) : Number(item.unit_price);
+                    return (
+                      <tr key={item.id} className={`border-b last:border-0 hover:bg-muted/20 transition-colors ${isWarranty ? "bg-success/5" : ""}`}>
+                        <td className="px-3 py-2.5 text-xs font-mono">{item.products?.code || "—"}</td>
+                        <td className="px-3 py-2.5 text-xs">
+                          {editing ? (
+                            <Input
+                              value={ed?.description ?? item.description}
+                              onChange={e => updateEditableItem(item.id, "description", e.target.value)}
+                              className="h-7 text-xs"
+                            />
+                          ) : item.description}
+                        </td>
+                        <td className="px-3 py-2.5"><StatusBadge status={itemTypeLabels[item.item_type] || item.item_type} /></td>
+                        <td className="px-3 py-2.5 text-xs font-mono">
+                          {editing ? (
+                            <Input
+                              type="number"
+                              value={ed?.quantity ?? String(item.quantity)}
+                              onChange={e => updateEditableItem(item.id, "quantity", e.target.value)}
+                              className="h-7 text-xs font-mono w-16"
+                            />
+                          ) : qty}
+                        </td>
+                        <td className="px-3 py-2.5 text-xs font-mono">
+                          {isWarranty ? (
+                            <span className="text-success">Garantia</span>
+                          ) : editing ? (
+                            <Input
+                              type="number"
+                              step="0.01"
+                              value={ed?.unit_price ?? Number(item.unit_price).toFixed(2)}
+                              onChange={e => updateEditableItem(item.id, "unit_price", e.target.value)}
+                              className="h-7 text-xs font-mono w-24"
+                            />
+                          ) : `R$ ${price.toFixed(2)}`}
+                        </td>
+                        <td className="px-3 py-2.5 text-xs font-mono font-medium">
+                          {isWarranty ? <span className="text-success">Coberto</span> : `R$ ${(qty * price).toFixed(2)}`}
+                        </td>
+                        {editing && (
+                          <td className="px-3 py-2.5">
+                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive hover:text-destructive" onClick={() => handleDeleteItem(item.id)}>
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </motion.div>
       )}
 
-      {/* Editable fields */}
+      {/* Editable PG-specific fields */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         <div>
           <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Descrição do Defeito</label>
@@ -366,6 +860,156 @@ const PGDetailPage = () => {
         </div>
       </div>
 
+      {/* Nomus ERP Integration Form */}
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="bg-card rounded-xl border shadow-sm overflow-hidden mb-6">
+        <div className="px-4 py-3 border-b bg-muted/50">
+          <h3 className="font-display font-semibold text-sm flex items-center gap-2">
+            <Send className="h-4 w-4 text-primary" /> Dados para Criação no ERP Nomus
+          </h3>
+          <p className="text-[10px] text-muted-foreground mt-0.5">Preencha os campos abaixo para criar o pedido de venda no Nomus</p>
+        </div>
+        <div className="p-4 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div>
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Pedido</Label>
+              <Input value={nomusFields.pedido} onChange={e => updateNomusField("pedido", e.target.value)} placeholder="Número do pedido" className="mt-1 h-9 text-xs font-mono" />
+            </div>
+            <div>
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Empresa</Label>
+              <Select value={nomusFields.empresa} onValueChange={v => updateNomusField("empresa", v)}>
+                <SelectTrigger className="mt-1 h-9 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="TS">TS</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="relative">
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                Cliente (ERP Nomus){nomusClientId ? <span className="ml-2 text-success font-normal">✓ ID {nomusClientId}</span> : null}
+              </Label>
+              <div className="relative mt-1">
+                <Input
+                  value={nomusFields.cliente}
+                  onChange={e => searchNomusClients(e.target.value)}
+                  onBlur={() => setTimeout(() => setNomusClientOpen(false), 200)}
+                  placeholder="Digite o nome para buscar..."
+                  className="h-9 text-xs pr-7"
+                />
+                {nomusClientLoading && <Loader2 className="absolute right-2 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />}
+              </div>
+              {nomusClientOpen && nomusClientResults.length > 0 && (
+                <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-md max-h-48 overflow-y-auto">
+                  {nomusClientResults.map(c => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onMouseDown={() => selectNomusClient(c)}
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-accent transition-colors"
+                    >
+                      <span className="font-medium">{c.nome}</span>
+                      <span className="ml-2 text-muted-foreground">#{c.id}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div>
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Tipo de Movimentação</Label>
+              <Select value={nomusFields.tipoMovimentacao} onValueChange={v => updateNomusField("tipoMovimentacao", v)}>
+                <SelectTrigger className="mt-1 h-9 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="VENDAS DE MERCADORIAS">VENDAS DE MERCADORIAS</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Data de Emissão</Label>
+              <div className="flex gap-1 mt-1">
+                <Input placeholder="dd/MM/yyyy" value={nomusFields.dataEmissao} onChange={e => updateNomusField("dataEmissao", e.target.value)} className="h-9 text-xs font-mono flex-1" />
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" size="icon" className="h-9 w-9 shrink-0"><CalendarIcon className="h-4 w-4" /></Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="end">
+                    <Calendar mode="single" className={cn("p-3 pointer-events-auto")} selected={(() => { const d = parse(nomusFields.dataEmissao, "dd/MM/yyyy", new Date()); return isValid(d) ? d : undefined; })()} onSelect={(d) => d && updateNomusField("dataEmissao", format(d, "dd/MM/yyyy"))} initialFocus />
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </div>
+            <div>
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Data de Entrega Padrão</Label>
+              <div className="flex gap-1 mt-1">
+                <Input placeholder="dd/MM/yyyy" value={nomusFields.dataEntregaPadrao} onChange={e => updateNomusField("dataEntregaPadrao", e.target.value)} className="h-9 text-xs font-mono flex-1" />
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" size="icon" className="h-9 w-9 shrink-0"><CalendarIcon className="h-4 w-4" /></Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="end">
+                    <Calendar mode="single" className={cn("p-3 pointer-events-auto")} selected={(() => { const d = parse(nomusFields.dataEntregaPadrao, "dd/MM/yyyy", new Date()); return isValid(d) ? d : undefined; })()} onSelect={(d) => d && updateNomusField("dataEntregaPadrao", format(d, "dd/MM/yyyy"))} initialFocus />
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </div>
+            <div>
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">CFOP</Label>
+              <Input placeholder="Ex: 5102" value={nomusFields.cfop} onChange={e => updateNomusField("cfop", e.target.value)} className="mt-1 h-9 text-xs font-mono" />
+            </div>
+          </div>
+
+          {items.length > 0 && (
+            <div className="border-t pt-4">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-3">Itens do Pedido (Dados ERP)</p>
+              <div className="space-y-3">
+                {items.map((item: any, idx: number) => {
+                  const erpData = itemErpData[item.id] || { produto: "", quantidade: "1", valorUnitario: "0" };
+                  return (
+                    <div key={item.id} className="bg-muted/30 rounded-lg p-3 grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+                      <div className="md:col-span-1">
+                        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Item {idx + 1} - Produto</Label>
+                        <Input
+                          value={erpData.produto}
+                          onChange={e => updateItemErp(item.id, "produto", e.target.value)}
+                          placeholder="Código do produto"
+                          className="mt-1 h-8 text-xs font-mono"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Quantidade</Label>
+                        <Input
+                          type="number"
+                          value={erpData.quantidade}
+                          onChange={e => updateItemErp(item.id, "quantidade", e.target.value)}
+                          className="mt-1 h-8 text-xs font-mono"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Valor Unitário (R$)</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={erpData.valorUnitario}
+                          onChange={e => updateItemErp(item.id, "valorUnitario", e.target.value)}
+                          className="mt-1 h-8 text-xs font-mono"
+                        />
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-muted-foreground truncate">{item.description}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="px-4 pb-4">
+          <Button className="gap-1.5 w-full md:w-auto" onClick={handleApprove} disabled={approving}>
+            {approving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            {approving ? "Criando no ERP..." : "Criar Pedido no Nomus"}
+          </Button>
+        </div>
+      </motion.div>
+
       {/* Actions bar */}
       <div className="flex flex-wrap gap-2 border-t pt-4">
         <Button size="sm" variant="outline" className="gap-1.5" onClick={() => {
@@ -373,9 +1017,6 @@ const PGDetailPage = () => {
           else navigate("/pedidos-garantia");
         }}>
           <ArrowLeft className="h-3.5 w-3.5" /> {fromTicketId ? "Voltar ao Card" : "Voltar para Pedidos de Garantia"}
-        </Button>
-        <Button size="sm" className="gap-1.5" onClick={handleSave}>
-          <Save className="h-3.5 w-3.5" /> Salvar
         </Button>
       </div>
     </div>
