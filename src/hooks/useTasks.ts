@@ -9,6 +9,7 @@ export interface TaskRow {
   client_id: string | null;
   assigned_to: string;
   due_date: string | null;
+  due_time: string | null;
   priority: string;
   status: string;
   created_by: string | null;
@@ -26,7 +27,8 @@ export function useTasks(userId?: string) {
       let q = supabase
         .from("tasks")
         .select("*, tickets(ticket_number, title), clients(name)")
-        .order("due_date", { ascending: true, nullsFirst: false });
+        .order("due_date", { ascending: true, nullsFirst: false })
+        .order("due_time", { ascending: true, nullsFirst: false });
       if (userId) q = q.eq("assigned_to", userId);
       const { data, error } = await q;
       if (error) throw error;
@@ -45,10 +47,11 @@ export function useCreateTask() {
       client_id?: string;
       assigned_to: string;
       due_date?: string;
+      due_time?: string;
       priority?: string;
       created_by?: string;
     }) => {
-      const { data, error } = await supabase.from("tasks").insert(task).select().single();
+      const { data, error } = await (supabase as any).from("tasks").insert(task).select().single();
       if (error) throw error;
       return data;
     },
