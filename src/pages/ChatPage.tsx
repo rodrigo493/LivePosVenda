@@ -41,7 +41,7 @@ export default function ChatPage() {
   const clientParam = searchParams.get("client");
   const navigate = useNavigate();
 
-  const { data: clientTicket } = useQuery({
+  const { data: clientTicket, refetch: refetchClientTicket } = useQuery({
     queryKey: ["client-crm-ticket", selectedChat?.client_id],
     enabled: !!selectedChat?.client_id,
     queryFn: async () => {
@@ -49,7 +49,6 @@ export default function ChatPage() {
         .from("tickets")
         .select("id")
         .eq("client_id", selectedChat!.client_id)
-        .not("pipeline_stage", "is", null)
         .not("pipeline_id", "is", null)
         .order("created_at", { ascending: false })
         .limit(1)
@@ -66,20 +65,23 @@ export default function ChatPage() {
     }
     setCreatingCard(true);
     try {
-      const { data, error } = await (supabase as any)
-        .from("tickets")
-        .insert({
-          client_id: selectedChat.client_id,
-          ticket_type: "chamado_tecnico",
-          title: `Atendimento - ${selectedChat.client_name}`,
-          ticket_number: "",
-          pipeline_stage: "sem_atendimento",
-          created_by: user?.id,
-        })
-        .select("id")
-        .single();
-      if (error) throw error;
-      navigate(`/crm?open_ticket=${data.id}`);
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-crm-card`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            client_id: selectedChat.client_id,
+            client_name: selectedChat.client_name,
+            client_phone: selectedChat.client_phone,
+          }),
+        }
+      );
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || "Erro ao criar card");
+      navigate(`/crm?open_ticket=${result.ticket_id}`);
     } catch (e: any) {
       toast.error(e?.message || "Erro ao criar card no CRM");
     } finally {
