@@ -82,7 +82,7 @@ const CrmPipelinePage = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const isAdmin = roles.includes("admin");
-  const [viewAll, setViewAll] = useState(isAdmin);
+  const [viewAll, setViewAll] = useState(true);
 
   const { data: pipelines = [] } = usePipelines();
   const [currentPipeline, setCurrentPipeline] = useState<Pipeline | null>(null);
@@ -395,11 +395,9 @@ const CrmPipelinePage = () => {
             <Button variant="outline" size="sm" onClick={() => setSyncOpen(true)}>
               <Upload className="h-4 w-4 mr-1" /> Importar CSV
             </Button>
-            {isAdmin && (
-              <Button variant={viewAll ? "default" : "outline"} size="sm" onClick={() => setViewAll(!viewAll)}>
-                {viewAll ? "Todos" : "Meus"}
-              </Button>
-            )}
+            <Button variant={viewAll ? "default" : "outline"} size="sm" onClick={() => setViewAll(!viewAll)}>
+              {viewAll ? "Todos" : "Meus"}
+            </Button>
           </div>
         }
       />
