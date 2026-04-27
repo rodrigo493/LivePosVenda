@@ -53,11 +53,11 @@ import { useUpdatePipeline } from "@/hooks/useManagePipelines";
 import { useCreateStage, useUpdateStage, useDeleteStage, useReorderStages } from "@/hooks/useManageStages";
 import { useWhatsAppConversations } from "@/hooks/useWhatsAppConversations";
 import { useAuth } from "@/hooks/useAuth";
-import { useCreateTask } from "@/hooks/useTasks";
 import { useCreateClient } from "@/hooks/useClients";
 import { useCreateTicket } from "@/hooks/useTickets";
 import { useEquipments } from "@/hooks/useEquipments";
 import { CrudDialog } from "@/components/shared/CrudDialog";
+import { TaskCreateDialog } from "@/components/tasks/TaskCreateDialog";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -128,12 +128,11 @@ const CrmPipelinePage = () => {
     return map;
   }, [conversations]);
   const moveStage = useMovePipelineStage();
-  const createTask = useCreateTask();
   const createClient = useCreateClient();
   const createTicket = useCreateTicket();
   const { data: equipments } = useEquipments();
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [taskDialog, setTaskDialog] = useState<{ open: boolean; ticketId?: string; clientId?: string }>({ open: false });
+  const [taskCreate, setTaskCreate] = useState<{ open: boolean; ticketId?: string; clientId?: string }>({ open: false });
   const [clientDialog, setClientDialog] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
   const [batchOpen, setBatchOpen] = useState(false);
@@ -496,25 +495,8 @@ const CrmPipelinePage = () => {
   }
 
   const handleQuickTask = (ticketId: string, clientId: string) => {
-    setTaskDialog({ open: true, ticketId, clientId });
+    setTaskCreate({ open: true, ticketId, clientId });
   };
-
-  const taskFields = [
-    { name: "title", label: "Título", required: true, placeholder: "Ex: Ligar para cliente" },
-    { name: "description", label: "Descrição", type: "textarea" as const },
-    { name: "due_date", label: "Vencimento", type: "date" as const },
-    {
-      name: "priority",
-      label: "Prioridade",
-      type: "select" as const,
-      options: [
-        { value: "baixa", label: "Baixa" },
-        { value: "media", label: "Média" },
-        { value: "alta", label: "Alta" },
-        { value: "urgente", label: "Urgente" },
-      ],
-    },
-  ];
 
   return (
     <div>
@@ -661,24 +643,11 @@ const CrmPipelinePage = () => {
         </>
       )}
 
-      <CrudDialog
-        open={taskDialog.open}
-        onOpenChange={(open) => setTaskDialog({ ...taskDialog, open })}
-        title="Nova Tarefa"
-        fields={taskFields}
-        onSubmit={async (values) => {
-          await createTask.mutateAsync({
-            title: values.title || "Tarefa",
-            description: values.description,
-            due_date: values.due_date,
-            priority: values.priority,
-            ticket_id: taskDialog.ticketId,
-            client_id: taskDialog.clientId,
-            assigned_to: user?.id || "",
-            created_by: user?.id,
-          });
-          toast.success("Tarefa criada");
-        }}
+      <TaskCreateDialog
+        open={taskCreate.open}
+        onOpenChange={(open) => setTaskCreate({ ...taskCreate, open })}
+        defaultTicketId={taskCreate.ticketId}
+        defaultClientId={taskCreate.clientId}
       />
 
       <CrmSyncImportDialog open={syncOpen} onOpenChange={setSyncOpen} />

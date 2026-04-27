@@ -2110,6 +2110,12 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
           });
         }}
       />
+      <TaskCreateDialog
+        open={createTaskOpen}
+        onOpenChange={setCreateTaskOpen}
+        defaultClientId={clientId ?? undefined}
+        defaultTicketId={ticketId ?? undefined}
+      />
     </Dialog>
 
     <ApprovalActionDialog
@@ -2146,12 +2152,6 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
         </div>
       </DialogContent>
     </Dialog>
-    <TaskCreateDialog
-      open={createTaskOpen}
-      onOpenChange={setCreateTaskOpen}
-      defaultClientId={clientId ?? undefined}
-      defaultTicketId={ticketId ?? undefined}
-    />
     </>
   );
 }
