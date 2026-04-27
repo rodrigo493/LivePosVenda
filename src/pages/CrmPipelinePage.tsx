@@ -193,7 +193,7 @@ const CrmPipelinePage = () => {
     );
 
     return map;
-  }, [tickets, delayMap, searchTerm, stages]);
+  }, [tickets, delayMap, searchTerm, stages, whatsappUnread]);
 
   // Sync columns from grouped when not dragging and not mutating
   useEffect(() => {
