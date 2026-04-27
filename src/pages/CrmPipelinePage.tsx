@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useSearchParams, useNavigate, useLocation } from "react-router-dom";
 import {
   Kanban,
   ListTodo,
@@ -79,6 +79,8 @@ const CrmPipelinePage = () => {
   const qc = useQueryClient();
   const { user, roles } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+  const navigate = useNavigate();
   const isAdmin = roles.includes("admin");
   const [viewAll, setViewAll] = useState(isAdmin);
 
@@ -146,6 +148,14 @@ const CrmPipelinePage = () => {
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   );
 
+  // Handle ticket passed via navigation state (from ChatPage create-crm-card)
+  useEffect(() => {
+    if (!location.state?.openTicket) return;
+    setDetailTicket(location.state.openTicket);
+    navigate(location.pathname, { replace: true, state: {} });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state?.openTicket]);
+
   useEffect(() => {
     const openTicketId = searchParams.get("open_ticket");
     if (!openTicketId) return;
@@ -161,7 +171,6 @@ const CrmPipelinePage = () => {
     }
 
     // Fallback: fetch directly — handles users without pipeline_user_access
-    // and tickets just created that haven't appeared in the list yet
     setSearchParams({}, { replace: true });
     supabase
       .from("tickets")

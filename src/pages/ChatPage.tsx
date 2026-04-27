@@ -59,10 +59,6 @@ export default function ChatPage() {
 
   const handleCrmCard = async () => {
     if (!selectedChat) return;
-    if (clientTicket?.id) {
-      navigate(`/crm?open_ticket=${clientTicket.id}`);
-      return;
-    }
     setCreatingCard(true);
     try {
       const { data: sessionData } = await supabase.auth.getSession();
@@ -81,7 +77,7 @@ export default function ChatPage() {
       );
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || "Erro ao criar card");
-      navigate(`/crm?open_ticket=${result.ticket_id}`);
+      navigate("/crm", { state: { openTicket: result.ticket } });
     } catch (e: any) {
       toast.error(e?.message || "Erro ao criar card no CRM");
     } finally {
@@ -280,7 +276,7 @@ export default function ChatPage() {
                 title={clientTicket?.id ? "Abrir card no CRM" : "Criar card no CRM"}
               >
                 <LayoutGrid className="h-3.5 w-3.5" />
-                {creatingCard ? "Criando..." : clientTicket?.id ? "Card" : "Novo card"}
+                {creatingCard ? "Abrindo..." : clientTicket?.id ? "Card" : "Novo card"}
               </Button>
             </div>
             <div className="flex-1 overflow-hidden flex flex-col">
