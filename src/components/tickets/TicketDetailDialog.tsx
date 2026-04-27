@@ -27,6 +27,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { notifySquad } from "@/lib/squadNotify";
 import { useMarkConversationRead } from "@/hooks/useWhatsAppConversations";
+import { TaskCreateDialog } from "@/components/tasks/TaskCreateDialog";
 import { toast } from "sonner";
 import { useMovePipelineStage } from "@/hooks/usePipeline";
 import { usePipelineStages } from "@/hooks/usePipelineStages";
@@ -316,6 +317,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   const [newNote, setNewNote] = useState("");
   const [activeTab, setActiveTab] = useState("info");
   const [newEquipmentOpen, setNewEquipmentOpen] = useState(false);
+  const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [histDevice, setHistDevice] = useState("");
   const [histProblem, setHistProblem] = useState("");
   const [histSolution, setHistSolution] = useState("");
@@ -498,6 +500,10 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
     if (open && ticket?.client_id) markRead.mutate(ticket.client_id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, ticket?.client_id]);
+  useEffect(() => {
+    if (open && activeTab === "whatsapp" && ticket?.client_id) markRead.mutate(ticket.client_id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, activeTab, ticket?.client_id]);
   useEffect(() => {
     if (!open || !ticket) return;
     setTicketDescription(ticket.description || "");
@@ -786,22 +792,6 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
       setTimeout(() => navigate(`/pedidos-acessorios/${data.id}?from_ticket=${ticketId}`), 150);
     },
     onError: (err: any) => toast.error(err?.message || "Erro ao criar PA"),
-  });
-
-  const createTask = useMutation({
-    mutationFn: async () => {
-      const { data, error } = await supabase.from("tasks").insert({
-        client_id: clientId!, ticket_id: ticketId || null, title: `Tarefa - ${ticket?.clients?.name || ""}`,
-        assigned_to: user?.id!, created_by: user?.id,
-      }).select().single();
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["client-tasks"] });
-      toast.success("Tarefa criada com sucesso");
-    },
-    onError: () => toast.error("Erro ao criar tarefa"),
   });
 
   const createEquipment = useMutation({
@@ -1700,7 +1690,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
 
                 {/* ── Tab: Client Tasks ──────────────────── */}
                 <TabsContent value="client-tasks" className="mt-0 space-y-2">
-                  <SectionHeader label="Tarefas" clientName={ticket.clients?.name} count={clientTasks?.length || 0} onNew={() => createTask.mutate()} loading={createTask.isPending} />
+                  <SectionHeader label="Tarefas" clientName={ticket.clients?.name} count={clientTasks?.length || 0} onNew={() => setCreateTaskOpen(true)} />
                   {clientTasks?.length === 0 && <EmptyState label="Nenhuma tarefa registrada." />}
                   {clientTasks?.map((task: any) => (
                     <div key={task.id} className="border rounded-lg p-3 space-y-1">
@@ -2156,6 +2146,12 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
         </div>
       </DialogContent>
     </Dialog>
+    <TaskCreateDialog
+      open={createTaskOpen}
+      onOpenChange={setCreateTaskOpen}
+      defaultClientId={clientId ?? undefined}
+      defaultTicketId={ticketId ?? undefined}
+    />
     </>
   );
 }

@@ -18,11 +18,13 @@ import { toast } from "sonner";
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  defaultDate?: string;  // yyyy-MM-dd
-  defaultTime?: string;  // HH:MM
+  defaultDate?: string;    // yyyy-MM-dd
+  defaultTime?: string;    // HH:MM
+  defaultClientId?: string;
+  defaultTicketId?: string;
 }
 
-export function TaskCreateDialog({ open, onOpenChange, defaultDate, defaultTime }: Props) {
+export function TaskCreateDialog({ open, onOpenChange, defaultDate, defaultTime, defaultClientId, defaultTicketId }: Props) {
   const { user } = useAuth();
   const createTask = useCreateTask();
   const { data: users } = useAllUsers();
@@ -58,6 +60,8 @@ export function TaskCreateDialog({ open, onOpenChange, defaultDate, defaultTime 
         priority,
         assigned_to: assignedTo,
         created_by: user?.id,
+        client_id: defaultClientId,
+        ticket_id: defaultTicketId,
       });
       toast.success("Tarefa criada!");
       onOpenChange(false);

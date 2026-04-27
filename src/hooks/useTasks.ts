@@ -56,7 +56,11 @@ export function useCreateTask() {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["tasks"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["client-tasks"] });
+      qc.invalidateQueries({ queryKey: ["ticket-tasks"] });
+    },
   });
 }
 
