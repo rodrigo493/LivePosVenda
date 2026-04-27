@@ -75,22 +75,24 @@ Deno.serve(async (req) => {
 
   if (!resolvedClientId) return jsonRes({ error: "Não foi possível resolver o cliente" }, 400);
 
-  // Check if there's already a CRM card for this client
-  const { data: existingTicket } = await sbAdmin
+  const SELECT = "*, clients(name), equipments(serial_number, equipment_models(name))";
+
+  // Check if there's already a CRM card for this client — return full data
+  const { data: existingTicket } = await (sbAdmin as any)
     .from("tickets")
-    .select("id")
+    .select(SELECT)
     .eq("client_id", resolvedClientId)
     .not("pipeline_id", "is", null)
     .order("created_at", { ascending: false })
     .limit(1)
-    .maybeSingle() as any;
+    .maybeSingle();
 
   if (existingTicket?.id) {
-    return jsonRes({ ticket_id: existingTicket.id, created: false });
+    return jsonRes({ ticket_id: existingTicket.id, created: false, ticket: existingTicket });
   }
 
   // Create the CRM card using service role (bypasses all RLS)
-  const { data: ticket, error: ticketErr } = await sbAdmin
+  const { data: ticket, error: ticketErr } = await (sbAdmin as any)
     .from("tickets")
     .insert({
       client_id: resolvedClientId,
@@ -99,11 +101,11 @@ Deno.serve(async (req) => {
       ticket_number: "",
       pipeline_stage: "sem_atendimento",
       created_by: user.id,
-    } as any)
-    .select("id")
+    })
+    .select(SELECT)
     .single();
 
   if (ticketErr) return jsonRes({ error: ticketErr.message }, 500);
 
-  return jsonRes({ ticket_id: ticket.id, created: true });
+  return jsonRes({ ticket_id: ticket.id, created: true, ticket });
 });
