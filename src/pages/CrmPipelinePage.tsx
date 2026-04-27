@@ -56,8 +56,10 @@ import { useAuth } from "@/hooks/useAuth";
 import { useCreateClient } from "@/hooks/useClients";
 import { useCreateTicket } from "@/hooks/useTickets";
 import { useEquipments } from "@/hooks/useEquipments";
+import { useAllUsers } from "@/hooks/useUserAccess";
 import { CrudDialog } from "@/components/shared/CrudDialog";
 import { TaskCreateDialog } from "@/components/tasks/TaskCreateDialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -87,7 +89,8 @@ const CrmPipelinePage = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const isAdmin = roles.includes("admin");
-  const [viewAll, setViewAll] = useState(true);
+  const [filterBy, setFilterBy] = useState<"all" | "mine" | string>("all");
+  const { data: allUsers = [] } = useAllUsers();
 
   const { data: pipelines = [] } = usePipelines();
   const [currentPipeline, setCurrentPipeline] = useState<Pipeline | null>(null);
@@ -120,7 +123,8 @@ const CrmPipelinePage = () => {
     return map;
   }, [stages]);
 
-  const { data: tickets, isLoading } = usePipelineTickets(currentPipeline?.id, viewAll ? undefined : user?.id);
+  const ticketFilterUserId = filterBy === "all" ? undefined : filterBy === "mine" ? user?.id : filterBy;
+  const { data: tickets, isLoading } = usePipelineTickets(currentPipeline?.id, ticketFilterUserId);
   const { data: conversations } = useWhatsAppConversations();
   const whatsappUnread = useMemo(() => {
     const map = new Map<string, number>();
@@ -529,9 +533,33 @@ const CrmPipelinePage = () => {
             <Button variant="outline" size="sm" onClick={() => setSyncOpen(true)}>
               <Upload className="h-4 w-4 mr-1" /> Importar CSV
             </Button>
-            <Button variant={viewAll ? "default" : "outline"} size="sm" onClick={() => setViewAll(!viewAll)}>
-              {viewAll ? "Todos" : "Meus"}
-            </Button>
+            {isAdmin ? (
+              <Select value={filterBy} onValueChange={setFilterBy}>
+                <SelectTrigger className="h-8 w-44 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos os cards</SelectItem>
+                  <SelectItem value="mine">Meus cards</SelectItem>
+                  {allUsers.length > 0 && (
+                    <>
+                      <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide border-t mt-1 pt-2">
+                        Por usuário
+                      </div>
+                      {allUsers.map((u) => (
+                        <SelectItem key={u.user_id} value={u.user_id}>
+                          {u.full_name || u.email}
+                        </SelectItem>
+                      ))}
+                    </>
+                  )}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Button variant={filterBy === "all" ? "default" : "outline"} size="sm" onClick={() => setFilterBy(filterBy === "all" ? "mine" : "all")}>
+                {filterBy === "all" ? "Todos" : "Meus"}
+              </Button>
+            )}
           </div>
         }
       />
