@@ -289,7 +289,7 @@ const SettingsPage = () => {
   );
 };
 
-type UserRow = { id: string; full_name: string; email: string | null; roles: string[] };
+type UserRow = { user_id: string; full_name: string; email: string | null; roles: string[] };
 
 const APP_ROLES = [
   { value: "admin", label: "Administrador" },
@@ -303,18 +303,12 @@ const APP_ROLES = [
 const EDGE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/manage-users`;
 
 async function callEdge(method: string, body?: object) {
-  const { data: { session } } = await supabase.auth.getSession();
-  const res = await fetch(EDGE_URL, {
+  const { data, error } = await (supabase.functions as any).invoke("manage-users", {
     method,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${session?.access_token ?? ""}`,
-    },
-    body: body ? JSON.stringify(body) : undefined,
+    body,
   });
-  const json = await res.json();
-  if (!res.ok) throw new Error(json.error ?? "Erro desconhecido");
-  return json;
+  if (error) throw new Error(error.message ?? "Erro desconhecido");
+  return data;
 }
 
 function UserManagement() {
@@ -322,13 +316,32 @@ function UserManagement() {
   const { user: me } = useAuth();
   const [form, setForm] = useState({ full_name: "", email: "", password: "", role: "atendimento" });
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editMode, setEditMode] = useState<"role" | "password">("role");
+  const [editMode, setEditMode] = useState<"role" | "password" | "info">("role");
   const [editRole, setEditRole] = useState("");
   const [editPassword, setEditPassword] = useState("");
+  const [editName, setEditName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
 
+  // Query direta ao Supabase — evita o mismatch de IDs no edge function GET
   const { data: users = [], isLoading } = useQuery<UserRow[]>({
     queryKey: ["manage_users"],
-    queryFn: () => callEdge("GET"),
+    queryFn: async () => {
+      const [{ data: profiles }, { data: rolesData }] = await Promise.all([
+        (supabase as any).from("profiles").select("user_id, full_name, email").order("full_name"),
+        (supabase as any).from("user_roles").select("user_id, role"),
+      ]);
+      const rolesMap: Record<string, string[]> = {};
+      for (const r of rolesData ?? []) {
+        if (!rolesMap[r.user_id]) rolesMap[r.user_id] = [];
+        rolesMap[r.user_id].push(r.role);
+      }
+      return (profiles ?? []).map((p: any) => ({
+        user_id: p.user_id,
+        full_name: p.full_name,
+        email: p.email,
+        roles: rolesMap[p.user_id] ?? [],
+      })) as UserRow[];
+    },
   });
 
   const createMut = useMutation({
@@ -342,13 +355,16 @@ function UserManagement() {
   });
 
   const updateMut = useMutation({
-    mutationFn: (payload: { user_id: string; role?: string; password?: string }) =>
+    mutationFn: (payload: { user_id: string; role?: string; password?: string; full_name?: string; email?: string }) =>
       callEdge("PATCH", payload),
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: ["manage_users"] });
+      qc.invalidateQueries({ queryKey: ["all-users"] });
       setEditingId(null);
       setEditPassword("");
-      toast.success(vars.password ? "Senha alterada!" : "Perfil atualizado!");
+      if (vars.password) toast.success("Senha alterada!");
+      else if (vars.full_name || vars.email) toast.success("Dados atualizados!");
+      else toast.success("Perfil atualizado!");
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -357,6 +373,7 @@ function UserManagement() {
     mutationFn: (user_id: string) => callEdge("DELETE", { user_id }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["manage_users"] });
+      qc.invalidateQueries({ queryKey: ["all-users"] });
       toast.success("Usuário removido.");
     },
     onError: (e: Error) => toast.error(e.message),
@@ -430,14 +447,30 @@ function UserManagement() {
         ) : (
           <div className="space-y-2">
             {users.map((u) => (
-              <div key={u.id} className="flex items-center gap-3 p-3 rounded-lg bg-muted/40 hover:bg-muted/60 transition-colors">
+              <div key={u.user_id} className="flex items-center gap-3 p-3 rounded-lg bg-muted/40 hover:bg-muted/60 transition-colors">
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{u.full_name}</p>
                   <p className="text-xs text-muted-foreground truncate">{u.email}</p>
                 </div>
-                {editingId === u.id ? (
+                {editingId === u.user_id ? (
                   <div className="flex items-center gap-2 flex-wrap justify-end">
-                    {editMode === "role" ? (
+                    {editMode === "info" ? (
+                      <>
+                        <Input
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          placeholder="Nome completo"
+                          className="h-7 w-36 text-xs"
+                        />
+                        <Input
+                          type="email"
+                          value={editEmail}
+                          onChange={(e) => setEditEmail(e.target.value)}
+                          placeholder="E-mail"
+                          className="h-7 w-40 text-xs"
+                        />
+                      </>
+                    ) : editMode === "role" ? (
                       <Select value={editRole} onValueChange={setEditRole}>
                         <SelectTrigger className="h-7 w-44 text-xs">
                           <SelectValue />
@@ -460,11 +493,11 @@ function UserManagement() {
                     <Button
                       size="sm"
                       className="h-7 text-xs"
-                      onClick={() =>
-                        editMode === "role"
-                          ? updateMut.mutate({ user_id: u.id, role: editRole })
-                          : updateMut.mutate({ user_id: u.id, password: editPassword })
-                      }
+                      onClick={() => {
+                        if (editMode === "info") updateMut.mutate({ user_id: u.user_id, full_name: editName || undefined, email: editEmail || undefined });
+                        else if (editMode === "role") updateMut.mutate({ user_id: u.user_id, role: editRole });
+                        else updateMut.mutate({ user_id: u.user_id, password: editPassword });
+                      }}
                       disabled={updateMut.isPending || (editMode === "password" && editPassword.length < 6)}
                     >
                       Salvar
@@ -489,8 +522,8 @@ function UserManagement() {
                       size="sm"
                       variant="ghost"
                       className="h-7 w-7 p-0"
-                      title="Alterar perfil"
-                      onClick={() => { setEditingId(u.id); setEditMode("role"); setEditRole(u.roles[0] ?? "atendimento"); }}
+                      title="Editar nome e e-mail"
+                      onClick={() => { setEditingId(u.user_id); setEditMode("info"); setEditName(u.full_name); setEditEmail(u.email ?? ""); }}
                     >
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
@@ -498,18 +531,28 @@ function UserManagement() {
                       size="sm"
                       variant="ghost"
                       className="h-7 w-7 p-0"
+                      title="Alterar perfil"
+                      onClick={() => { setEditingId(u.user_id); setEditMode("role"); setEditRole(u.roles[0] ?? "atendimento"); }}
+                    >
+                      <Shield className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 w-7 p-0"
                       title="Alterar senha"
-                      onClick={() => { setEditingId(u.id); setEditMode("password"); setEditPassword(""); }}
+                      onClick={() => { setEditingId(u.user_id); setEditMode("password"); setEditPassword(""); }}
                     >
                       <KeyRound className="h-3.5 w-3.5" />
                     </Button>
-                    {u.id !== me?.id && (
+                    {u.user_id !== me?.id && (
                       <Button
                         size="sm"
                         variant="ghost"
                         className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                        title="Excluir usuário"
                         onClick={() => {
-                          if (confirm(`Remover ${u.full_name}?`)) deleteMut.mutate(u.id);
+                          if (confirm(`Remover ${u.full_name}?`)) deleteMut.mutate(u.user_id);
                         }}
                       >
                         <Trash2 className="h-3.5 w-3.5" />

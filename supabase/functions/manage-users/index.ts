@@ -2,8 +2,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
 };
 
 const json = (data: unknown, status = 200) =>
@@ -87,10 +87,10 @@ Deno.serve(async (req) => {
     return json({ id: userId, email, full_name, roles: [role] });
   }
 
-  // PATCH — update role or password
+  // PATCH — update role, password, full_name or email
   if (req.method === "PATCH") {
     const body = await req.json();
-    const { user_id, role, password } = body;
+    const { user_id, role, password, full_name, email } = body;
     if (!user_id) return json({ error: "user_id é obrigatório" }, 400);
 
     // Change password
@@ -101,8 +101,22 @@ Deno.serve(async (req) => {
       return json({ ok: true });
     }
 
+    // Change name and/or email
+    if (full_name || email) {
+      if (full_name) {
+        const { error } = await admin.from("profiles").update({ full_name }).eq("user_id", user_id);
+        if (error) return json({ error: error.message }, 500);
+      }
+      if (email) {
+        const { error: authErr } = await admin.auth.admin.updateUserById(user_id, { email });
+        if (authErr) return json({ error: authErr.message }, 500);
+        await admin.from("profiles").update({ email }).eq("user_id", user_id);
+      }
+      return json({ ok: true });
+    }
+
     // Change role
-    if (!role) return json({ error: "role ou password é obrigatório" }, 400);
+    if (!role) return json({ error: "role, password, full_name ou email é obrigatório" }, 400);
     await admin.from("user_roles").delete().eq("user_id", user_id);
     const { error } = await admin.from("user_roles").insert({ user_id, role });
     if (error) return json({ error: error.message }, 500);

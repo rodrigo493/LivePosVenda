@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Shield, Check, ChevronDown, ChevronRight } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { Shield, Check, ChevronDown, ChevronRight, Trash2 } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useAllUsers, useUserAccess, useSaveUserAccess } from "@/hooks/useUserAccess";
@@ -12,6 +12,12 @@ import { CRM_MODULES, CRM_SECTIONS } from "@/lib/crmModules";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { toast } from "sonner";
 
 function getInitials(name: string) {
   return name.split(" ").slice(0, 2).map((n) => n[0]).join("").toUpperCase();
@@ -20,6 +26,7 @@ function getInitials(name: string) {
 const CrmPermissionsPage = () => {
   const { hasRole } = useAuth();
   const navigate = useNavigate();
+  const qc = useQueryClient();
 
   useEffect(() => {
     if (!hasRole("admin")) navigate("/");
@@ -27,6 +34,24 @@ const CrmPermissionsPage = () => {
 
   const { data: users = [], isLoading: usersLoading } = useAllUsers();
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+
+  const deleteUser = useMutation({
+    mutationFn: async (userId: string) => {
+      const { error } = await (supabase.functions as any).invoke("manage-users", {
+        method: "DELETE",
+        body: { user_id: userId },
+      });
+      if (error) throw new Error(error.message || "Erro ao excluir usuário");
+    },
+    onSuccess: () => {
+      toast.success("Usuário excluído com sucesso");
+      if (selectedUserId === deleteTarget?.id) setSelectedUserId(null);
+      qc.invalidateQueries({ queryKey: ["all-users"] });
+      setDeleteTarget(null);
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
 
   // Module permissions state
   const [checked, setChecked] = useState<Set<string>>(new Set());
@@ -152,6 +177,27 @@ const CrmPermissionsPage = () => {
   const isSaving = savePerms.isPending || saveAccess.isPending;
 
   return (
+    <>
+    <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Excluir usuário</AlertDialogTitle>
+          <AlertDialogDescription>
+            Tem certeza que deseja excluir <strong>{deleteTarget?.name}</strong>? Esta ação é irreversível e removerá o acesso permanentemente.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive hover:bg-destructive/90 text-white"
+            onClick={() => deleteTarget && deleteUser.mutate(deleteTarget.id)}
+            disabled={deleteUser.isPending}
+          >
+            {deleteUser.isPending ? "Excluindo..." : "Excluir"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     <div className="space-y-6">
       <PageHeader
         title="Permissões CRM"
@@ -172,23 +218,34 @@ const CrmPermissionsPage = () => {
               <div className="p-4 text-sm text-muted-foreground">Nenhum usuário encontrado</div>
             ) : (
               users.map((u) => (
-                <button
+                <div
                   key={u.user_id}
-                  onClick={() => setSelectedUserId(u.user_id)}
-                  className={`w-full flex items-center gap-3 px-4 py-3 text-left border-b border-border/50 transition-colors hover:bg-muted/50 ${
+                  className={`group flex items-center gap-3 px-4 py-3 border-b border-border/50 transition-colors hover:bg-muted/50 ${
                     selectedUserId === u.user_id ? "bg-primary/10 border-l-2 border-l-primary" : ""
                   }`}
                 >
-                  <div className="h-7 w-7 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
-                    <span className="text-[10px] font-semibold text-primary">
-                      {getInitials(u.full_name || u.email)}
-                    </span>
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium truncate">{u.full_name || "—"}</p>
-                    <p className="text-xs text-muted-foreground truncate">{u.email}</p>
-                  </div>
-                </button>
+                  <button
+                    onClick={() => setSelectedUserId(u.user_id)}
+                    className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                  >
+                    <div className="h-7 w-7 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
+                      <span className="text-[10px] font-semibold text-primary">
+                        {getInitials(u.full_name || u.email)}
+                      </span>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{u.full_name || "—"}</p>
+                      <p className="text-xs text-muted-foreground truncate">{u.email}</p>
+                    </div>
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: u.user_id, name: u.full_name || u.email }); }}
+                    className="opacity-0 group-hover:opacity-100 flex-shrink-0 p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all"
+                    title="Excluir usuário"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               ))
             )}
           </ScrollArea>
@@ -363,6 +420,7 @@ const CrmPermissionsPage = () => {
         </div>
       </div>
     </div>
+    </>
   );
 };
 
