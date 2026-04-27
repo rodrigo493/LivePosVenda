@@ -69,6 +69,57 @@ Deno.serve(async (req) => {
     let outboundMediaUrl: string | undefined;
     const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+    // Resolve which Uazapi instance to use for this send.
+    // Priority: (1) last inbound message on the ticket → (2) pipeline distribution → (3) fallback token
+    let useToken = UAZAPI_INSTANCE_TOKEN;
+    let useBaseUrl = UAZAPI_BASE_URL;
+    let useInstanceId: string | null = null;
+
+    if (ticket_id) {
+      // 1. Look at the last inbound message to reuse the same number the client messaged on
+      const { data: lastMsg } = await adminClient
+        .from("whatsapp_messages")
+        .select("instance_id, pipeline_whatsapp_instances(id, instance_token, base_url)")
+        .eq("ticket_id", ticket_id)
+        .eq("direction", "inbound")
+        .not("instance_id", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      const inst = (lastMsg?.[0] as any)?.pipeline_whatsapp_instances;
+      if (inst?.instance_token) {
+        useToken = inst.instance_token;
+        useBaseUrl = inst.base_url || UAZAPI_BASE_URL;
+        useInstanceId = inst.id;
+      } else {
+        // 2. No inbound history — pick by distribution from the ticket's pipeline
+        const { data: ticket } = await adminClient
+          .from("tickets")
+          .select("pipeline_id")
+          .eq("id", ticket_id)
+          .single();
+
+        if (ticket?.pipeline_id) {
+          const { data: instances } = await adminClient
+            .from("pipeline_whatsapp_instances")
+            .select("id, instance_token, base_url, distribution_pct")
+            .eq("pipeline_id", ticket.pipeline_id)
+            .eq("active", true)
+            .gt("distribution_pct", 0);
+
+          if (instances?.length) {
+            const total = instances.reduce((s: number, i: any) => s + i.distribution_pct, 0);
+            let rand = Math.random() * total;
+            for (const i of instances as any[]) {
+              rand -= i.distribution_pct;
+              if (rand <= 0) { useToken = i.instance_token; useBaseUrl = i.base_url || UAZAPI_BASE_URL; useInstanceId = i.id; break; }
+            }
+            if (!useInstanceId) { const last = (instances as any[])[instances.length - 1]; useToken = last.instance_token; useBaseUrl = last.base_url || UAZAPI_BASE_URL; useInstanceId = last.id; }
+          }
+        }
+      }
+    }
+
     if (media_base64 && media_mime_type) {
       const ext = (media_filename || "file").split(".").pop() || "bin";
       const fileBytes = base64ToUint8Array(media_base64);
@@ -100,17 +151,17 @@ Deno.serve(async (req) => {
 
       console.log("send/media phone:", cleanPhone, "type:", mediaType, "mime:", media_mime_type, "url:", outboundMediaUrl);
 
-      sendRes = await fetch(`${UAZAPI_BASE_URL}/send/media`, {
+      sendRes = await fetch(`${useBaseUrl}/send/media`, {
         method: "POST",
-        headers: { token: UAZAPI_INSTANCE_TOKEN, "Content-Type": "application/json" },
+        headers: { token: useToken, "Content-Type": "application/json" },
         body: JSON.stringify(uazapiBody),
       });
 
       savedText = isAudio ? `🎵 ${filename}` : isImage ? `🖼️ ${filename}` : `📎 ${filename}`;
     } else {
-      sendRes = await fetch(`${UAZAPI_BASE_URL}/send/text`, {
+      sendRes = await fetch(`${useBaseUrl}/send/text`, {
         method: "POST",
-        headers: { token: UAZAPI_INSTANCE_TOKEN, "Content-Type": "application/json" },
+        headers: { token: useToken, "Content-Type": "application/json" },
         body: JSON.stringify({ number: cleanPhone, text: message }),
       });
       savedText = message;
@@ -129,6 +180,7 @@ Deno.serve(async (req) => {
       media_url: outboundMediaUrl || null,
       sender_phone: cleanPhone,
       status: "sent",
+      instance_id: useInstanceId,
     });
 
     if (insertErr) console.error("Failed to save outbound message:", insertErr);

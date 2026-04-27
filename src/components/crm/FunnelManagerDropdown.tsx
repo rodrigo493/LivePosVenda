@@ -32,15 +32,15 @@ export function FunnelManagerDropdown({ currentPipeline, onPipelineCreated }: Fu
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-44">
-          <DropdownMenuItem onClick={() => setEditOpen(true)}>
+          <DropdownMenuItem onSelect={() => setEditOpen(true)}>
             <Pencil className="h-4 w-4 mr-2" /> Editar funil
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => setCreateOpen(true)}>
+          <DropdownMenuItem onSelect={() => setCreateOpen(true)}>
             <Plus className="h-4 w-4 mr-2" /> Criar funil
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => setAccessOpen(true)}>
+          <DropdownMenuItem onSelect={() => setAccessOpen(true)}>
             <Users className="h-4 w-4 mr-2" /> Acesso de usuários
           </DropdownMenuItem>
         </DropdownMenuContent>

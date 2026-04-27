@@ -1,5 +1,5 @@
 // src/components/crm/FunnelDialog.tsx
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Plus } from "lucide-react";
 import {
   DndContext,
@@ -14,7 +14,7 @@ import {
   verticalListSortingStrategy,
   arrayMove,
 } from "@dnd-kit/sortable";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -35,6 +35,7 @@ interface FunnelDialogProps {
 
 export function FunnelDialog({ open, onOpenChange, mode, pipeline, onCreated }: FunnelDialogProps) {
   const [name, setName] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
   const { data: stages = [] } = usePipelineStages(mode === "edit" ? pipeline?.id : null);
   const [localStages, setLocalStages] = useState<PipelineStageDB[]>([]);
 
@@ -50,13 +51,18 @@ export function FunnelDialog({ open, onOpenChange, mode, pipeline, onCreated }: 
   useEffect(() => {
     if (open) {
       setName(mode === "edit" ? (pipeline?.name ?? "") : "");
-      setLocalStages(stages);
+      const t = setTimeout(() => inputRef.current?.focus(), 50);
+      return () => clearTimeout(t);
     }
-  }, [open, mode, pipeline, stages]);
+  }, [open, mode, pipeline]);
 
   useEffect(() => {
-    setLocalStages(stages);
-  }, [stages]);
+    if (open && mode === "edit") {
+      setLocalStages(stages);
+    } else if (!open) {
+      setLocalStages([]);
+    }
+  }, [open, mode, stages]);
 
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
@@ -152,18 +158,21 @@ export function FunnelDialog({ open, onOpenChange, mode, pipeline, onCreated }: 
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>{mode === "create" ? "Criar novo funil" : "Editar funil"}</DialogTitle>
+          <DialogDescription className="sr-only">
+            {mode === "create" ? "Preencha o nome e as etapas do novo funil." : "Edite o nome e as etapas do funil."}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div>
             <Label htmlFor="funnel-name">Nome do funil</Label>
             <Input
+              ref={inputRef}
               id="funnel-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Ex: Comercial, Suporte..."
               className="mt-1"
-              autoFocus
             />
           </div>
 

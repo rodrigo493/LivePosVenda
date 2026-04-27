@@ -339,34 +339,50 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // Reject payloads from other Uazapi instances that may share this webhook URL.
-    // The Uazapi server forwards the instance token in the "token" request header
-    // and/or in the body as `instanceToken`/`token`. If UAZAPI_EXPECTED_TOKEN is
-    // set, drop anything that doesn't match.
-    const expectedInstanceToken = Deno.env.get("UAZAPI_EXPECTED_TOKEN");
-    if (expectedInstanceToken) {
-      const headerToken = req.headers.get("token") || req.headers.get("Token") || "";
-      // Read body once and reuse below
-      const rawBody = await req.text();
-      let parsed: any = null;
-      try { parsed = rawBody ? JSON.parse(rawBody) : null; } catch { parsed = null; }
-      const bodyToken: string = parsed?.token || parsed?.instanceToken || parsed?.instance_token || parsed?.owner || "";
-      if (headerToken !== expectedInstanceToken && bodyToken !== expectedInstanceToken) {
-        console.log("Reject payload: instance token mismatch. header=", headerToken.slice(0, 8), " body=", String(bodyToken).slice(0, 8), " instanceName=", parsed?.instanceName);
-        return new Response(JSON.stringify({ ignored: true, reason: "wrong_instance" }), { status: 200, headers: { "Content-Type": "application/json" } });
-      }
-      // Re-construct request with the body so the rest of the handler can re-read it
-      (req as any).__cachedBody = parsed;
-    }
-
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const POSVENDA_USER_ID = Deno.env.get("POSVENDA_USER_ID") || null;
     const UAZAPI_INSTANCE_TOKEN = Deno.env.get("UAZAPI_INSTANCE_TOKEN") || "c6a355b6-c741-47c1-b1e6-c48938dd477b";
     const UAZAPI_BASE_URL = Deno.env.get("UAZAPI_BASE_URL") || "https://liveuni.uazapi.com";
 
+    // Parse body once — needed for both token validation and message processing
+    const rawBody = await req.text();
+    let body: any = null;
+    try { body = rawBody ? JSON.parse(rawBody) : null; } catch { body = null; }
+
+    // Validate that the payload comes from a known Uazapi instance.
+    // Multi-instance: check against pipeline_whatsapp_instances table.
+    // Fallback: compare against UAZAPI_EXPECTED_TOKEN env var (backward compat).
     const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-    const body = (req as any).__cachedBody ?? await req.json();
+    const headerToken = req.headers.get("token") || req.headers.get("Token") || "";
+    const bodyToken: string = body?.token || body?.instanceToken || body?.instance_token || body?.owner || "";
+    const incomingToken = headerToken || bodyToken;
+
+    // Look up the instance in DB by token
+    let pipelineInstance: { id: string; pipeline_id: string; base_url: string; instance_token: string } | null = null;
+    if (incomingToken) {
+      const { data: instances } = await admin
+        .from("pipeline_whatsapp_instances")
+        .select("id, pipeline_id, base_url, instance_token")
+        .eq("instance_token", incomingToken)
+        .eq("active", true)
+        .limit(1);
+      pipelineInstance = instances?.[0] ?? null;
+    }
+
+    // If not in DB, fall back to legacy single-token env var
+    if (!pipelineInstance) {
+      const expectedInstanceToken = Deno.env.get("UAZAPI_EXPECTED_TOKEN");
+      if (expectedInstanceToken && incomingToken !== expectedInstanceToken) {
+        console.log("Reject payload: token not in DB and mismatches UAZAPI_EXPECTED_TOKEN. instanceName=", body?.instanceName);
+        return new Response(JSON.stringify({ ignored: true, reason: "wrong_instance" }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+    }
+
+    const instanceId: string | null = pipelineInstance?.id ?? null;
+    const instancePipelineId: string | null = pipelineInstance?.pipeline_id ?? null;
+    const instanceBaseUrl: string = pipelineInstance?.base_url ?? UAZAPI_BASE_URL;
+    const instanceToken: string = pipelineInstance?.instance_token ?? UAZAPI_INSTANCE_TOKEN;
 
     console.log("Uazapi webhook:", JSON.stringify(body).slice(0, 500));
 
@@ -556,6 +572,7 @@ Deno.serve(async (req) => {
           ticket_number: "",
           origin: "whatsapp",
           channel: "whatsapp",
+          ...(instancePipelineId ? { pipeline_id: instancePipelineId } : {}),
         })
         .select("id")
         .single();
@@ -593,7 +610,7 @@ Deno.serve(async (req) => {
     const mediaDbg: Record<string, unknown> = {};
     if (mediaMime) {
       console.log("downloading media: mime=", mediaMime, "chatId=", senderChatId, "msgid=", waMessageId, "hasMeta=", !!mediaMeta);
-      mediaUrl = await downloadAndStoreMedia(admin, UAZAPI_BASE_URL, UAZAPI_INSTANCE_TOKEN, waMessageId, mediaMime, clientId, senderChatId, mediaMeta, mediaDbg);
+      mediaUrl = await downloadAndStoreMedia(admin, instanceBaseUrl, instanceToken, waMessageId, mediaMime, clientId, senderChatId, mediaMeta, mediaDbg);
     }
 
     const { error: msgErr } = await admin.from("whatsapp_messages").insert({
@@ -610,6 +627,7 @@ Deno.serve(async (req) => {
       sender_phone: senderPhone,
       manychat_message_id: waMessageId,
       status: "received",
+      instance_id: instanceId,
     });
 
     if (msgErr) {
