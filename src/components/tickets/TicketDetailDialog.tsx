@@ -30,6 +30,8 @@ import { useMarkConversationRead } from "@/hooks/useWhatsAppConversations";
 import { toast } from "sonner";
 import { useMovePipelineStage } from "@/hooks/usePipeline";
 import { usePipelineStages } from "@/hooks/usePipelineStages";
+import { usePipelines } from "@/hooks/usePipelines";
+import { useAllUsers } from "@/hooks/useUserAccess";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { formatDate as fmtDate, formatCurrency as fmtCurrency } from "@/lib/formatters";
 import { ACTIVITY_LOG_LIMIT } from "@/constants/limits";
@@ -318,6 +320,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   const [histProblem, setHistProblem] = useState("");
   const [histSolution, setHistSolution] = useState("");
   const [stagePopoverOpen, setStagePopoverOpen] = useState(false);
+  const [pipelinePopoverOpen, setPipelinePopoverOpen] = useState(false);
+  const [userPopoverOpen, setUserPopoverOpen] = useState(false);
   const [selectedQuotes, setSelectedQuotes] = useState<Set<string>>(new Set());
   const [selectedPA, setSelectedPA] = useState<Set<string>>(new Set());
   const [selectedPG, setSelectedPG] = useState<Set<string>>(new Set());
@@ -350,6 +354,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   const equipmentId = ticket?.equipment_id;
   const clientId = ticket?.client_id;
   const { data: pipelineStages = [] } = usePipelineStages(open ? ticket?.pipeline_id : null);
+  const { data: allPipelines = [] } = usePipelines();
+  const { data: allUsers = [] } = useAllUsers();
 
   const enabledId = open && ticketId ? ticketId : undefined;
   const enabledClientId = open && clientId ? clientId : undefined;
@@ -623,6 +629,37 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
     onError: () => toast.error("Erro ao salvar"),
   });
 
+  const changePipeline = useMutation({
+    mutationFn: async ({ pipelineId, firstStageKey }: { pipelineId: string; firstStageKey: string | null }) => {
+      const { error } = await (supabase as any)
+        .from("tickets")
+        .update({ pipeline_id: pipelineId, pipeline_stage: firstStageKey, pipeline_position: 9999, updated_at: new Date().toISOString() })
+        .eq("id", ticketId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["pipeline-tickets"] });
+      qc.invalidateQueries({ queryKey: ["pipeline-stages"] });
+      toast.success("Funil alterado");
+    },
+    onError: () => toast.error("Erro ao mudar funil"),
+  });
+
+  const changeAssignedTo = useMutation({
+    mutationFn: async (userId: string | null) => {
+      const { error } = await supabase
+        .from("tickets")
+        .update({ assigned_to: userId, updated_at: new Date().toISOString() } as any)
+        .eq("id", ticketId!);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["pipeline-tickets"] });
+      toast.success("Responsável alterado");
+    },
+    onError: () => toast.error("Erro ao mudar responsável"),
+  });
+
   // ─── Inline creation mutations ────────────────────────────────
 
   const createQuote = useMutation({
@@ -886,6 +923,74 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                     </PopoverContent>
                   </Popover>
                 )}
+
+                {/* ── Seletor de Funil ── */}
+                <Popover open={pipelinePopoverOpen} onOpenChange={setPipelinePopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <button className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-medium bg-muted hover:bg-muted/80 transition-colors cursor-pointer">
+                      <Settings2 className="h-3 w-3 text-muted-foreground" />
+                      {allPipelines.find((p) => p.id === ticket.pipeline_id)?.name || "Funil"}
+                      <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-52 p-1">
+                    <p className="text-[10px] text-muted-foreground px-2 py-1 font-semibold uppercase tracking-wider">Mover para funil</p>
+                    {allPipelines.map((pipeline) => (
+                      <button
+                        key={pipeline.id}
+                        onClick={async () => {
+                          if (pipeline.id === ticket.pipeline_id) { setPipelinePopoverOpen(false); return; }
+                          const { data: stages } = await (supabase as any)
+                            .from("pipeline_stages")
+                            .select("key, position")
+                            .eq("pipeline_id", pipeline.id)
+                            .order("position", { ascending: true })
+                            .limit(1);
+                          const firstKey = stages?.[0]?.key ?? null;
+                          changePipeline.mutate({ pipelineId: pipeline.id, firstStageKey: firstKey });
+                          setPipelinePopoverOpen(false);
+                        }}
+                        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-muted transition-colors text-left ${
+                          ticket.pipeline_id === pipeline.id ? "bg-muted font-semibold" : ""
+                        }`}
+                      >
+                        {pipeline.name}
+                      </button>
+                    ))}
+                  </PopoverContent>
+                </Popover>
+
+                {/* ── Seletor de Responsável ── */}
+                <Popover open={userPopoverOpen} onOpenChange={setUserPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <button className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-medium bg-muted hover:bg-muted/80 transition-colors cursor-pointer">
+                      <User className="h-3 w-3 text-muted-foreground" />
+                      {allUsers.find((u) => u.user_id === ticket.assigned_to)?.full_name?.split(" ")[0] || "Responsável"}
+                      <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-52 p-1">
+                    <p className="text-[10px] text-muted-foreground px-2 py-1 font-semibold uppercase tracking-wider">Atribuir a</p>
+                    <button
+                      onClick={() => { changeAssignedTo.mutate(null); setUserPopoverOpen(false); }}
+                      className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-muted transition-colors text-left ${!ticket.assigned_to ? "bg-muted font-semibold" : ""}`}
+                    >
+                      <span className="text-muted-foreground italic">Sem responsável</span>
+                    </button>
+                    {allUsers.map((u) => (
+                      <button
+                        key={u.user_id}
+                        onClick={() => { changeAssignedTo.mutate(u.user_id); setUserPopoverOpen(false); }}
+                        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-muted transition-colors text-left ${
+                          ticket.assigned_to === u.user_id ? "bg-muted font-semibold" : ""
+                        }`}
+                      >
+                        <User className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                        {u.full_name || u.email}
+                      </button>
+                    ))}
+                  </PopoverContent>
+                </Popover>
               </div>
               <DialogTitle className="text-lg">{ticket.title}</DialogTitle>
               <DialogDescription className="flex items-center gap-4 text-sm">
