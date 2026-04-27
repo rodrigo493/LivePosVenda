@@ -1,26 +1,18 @@
+// src/hooks/usePipeline.ts
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
-export const PIPELINE_STAGES = [
-  { key: "sem_atendimento", label: "Sem atendimento", color: "hsl(0 0% 45%)" },
-  { key: "primeiro_contato", label: "Primeiro contato", color: "hsl(210 80% 55%)" },
-  { key: "em_analise", label: "Em análise", color: "hsl(38 92% 50%)" },
-  { key: "separacao_pecas", label: "Separação de peças", color: "hsl(280 60% 55%)" },
-  { key: "concluido", label: "Concluído", color: "hsl(142 71% 45%)" },
-  { key: "sem_interacao", label: "Sem interação", color: "hsl(0 84% 60%)" },
-] as const;
-
-export type PipelineStage = (typeof PIPELINE_STAGES)[number]["key"];
-
-export function usePipelineTickets(userId?: string) {
+export function usePipelineTickets(pipelineId: string | null | undefined, userId?: string) {
   return useQuery({
-    queryKey: ["pipeline-tickets", userId],
+    queryKey: ["pipeline-tickets", pipelineId, userId],
+    enabled: !!pipelineId,
     staleTime: 0,
     refetchOnMount: "always",
     queryFn: async () => {
-      let q = supabase
+      let q = (supabase as any)
         .from("tickets")
         .select("*, clients(name), equipments(serial_number, equipment_models(name)), quotes(id, quote_number, status, service_request_id, warranty_claim_id)")
+        .eq("pipeline_id", pipelineId)
         .not("status", "eq", "fechado")
         .order("pipeline_position", { ascending: true })
         .order("last_interaction_at", { ascending: true });
@@ -35,18 +27,27 @@ export function usePipelineTickets(userId?: string) {
 export function useMovePipelineStage() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, stage, position }: { id: string; stage: string; position: number }) => {
+    mutationFn: async ({
+      id,
+      stage,
+      position,
+      pipelineId,
+    }: {
+      id: string;
+      stage: string;
+      position: number;
+      pipelineId: string;
+    }) => {
       const now = new Date().toISOString();
 
-      // Get all tickets in the target stage to reorder
       const { data: stageTickets } = await (supabase as any)
         .from("tickets")
         .select("id, pipeline_position")
+        .eq("pipeline_id", pipelineId)
         .eq("pipeline_stage", stage)
         .neq("id", id)
         .order("pipeline_position", { ascending: true });
 
-      // Build new positions: insert the moved ticket at the target position
       const others = stageTickets || [];
       const updates: { id: string; pipeline_position: number }[] = [];
       let pos = 1;
@@ -61,11 +62,8 @@ export function useMovePipelineStage() {
         updates.push({ id: t.id, pipeline_position: pos });
         pos++;
       }
-      if (!inserted) {
-        updates.push({ id, pipeline_position: pos });
-      }
+      if (!inserted) updates.push({ id, pipeline_position: pos });
 
-      // If moving to "concluido", close the ticket
       if (stage === "concluido") {
         const { error } = await (supabase as any)
           .from("tickets")
@@ -85,7 +83,6 @@ export function useMovePipelineStage() {
           .select("client_id, title, description, internal_notes")
           .eq("id", id)
           .single();
-
         if (ticket?.client_id) {
           await (supabase as any).from("client_service_history").insert({
             client_id: ticket.client_id,
@@ -104,15 +101,20 @@ export function useMovePipelineStage() {
         if (error) throw error;
       }
 
-      // Update positions of other tickets in the stage
       for (const u of updates) {
         if (u.id !== id) {
-          await (supabase as any).from("tickets").update({ pipeline_position: u.pipeline_position }).eq("id", u.id);
+          await (supabase as any)
+            .from("tickets")
+            .update({ pipeline_position: u.pipeline_position })
+            .eq("id", u.id);
         }
       }
 
-      // Log in technical_history if equipment exists
-      const { data: ticket } = await supabase.from("tickets").select("equipment_id").eq("id", id).single();
+      const { data: ticket } = await supabase
+        .from("tickets")
+        .select("equipment_id")
+        .eq("id", id)
+        .single();
       if (ticket?.equipment_id) {
         await supabase.from("technical_history").insert({
           equipment_id: ticket.equipment_id,
