@@ -1,11 +1,14 @@
 import { useState, useEffect, useMemo } from "react";
-import { MessageSquare, Search, UserPlus } from "lucide-react";
+import { MessageSquare, Search, UserPlus, LayoutGrid } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { WhatsAppChat } from "@/components/whatsapp/WhatsAppChat";
 import { useWhatsAppConversations, useMarkConversationRead } from "@/hooks/useWhatsAppConversations";
 import { useClients } from "@/hooks/useClients";
 import { motion, AnimatePresence } from "framer-motion";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import { Client } from "@/types/database";
 
 function formatRelativeTime(iso: string): string {
@@ -32,6 +35,32 @@ export default function ChatPage() {
   const markRead = useMarkConversationRead();
   const [searchParams, setSearchParams] = useSearchParams();
   const clientParam = searchParams.get("client");
+  const navigate = useNavigate();
+
+  const { data: clientTicket } = useQuery({
+    queryKey: ["client-crm-ticket", selectedChat?.client_id],
+    enabled: !!selectedChat?.client_id,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("tickets")
+        .select("id")
+        .eq("client_id", selectedChat!.client_id)
+        .not("pipeline_stage", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return data;
+    },
+  });
+
+  const handleCrmCard = () => {
+    if (!selectedChat) return;
+    if (clientTicket?.id) {
+      navigate(`/crm?open_ticket=${clientTicket.id}`);
+    } else {
+      navigate(`/crm?new_for_client=${selectedChat.client_id}`);
+    }
+  };
 
   useEffect(() => {
     if (selectedChat?.client_id) markRead.mutate(selectedChat.client_id);
@@ -209,12 +238,22 @@ export default function ChatPage() {
               <div className="h-8 w-8 rounded-full bg-emerald-100 flex items-center justify-center text-sm font-bold text-emerald-700">
                 {selectedChat.client_name.charAt(0).toUpperCase()}
               </div>
-              <div>
+              <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold">{selectedChat.client_name}</p>
                 {selectedChat.client_phone && (
                   <p className="text-xs text-muted-foreground">{selectedChat.client_phone}</p>
                 )}
               </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="shrink-0 gap-1.5 text-xs h-7 px-2.5"
+                onClick={handleCrmCard}
+                title={clientTicket?.id ? "Abrir card no CRM" : "Criar card no CRM"}
+              >
+                <LayoutGrid className="h-3.5 w-3.5" />
+                {clientTicket?.id ? "Card" : "Novo card"}
+              </Button>
             </div>
             <div className="flex-1 overflow-hidden flex flex-col">
               <WhatsAppChat
