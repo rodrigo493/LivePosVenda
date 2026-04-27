@@ -26,7 +26,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { notifySquad } from "@/lib/squadNotify";
 import { useMarkConversationRead } from "@/hooks/useWhatsAppConversations";
 import { toast } from "sonner";
-import { PIPELINE_STAGES, useMovePipelineStage } from "@/hooks/usePipeline";
+import { useMovePipelineStage } from "@/hooks/usePipeline";
+import { usePipelineStages } from "@/hooks/usePipelineStages";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { formatDate as fmtDate, formatCurrency as fmtCurrency } from "@/lib/formatters";
 import { ACTIVITY_LOG_LIMIT } from "@/constants/limits";
@@ -304,6 +305,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   const ticketId = ticket?.id;
   const equipmentId = ticket?.equipment_id;
   const clientId = ticket?.client_id;
+  const { data: pipelineStages = [] } = usePipelineStages(open ? ticket?.pipeline_id : null);
 
   const enabledId = open && ticketId ? ticketId : undefined;
   const enabledClientId = open && clientId ? clientId : undefined;
@@ -678,19 +680,19 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                       <button className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-medium bg-muted hover:bg-muted/80 transition-colors cursor-pointer">
                         <span
                           className="h-2 w-2 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: PIPELINE_STAGES.find((s) => s.key === ticket.pipeline_stage)?.color || "hsl(var(--muted-foreground))" }}
+                          style={{ backgroundColor: pipelineStages.find((s) => s.key === ticket.pipeline_stage)?.color || "hsl(var(--muted-foreground))" }}
                         />
-                        {PIPELINE_STAGES.find((s) => s.key === ticket.pipeline_stage)?.label || ticket.pipeline_stage}
+                        {pipelineStages.find((s) => s.key === ticket.pipeline_stage)?.label || ticket.pipeline_stage}
                         <ChevronDown className="h-3 w-3 text-muted-foreground" />
                       </button>
                     </PopoverTrigger>
                     <PopoverContent align="start" className="w-48 p-1">
                       <p className="text-[10px] text-muted-foreground px-2 py-1 font-semibold uppercase tracking-wider">Mover para</p>
-                      {PIPELINE_STAGES.map((stage) => (
+                      {pipelineStages.map((stage) => (
                         <button
                           key={stage.key}
                           onClick={() => {
-                            moveStage.mutate({ id: ticket.id, stage: stage.key });
+                            moveStage.mutate({ id: ticket.id, stage: stage.key, pipelineId: ticket.pipeline_id, position: 9999 });
                             setStagePopoverOpen(false);
                             toast.success(`Movido para: ${stage.label}`);
                           }}

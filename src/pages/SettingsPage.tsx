@@ -1,6 +1,5 @@
 import { useState } from "react";
-import { Settings, Users, Bell, Database, Mail, Shield, DollarSign, FlaskConical, Save, Brain, Kanban, UserPlus, Trash2, Pencil, KeyRound, Link } from "lucide-react";
-import { PipelineStageSettings } from "@/components/crm/PipelineStageSettings";
+import { Settings, Users, Bell, Database, Mail, Shield, DollarSign, FlaskConical, Save, Brain, UserPlus, Trash2, Pencil, KeyRound, Link } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -107,8 +106,7 @@ const SettingsPage = () => {
           <TabsTrigger value="manutencao" className="text-xs gap-1.5"><Bell className="h-3.5 w-3.5" /> Manutenção</TabsTrigger>
           <TabsTrigger value="templates" className="text-xs gap-1.5"><Mail className="h-3.5 w-3.5" /> Templates</TabsTrigger>
           <TabsTrigger value="engenharia" className="text-xs gap-1.5"><FlaskConical className="h-3.5 w-3.5" /> Engenharia</TabsTrigger>
-          <TabsTrigger value="pipeline" className="text-xs gap-1.5"><Kanban className="h-3.5 w-3.5" /> Pipeline</TabsTrigger>
-          <TabsTrigger value="ia" className="text-xs gap-1.5"><Brain className="h-3.5 w-3.5" /> IA</TabsTrigger>
+<TabsTrigger value="ia" className="text-xs gap-1.5"><Brain className="h-3.5 w-3.5" /> IA</TabsTrigger>
           <TabsTrigger value="nomus" className="text-xs gap-1.5"><Link className="h-3.5 w-3.5" /> Nomus ERP</TabsTrigger>
           {isAdmin && <TabsTrigger value="usuarios" className="text-xs gap-1.5"><Users className="h-3.5 w-3.5" /> Usuários</TabsTrigger>}
         </TabsList>
@@ -223,16 +221,6 @@ const SettingsPage = () => {
                 <SettingField key={s.key} settingKey={s.key} label={s.label} value={getSetting(s.key)} onSave={handleSave} disabled={!isAdmin} type="number" />
               ))}
             </div>
-          </motion.div>
-        </TabsContent>
-
-        {/* PIPELINE */}
-        <TabsContent value="pipeline">
-          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="bg-card rounded-xl border shadow-card p-6">
-            <h3 className="font-display font-semibold text-sm mb-4 flex items-center gap-2">
-              <Kanban className="h-4 w-4 text-primary" /> Configurações do Pipeline CRM
-            </h3>
-            <PipelineStageSettings disabled={!isAdmin} />
           </motion.div>
         </TabsContent>
 

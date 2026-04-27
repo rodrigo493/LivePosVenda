@@ -13,7 +13,14 @@ import { BulkHistoryImportDialog } from "@/components/import/BulkHistoryImportDi
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { WhatsAppChat } from "@/components/whatsapp/WhatsAppChat";
 import { useCreateTicket } from "@/hooks/useTickets";
-import { PIPELINE_STAGES } from "@/hooks/usePipeline";
+
+const PIPELINE_STAGES_FALLBACK = [
+  { key: "sem_atendimento", label: "Sem atendimento" },
+  { key: "primeiro_contato", label: "Primeiro contato" },
+  { key: "em_analise", label: "Em análise" },
+  { key: "separacao_pecas", label: "Separação de peças" },
+  { key: "concluido", label: "Concluído" },
+];
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -218,7 +225,7 @@ const ClientsPage = () => {
               <Select value={ticketForm.pipeline_stage} onValueChange={(v) => setTicketForm((f) => ({ ...f, pipeline_stage: v }))}>
                 <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {PIPELINE_STAGES.map((s) => (
+                  {PIPELINE_STAGES_FALLBACK.map((s) => (
                     <SelectItem key={s.key} value={s.key}>{s.label}</SelectItem>
                   ))}
                 </SelectContent>

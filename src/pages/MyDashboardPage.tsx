@@ -11,7 +11,13 @@ import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { DailyPriorities } from "@/components/dashboard/DailyPriorities";
 import { TicketDetailDialog } from "@/components/tickets/TicketDetailDialog";
-import { PIPELINE_STAGES } from "@/hooks/usePipeline";
+const PIPELINE_STAGES_FALLBACK = [
+  { key: "sem_atendimento", label: "Sem atendimento", color: "#6366f1" },
+  { key: "primeiro_contato", label: "Primeiro contato", color: "#f59e0b" },
+  { key: "em_analise", label: "Em análise", color: "#3b82f6" },
+  { key: "separacao_pecas", label: "Separação de peças", color: "#8b5cf6" },
+  { key: "concluido", label: "Concluído", color: "#10b981" },
+];
 import { useAuth } from "@/hooks/useAuth";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -353,7 +359,7 @@ const MyDashboardPage = () => {
             <Badge variant="secondary" className="text-[10px]">{stats.all.length} total</Badge>
           </div>
           <div className="space-y-2.5">
-            {PIPELINE_STAGES.map((stage) => {
+            {PIPELINE_STAGES_FALLBACK.map((stage) => {
               const items = (tickets || []).filter((t: any) => t.pipeline_stage === stage.key);
               const count = items.length;
               const pct = stats.all.length > 0 ? Math.round((count / stats.all.length) * 100) : 0;
