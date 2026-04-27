@@ -302,7 +302,14 @@ async function downloadAndStoreMedia(
       : mime.includes("webm") ? "webm"
       : mime.includes("jpeg") || mime.includes("jpg") ? "jpg"
       : mime.includes("png") ? "png"
-      : mime.split("/")[1]?.split(";")[0] || "bin";
+      : mime.includes("gif") ? "gif"
+      : mime.includes("webp") ? "webp"
+      : mime.includes("pdf") ? "pdf"
+      : mime.includes("spreadsheetml") ? "xlsx"
+      : mime.includes("wordprocessingml") || mime.includes("msword") ? "docx"
+      : mime.includes("presentationml") || mime.includes("powerpoint") ? "pptx"
+      : mime.includes("zip") ? "zip"
+      : mime.split("/")[1]?.split(";")[0]?.split(".").pop() || "bin";
 
     console.log("media bytes=", bytes.length, "ext=", ext);
     const path = `${clientId}/${Date.now()}_inbound.${ext}`;

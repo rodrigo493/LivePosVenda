@@ -44,8 +44,13 @@ function extFromMime(mime: string): string {
   if (m.includes("jpeg") || m.includes("jpg")) return "jpg";
   if (m.includes("png")) return "png";
   if (m.includes("gif")) return "gif";
+  if (m.includes("webp")) return "webp";
   if (m.includes("pdf")) return "pdf";
-  const tail = m.split("/")[1]?.split(";")[0];
+  if (m.includes("spreadsheetml")) return "xlsx";
+  if (m.includes("wordprocessingml") || m.includes("msword")) return "docx";
+  if (m.includes("presentationml") || m.includes("powerpoint")) return "pptx";
+  if (m.includes("zip")) return "zip";
+  const tail = m.split("/")[1]?.split(";")[0]?.split(".").pop();
   return tail || "bin";
 }
 

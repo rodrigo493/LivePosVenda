@@ -84,25 +84,26 @@ Deno.serve(async (req) => {
 
       const isImage = media_mime_type.startsWith("image/");
       const isAudio = media_mime_type.startsWith("audio/");
-      const mediatype = isAudio ? "audio" : isImage ? "image" : "document";
+      const isVideo = media_mime_type.startsWith("video/");
+      const mediaType = isAudio ? "ptt" : isImage ? "image" : isVideo ? "video" : "document";
       const caption = message || "";
       const filename = media_filename || `file.${ext}`;
 
-      // Uazapi requires multipart/form-data with a "file" field
-      const formData = new FormData();
-      formData.append("phone", cleanPhone);
-      formData.append("number", cleanPhone);
-      formData.append("mediatype", mediatype);
-      if (caption) formData.append("caption", caption);
-      if (!isAudio && !isImage) formData.append("fileName", filename);
-      formData.append("file", new Blob([fileBytes], { type: media_mime_type }), filename);
+      // Uazapi v2: JSON with 'type' (not 'mediatype') and 'file' as public URL
+      const uazapiBody: Record<string, string> = {
+        number: cleanPhone,
+        type: mediaType,
+        file: outboundMediaUrl,
+      };
+      if (caption) uazapiBody.text = caption;
+      if (!isAudio && !isImage && !isVideo) uazapiBody.filename = filename;
 
-      console.log("send/media phone:", cleanPhone, "mediatype:", mediatype, "fileBytes:", fileBytes.length);
+      console.log("send/media phone:", cleanPhone, "type:", mediaType, "mime:", media_mime_type, "url:", outboundMediaUrl);
 
       sendRes = await fetch(`${UAZAPI_BASE_URL}/send/media`, {
         method: "POST",
-        headers: { token: UAZAPI_INSTANCE_TOKEN },
-        body: formData,
+        headers: { token: UAZAPI_INSTANCE_TOKEN, "Content-Type": "application/json" },
+        body: JSON.stringify(uazapiBody),
       });
 
       savedText = isAudio ? `🎵 ${filename}` : isImage ? `🖼️ ${filename}` : `📎 ${filename}`;

@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Clock, User, Tag, FileText, MessageSquare, Calendar, Package,
   AlertTriangle, Send, Pencil, Check, X, Wrench, Shield, ClipboardList,
   ExternalLink, Receipt, Settings2, ArrowLeft, Cpu, Plus, ChevronDown, History, CheckSquare, Brain,
+  BookOpen, Upload, Trash2,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -322,6 +323,20 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   const [selectedPG, setSelectedPG] = useState<Set<string>>(new Set());
   const [approvalQuote, setApprovalQuote] = useState<{ id: string; quote_number: string; ticket_id: string | null; client_id: string | null; equipment_id: string | null } | null>(null);
 
+  // ── Problema → Solução form state ────────────────────────────
+  const [psModelo, setPsModelo] = useState("");
+  const [psSintoma, setPsSintoma] = useState("");
+  const [psCausaRaiz, setPsCausaRaiz] = useState("");
+  const [psSolucao, setPsSolucao] = useState("");
+  const [psPecasInput, setPsPecasInput] = useState("");
+  const [psTags, setPsTags] = useState("");
+  const [psEvidencias, setPsEvidencias] = useState<string[]>([]);
+  const [psUploading, setPsUploading] = useState(false);
+  const [psMemoriaId, setPsMemoriaId] = useState<string | null>(null);
+  const [psAprovada, setPsAprovada] = useState(false);
+  const [showBlockingModal, setShowBlockingModal] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const toggleSel = (set: Set<string>, setFn: (s: Set<string>) => void, id: string) => {
     const next = new Set(set);
     next.has(id) ? next.delete(id) : next.add(id);
@@ -371,11 +386,78 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["ticket-memoria", ticketId] });
+      qc.invalidateQueries({ queryKey: ["ticket-memoria", ticketId] });
       toast.success("Solução aprovada e adicionada à base de conhecimento!");
     },
     onError: () => toast.error("Erro ao aprovar solução."),
   });
+
+  const salvarMemoriaDraft = useMutation({
+    mutationFn: async ({ aprovar = false }: { aprovar?: boolean } = {}) => {
+      const payload: Record<string, unknown> = {
+        modelo_aparelho: psModelo || ticket?.equipments?.equipment_models?.name || "Não identificado",
+        sintoma: psSintoma,
+        causa_raiz: psCausaRaiz,
+        solucao_md: psSolucao,
+        pecas: psPecasInput ? psPecasInput.split("\n").filter(Boolean).map((s: string) => s.trim()) : [],
+        tags: psTags ? psTags.split(",").filter(Boolean).map((s: string) => s.trim()) : [],
+        evidencias_urls: psEvidencias,
+        aprovada: aprovar,
+        origem_ticket_id: ticketId,
+        criado_por: user?.id,
+      };
+      if (psMemoriaId) {
+        const { error } = await (supabase as any)
+          .from("memoria_problema_solucao")
+          .update(payload)
+          .eq("id", psMemoriaId);
+        if (error) throw error;
+      } else {
+        const { data, error } = await (supabase as any)
+          .from("memoria_problema_solucao")
+          .insert(payload)
+          .select("id")
+          .single();
+        if (error) throw error;
+        setPsMemoriaId(data.id);
+      }
+    },
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ["ticket-memoria", ticketId] });
+      toast.success(vars?.aprovar ? "Solução aprovada na base de conhecimento!" : "Rascunho salvo!");
+      if (vars?.aprovar) setPsAprovada(true);
+    },
+    onError: (e: any) => toast.error(`Erro ao salvar: ${e.message}`),
+  });
+
+  const uploadEvidencia = async (file: File) => {
+    if (!ticketId) return;
+    setPsUploading(true);
+    try {
+      const ts = Date.now();
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const path = `posvenda/${ticketId}/${ts}_${safeName}`;
+      const { error: upErr } = await supabase.storage
+        .from("posvenda-evidencias")
+        .upload(path, file, { upsert: false });
+      if (upErr) throw upErr;
+      const { data: urlData } = supabase.storage.from("posvenda-evidencias").getPublicUrl(path);
+      const newUrls = [...psEvidencias, urlData.publicUrl];
+      setPsEvidencias(newUrls);
+      if (psMemoriaId) {
+        await (supabase as any)
+          .from("memoria_problema_solucao")
+          .update({ evidencias_urls: newUrls })
+          .eq("id", psMemoriaId);
+        qc.invalidateQueries({ queryKey: ["ticket-memoria", ticketId] });
+      }
+      toast.success("Arquivo enviado!");
+    } catch (e: any) {
+      toast.error(`Erro no upload: ${e.message}`);
+    } finally {
+      setPsUploading(false);
+    }
+  };
   const { data: equipmentModels } = useQuery({
     queryKey: ["equipment_models_for_ticket_dialog"],
     queryFn: async () => {
@@ -398,7 +480,32 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
     setTicketDescription(ticket.description || "");
     setTicketInternalNotes(ticket.internal_notes || "");
     setTicketType(ticket.ticket_type || "");
+    // Reset PS form on new ticket open
+    setPsModelo(ticket.equipments?.equipment_models?.name || "");
+    setPsSintoma(ticket.description?.slice(0, 400) || "");
+    setPsCausaRaiz("");
+    setPsSolucao(ticket.internal_notes || "");
+    setPsPecasInput("");
+    setPsTags("");
+    setPsEvidencias([]);
+    setPsMemoriaId(null);
+    setPsAprovada(false);
   }, [open, ticket?.id, ticket?.description, ticket?.internal_notes, ticket?.ticket_type]);
+
+  // Pre-fill PS form from existing memoria record
+  useEffect(() => {
+    if (!ticketMemoria || ticketMemoria.length === 0) return;
+    const m = ticketMemoria[0];
+    setPsModelo(m.modelo_aparelho || "");
+    setPsSintoma(m.sintoma || "");
+    setPsCausaRaiz(m.causa_raiz || "");
+    setPsSolucao(m.solucao_md || "");
+    setPsPecasInput(Array.isArray(m.pecas) ? (m.pecas as string[]).join("\n") : "");
+    setPsTags(Array.isArray(m.tags) ? (m.tags as string[]).join(", ") : "");
+    setPsEvidencias(Array.isArray(m.evidencias_urls) ? (m.evidencias_urls as string[]) : []);
+    setPsMemoriaId(m.id);
+    setPsAprovada(m.aprovada || false);
+  }, [ticketMemoria]);
 
   const addHistoryEntry = useMutation({
     mutationFn: async (description: string) => {
@@ -694,9 +801,21 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   const goBackToCard = () => setActiveTab("info");
   const goTo = (path: string) => { onOpenChange(false); setTimeout(() => navigate(path), 150); };
 
+  const handleOpenChange = (next: boolean) => {
+    if (!next) {
+      const ticketClosed = ["resolvido", "fechado"].includes(ticket?.status || "");
+      const formFilled = psSintoma.trim().length > 10 && psSolucao.trim().length > 10;
+      if (ticketClosed && !formFilled && !psMemoriaId) {
+        setShowBlockingModal(true);
+        return;
+      }
+    }
+    onOpenChange(next);
+  };
+
   return (
     <>
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-[95vw] w-[1400px] h-[95vh] overflow-hidden flex flex-col p-0">
         {/* ── Header ───────────────────────────────────────── */}
         <DialogHeader className="p-5 pb-0 shrink-0">
@@ -813,6 +932,12 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
 
               <TabsTrigger value="memoria-ia" className="text-xs rounded-none border-b-2 border-transparent data-[state=active]:border-violet-500 data-[state=active]:shadow-none px-3 pb-2 gap-1 data-[state=active]:text-violet-600">
                 <Brain className="h-3 w-3" /> Memória IA {(ticketEntregaveis?.length || 0) > 0 ? `(${ticketEntregaveis!.length})` : ""}
+              </TabsTrigger>
+
+              <TabsTrigger value="problema-solucao" className="text-xs rounded-none border-b-2 border-transparent data-[state=active]:border-orange-500 data-[state=active]:shadow-none px-3 pb-2 gap-1 data-[state=active]:text-orange-600">
+                <BookOpen className="h-3 w-3" />
+                Problema → Solução
+                {psMemoriaId && <span className={`ml-1 rounded-full h-1.5 w-1.5 ${psAprovada ? "bg-emerald-500" : "bg-amber-400"}`} />}
               </TabsTrigger>
 
               <div className="h-5 w-px bg-border mx-2 self-center" />
@@ -1634,6 +1759,180 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
 
                 </TabsContent>
 
+                {/* ── Tab: Problema → Solução ────────────── */}
+                <TabsContent value="problema-solucao" className="mt-0">
+                  <div className="max-w-2xl space-y-5">
+
+                    {psAprovada && (
+                      <div className="rounded-lg border border-emerald-300 bg-emerald-50/50 px-4 py-2.5 flex items-center gap-2 text-sm text-emerald-700">
+                        <Check className="h-4 w-4" />
+                        Esta solução está aprovada na base de conhecimento da Laivinha.
+                      </div>
+                    )}
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Modelo do Aparelho</label>
+                      <input
+                        type="text"
+                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                        value={psModelo}
+                        onChange={(e) => setPsModelo(e.target.value)}
+                        placeholder="Ex: V12, V5 Plus..."
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Sintoma / Problema Relatado <span className="text-red-500">*</span>
+                      </label>
+                      <Textarea
+                        className="text-sm min-h-[90px]"
+                        value={psSintoma}
+                        onChange={(e) => setPsSintoma(e.target.value)}
+                        placeholder="Descreva o problema relatado pelo cliente..."
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Causa Raiz</label>
+                      <input
+                        type="text"
+                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                        value={psCausaRaiz}
+                        onChange={(e) => setPsCausaRaiz(e.target.value)}
+                        placeholder="Ex: Falha técnica, desgaste, uso indevido..."
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Solução Apresentada <span className="text-red-500">*</span>
+                        <span className="ml-1 text-[10px] font-normal normal-case text-muted-foreground/70">(suporta Markdown)</span>
+                      </label>
+                      <Textarea
+                        className="text-sm min-h-[140px] font-mono"
+                        value={psSolucao}
+                        onChange={(e) => setPsSolucao(e.target.value)}
+                        placeholder="Descreva a solução em detalhes. Use **negrito**, listas, etc."
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Peças Utilizadas
+                          <span className="ml-1 text-[10px] font-normal normal-case text-muted-foreground/70">(uma por linha)</span>
+                        </label>
+                        <Textarea
+                          className="text-sm min-h-[80px]"
+                          value={psPecasInput}
+                          onChange={(e) => setPsPecasInput(e.target.value)}
+                          placeholder={"Roldana V12\nElástico carrinho\nTampa trilho"}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Tags
+                          <span className="ml-1 text-[10px] font-normal normal-case text-muted-foreground/70">(separadas por vírgula)</span>
+                        </label>
+                        <Textarea
+                          className="text-sm min-h-[80px]"
+                          value={psTags}
+                          onChange={(e) => setPsTags(e.target.value)}
+                          placeholder={"Funcionamento, Troca de componente"}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Anexos */}
+                    <div className="space-y-2">
+                      <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Anexos (fotos, vídeos, PDFs)</label>
+
+                      {psEvidencias.length > 0 && (
+                        <div className="space-y-1.5">
+                          {psEvidencias.map((url, idx) => {
+                            const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(url);
+                            return (
+                              <div key={url} className="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-1.5">
+                                {isImage
+                                  ? <img src={url} alt="" className="h-8 w-8 rounded object-cover flex-shrink-0" />
+                                  : <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                                }
+                                <a href={url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline flex-1 truncate">
+                                  {decodeURIComponent(url.split("/").pop() || `Arquivo ${idx + 1}`)}
+                                </a>
+                                <button
+                                  className="text-muted-foreground hover:text-destructive transition-colors"
+                                  onClick={() => {
+                                    const updated = psEvidencias.filter((_, i) => i !== idx);
+                                    setPsEvidencias(updated);
+                                    if (psMemoriaId) {
+                                      (supabase as any).from("memoria_problema_solucao").update({ evidencias_urls: updated }).eq("id", psMemoriaId);
+                                    }
+                                  }}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*,video/*,application/pdf"
+                        multiple
+                        className="hidden"
+                        onChange={async (e) => {
+                          const files = Array.from(e.target.files || []);
+                          for (const f of files) await uploadEvidencia(f);
+                          e.target.value = "";
+                        }}
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5 text-xs"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={psUploading}
+                      >
+                        <Upload className="h-3.5 w-3.5" />
+                        {psUploading ? "Enviando..." : "Adicionar arquivo"}
+                      </Button>
+                    </div>
+
+                    {/* Action buttons */}
+                    <div className="flex items-center gap-3 pt-2 border-t">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => salvarMemoriaDraft.mutate({})}
+                        disabled={salvarMemoriaDraft.isPending || !psSintoma.trim() || !psSolucao.trim()}
+                      >
+                        <FileText className="h-3.5 w-3.5 mr-1.5" />
+                        {salvarMemoriaDraft.isPending ? "Salvando..." : psMemoriaId ? "Atualizar Rascunho" : "Salvar Rascunho"}
+                      </Button>
+                      {isAdmin && (
+                        <Button
+                          size="sm"
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                          onClick={() => salvarMemoriaDraft.mutate({ aprovar: true })}
+                          disabled={salvarMemoriaDraft.isPending || !psSintoma.trim() || !psSolucao.trim() || psAprovada}
+                        >
+                          <Check className="h-3.5 w-3.5 mr-1.5" />
+                          {psAprovada ? "Já Aprovado" : "Salvar e Aprovar"}
+                        </Button>
+                      )}
+                      {!psSintoma.trim() || !psSolucao.trim() ? (
+                        <span className="text-xs text-muted-foreground">Sintoma e Solução são obrigatórios</span>
+                      ) : null}
+                    </div>
+
+                  </div>
+                </TabsContent>
+
                 {/* ── Tab: WhatsApp ──────────────────────── */}
                 <TabsContent value="whatsapp" className="mt-0">
                   <WhatsAppChat
@@ -1690,6 +1989,35 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
       onOpenChange={(o) => !o && setApprovalQuote(null)}
       quote={approvalQuote}
     />
+
+    {/* Blocking modal: ticket encerrado sem Problema → Solução */}
+    <Dialog open={showBlockingModal} onOpenChange={setShowBlockingModal}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5 text-amber-500" />
+            Preencha "Problema → Solução"
+          </DialogTitle>
+          <DialogDescription className="text-sm pt-1">
+            Este ticket está encerrado, mas a base de conhecimento da Laivinha ainda não tem o registro da solução.
+            Preencher agora ajuda na triagem automática de chamados futuros.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex gap-2 justify-end pt-2">
+          <Button variant="ghost" size="sm" onClick={() => { setShowBlockingModal(false); onOpenChange(false); }}>
+            Fechar mesmo assim
+          </Button>
+          <Button
+            size="sm"
+            className="bg-orange-600 hover:bg-orange-700 text-white"
+            onClick={() => { setShowBlockingModal(false); setActiveTab("problema-solucao"); }}
+          >
+            <BookOpen className="h-3.5 w-3.5 mr-1.5" />
+            Preencher agora
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
     </>
   );
 }

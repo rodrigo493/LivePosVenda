@@ -23,3 +23,6 @@ verify_jwt = false
 
 [functions.posvenda-card-data]
 verify_jwt = false
+
+[functions.posvenda-agent-executor]
+verify_jwt = false
