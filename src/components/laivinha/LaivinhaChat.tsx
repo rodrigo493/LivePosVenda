@@ -32,7 +32,6 @@ export function LaivinhaChat() {
   const [input, setInput]             = useState("");
   const [loading, setLoading]         = useState(false);
   const [pendingMedia, setPendingMedia] = useState<MediaItem[]>([]);
-  const [pendingUrls, setPendingUrls]   = useState<string[]>([]);
   const [uploading, setUploading]     = useState(false);
   const fileRef   = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -45,7 +44,7 @@ export function LaivinhaChat() {
     if (!user) return;
     setUploading(true);
     const newMedia: MediaItem[] = [];
-    const newUrls: string[]     = [];
+    const uploadedPaths: string[] = [];
 
     for (const file of Array.from(files)) {
       if (file.size > 50 * 1024 * 1024) {
@@ -60,7 +59,14 @@ export function LaivinhaChat() {
         .from("posvenda-evidencias")
         .upload(path, file, { upsert: false });
 
-      if (error) { toast.error(`Erro ao enviar ${file.name}`); continue; }
+      if (error) {
+        toast.error(`Erro ao enviar ${file.name}`);
+        if (uploadedPaths.length > 0) {
+          await supabase.storage.from("posvenda-evidencias").remove(uploadedPaths);
+        }
+        setUploading(false);
+        return;
+      }
 
       const { data: urlData } = supabase.storage
         .from("posvenda-evidencias")
@@ -68,11 +74,10 @@ export function LaivinhaChat() {
 
       const type = file.type.startsWith("video/") ? "video" : "image";
       newMedia.push({ type, url: urlData.publicUrl });
-      newUrls.push(urlData.publicUrl);
+      uploadedPaths.push(path);
     }
 
     setPendingMedia((p) => [...p, ...newMedia]);
-    setPendingUrls((p) => [...p, ...newUrls]);
     setUploading(false);
   };
 
@@ -80,12 +85,11 @@ export function LaivinhaChat() {
     if (!input.trim() && pendingMedia.length === 0) return;
 
     const mediaSnapshot = [...pendingMedia];
-    const urlSnapshot   = [...pendingUrls];
 
     const userMsg: Message = {
       role:    "user",
       content: input.trim(),
-      media:   urlSnapshot.length > 0 ? urlSnapshot : undefined,
+      media:   mediaSnapshot.length > 0 ? mediaSnapshot.map(m => m.url) : undefined,
     };
 
     const history = messages.slice(1).slice(-10);
@@ -93,7 +97,6 @@ export function LaivinhaChat() {
     setMessages((m) => [...m, userMsg]);
     setInput("");
     setPendingMedia([]);
-    setPendingUrls([]);
     setLoading(true);
 
     try {
@@ -105,7 +108,9 @@ export function LaivinhaChat() {
         },
       });
       if (error) throw error;
-      setMessages((m) => [...m, { role: "assistant", content: data.reply }]);
+      const reply = (data as { reply?: string })?.reply;
+      if (!reply) throw new Error("Resposta inválida da Laivinha.");
+      setMessages((m) => [...m, { role: "assistant", content: reply }]);
     } catch {
       setMessages((m) => [
         ...m,
@@ -218,7 +223,6 @@ export function LaivinhaChat() {
                     className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center text-[10px] leading-none"
                     onClick={() => {
                       setPendingMedia((p) => p.filter((_, j) => j !== i));
-                      setPendingUrls((p) => p.filter((_, j) => j !== i));
                     }}
                   >
                     ×
@@ -261,7 +265,7 @@ export function LaivinhaChat() {
                 }
               }}
               rows={1}
-              disabled={loading}
+              disabled={loading || uploading}
             />
             <Button
               size="sm"
