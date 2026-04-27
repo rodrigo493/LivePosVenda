@@ -148,14 +148,29 @@ const CrmPipelinePage = () => {
 
   useEffect(() => {
     const openTicketId = searchParams.get("open_ticket");
-    if (openTicketId && tickets?.length) {
+    if (!openTicketId) return;
+
+    // Try pipeline list first (fast path)
+    if (tickets?.length) {
       const found = tickets.find((t: any) => t.id === openTicketId);
       if (found) {
         setDetailTicket(found);
         setSearchParams({}, { replace: true });
+        return;
       }
     }
-  }, [searchParams, tickets, setSearchParams]);
+
+    // Fallback: fetch directly — handles users without pipeline_user_access
+    // and tickets just created that haven't appeared in the list yet
+    setSearchParams({}, { replace: true });
+    supabase
+      .from("tickets")
+      .select("*, clients(name), equipments(serial_number, equipment_models(name))")
+      .eq("id", openTicketId)
+      .maybeSingle()
+      .then(({ data }) => { if (data) setDetailTicket(data); });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   // Keep detailTicket in sync with fresh query data (so dialog shows latest description/solution)
   useEffect(() => {
