@@ -32,6 +32,7 @@ async function downloadAndStoreMedia(
   clientId: string,
   chatId?: string | null,
   mediaMeta?: Record<string, unknown> | null,
+  dbg: Record<string, unknown> = {},
 ): Promise<string | null> {
   try {
     const endpoint = mime.startsWith("audio/") ? "/chat/downloadaudio"
@@ -39,11 +40,19 @@ async function downloadAndStoreMedia(
       : mime.startsWith("video/") ? "/chat/downloadvideo"
       : "/chat/downloaddocument";
 
+    dbg.endpoint = endpoint;
+    dbg.mime = mime;
+    dbg.chatId = chatId;
+    dbg.messageId = messageId;
+
     // Build crypto-based payload from mediaMeta fields (handles several casing variants).
     let payload: Record<string, unknown> | null = null;
     if (mediaMeta) {
+      dbg.metaKeys = Object.keys(mediaMeta);
       const url = mediaMeta.URL || mediaMeta.url || mediaMeta.Url;
       const mediaKey = mediaMeta.mediaKey || mediaMeta.MediaKey;
+      dbg.hasUrl = !!url;
+      dbg.hasMediaKey = !!mediaKey;
       if (url && mediaKey) {
         payload = {
           Url: url,
@@ -53,64 +62,85 @@ async function downloadAndStoreMedia(
           FileLength: mediaMeta.fileLength || mediaMeta.FileLength,
           FileEncSHA256: mediaMeta.fileEncSHA256 || mediaMeta.fileEncSha256 || mediaMeta.FileEncSHA256,
         };
+        dbg.strategy = "crypto";
       } else {
+        dbg.strategy = "crypto_missing_fields";
         console.error(`${endpoint}: mediaMeta present but missing Url(${!!url}) or MediaKey(${!!mediaKey}). Keys:`, Object.keys(mediaMeta).join(","));
       }
     } else {
+      dbg.strategy = "no_meta";
       console.error(`${endpoint}: no mediaMeta`);
     }
 
     // Fallback: ask Uazapi to handle decryption internally by chatId+messageId.
-    // Some Uazapi builds store message metadata and can decrypt without the caller
-    // providing the raw crypto fields.
     if (!payload) {
       if (chatId && messageId) {
         console.log(`${endpoint}: no crypto payload — trying chatId+messageId fallback`);
         payload = { chatId, messageId };
+        dbg.strategy = "chatid_fallback";
       } else {
+        dbg.error = "no_payload_no_fallback";
         console.error(`${endpoint}: no payload and no chatId/messageId fallback — skipping`);
         return null;
       }
     }
 
     console.log(`${endpoint} payload:`, JSON.stringify(payload).slice(0, 300));
+    dbg.attempts = [];
 
     let bytes: Uint8Array | null = null;
     for (let attempt = 1; attempt <= 3 && !bytes; attempt++) {
+      const attemptInfo: Record<string, unknown> = { attempt };
       try {
         const res = await fetch(`${uazapiBaseUrl}${endpoint}`, {
           method: "POST",
           headers: { Token: uazapiToken, "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
+        attemptInfo.status = res.status;
         console.log(`${endpoint} attempt=${attempt} status:`, res.status);
         if (res.ok) {
           const json = await res.json();
-          const b64: string = json.base64 || json.data || json.audio || json.image || json.video || json.document || json.file || "";
+          const responseKeys = Object.keys(json);
+          attemptInfo.responseKeys = responseKeys;
+          // WuzAPI/Uazapi (Go) returns PascalCase: Data. Also try lowercase variants.
+          const b64: string = json.Data || json.base64 || json.data || json.audio || json.image || json.video || json.document || json.file || "";
           if (b64) {
             const raw = b64.includes(",") ? b64.split(",")[1] : b64;
             const bin = atob(raw);
             const buf = new Uint8Array(bin.length);
             for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
             if (!looksLikeValidMedia(buf, mime)) {
-              console.error(`${endpoint} attempt=${attempt} decoded bytes fail signature check. first16=`,
-                Array.from(buf.slice(0, 16)).map((b) => b.toString(16).padStart(2, "0")).join(" "));
+              const first16 = Array.from(buf.slice(0, 16)).map((b) => b.toString(16).padStart(2, "0")).join(" ");
+              attemptInfo.error = `bad_signature first16=${first16}`;
+              console.error(`${endpoint} attempt=${attempt} decoded bytes fail signature check. first16=`, first16);
             } else {
               bytes = buf;
+              attemptInfo.ok = true;
               break;
             }
           } else {
+            attemptInfo.error = `no_b64 responseKeys=${responseKeys.join(",")} body=${JSON.stringify(json).slice(0, 300)}`;
             console.error(`${endpoint}: no base64 in response`, JSON.stringify(json).slice(0, 200));
           }
         } else {
           const t = await res.text();
+          attemptInfo.error = `http_${res.status}: ${t.slice(0, 200)}`;
           console.error(`${endpoint} attempt=${attempt} error:`, t.slice(0, 200));
         }
-      } catch (e) { console.error(`${endpoint} attempt=${attempt} exception:`, e); }
+      } catch (e) {
+        attemptInfo.error = `exception: ${e}`;
+        console.error(`${endpoint} attempt=${attempt} exception:`, e);
+      }
+      (dbg.attempts as unknown[]).push(attemptInfo);
       if (!bytes && attempt < 3) await new Promise((r) => setTimeout(r, attempt * 800));
     }
 
-    if (!bytes || bytes.length === 0) { console.error("media_download: no valid bytes obtained"); return null; }
+    if (!bytes || bytes.length === 0) {
+      dbg.error = dbg.error || "no_valid_bytes";
+      console.error("media_download: no valid bytes obtained");
+      return null;
+    }
 
     const storeContentType = mime.includes("ogg") ? "audio/ogg" : mime.split(";")[0];
     const ext = mime.includes("ogg") ? "ogg"
@@ -123,11 +153,19 @@ async function downloadAndStoreMedia(
     console.log("media bytes=", bytes.length, "ext=", ext);
     const path = `${clientId}/${Date.now()}_inbound.${ext}`;
     const { error } = await admin.storage.from("whatsapp-media").upload(path, bytes, { contentType: storeContentType, upsert: true });
-    if (error) { console.error("storage upload error:", error.message); return null; }
+    if (error) {
+      dbg.error = `storage: ${error.message}`;
+      console.error("storage upload error:", error.message);
+      return null;
+    }
     const { data } = admin.storage.from("whatsapp-media").getPublicUrl(path);
     console.log("media stored:", data.publicUrl.slice(0, 100));
     return data.publicUrl;
-  } catch (e) { console.error("downloadAndStoreMedia exception:", e); return null; }
+  } catch (e) {
+    dbg.error = `exception: ${e}`;
+    console.error("downloadAndStoreMedia exception:", e);
+    return null;
+  }
 }
 
 Deno.serve(async (req) => {
@@ -391,9 +429,10 @@ Deno.serve(async (req) => {
     }
 
     let mediaUrl: string | null = null;
+    const mediaDbg: Record<string, unknown> = {};
     if (mediaMime) {
       console.log("downloading media: mime=", mediaMime, "chatId=", senderChatId, "msgid=", waMessageId, "hasMeta=", !!mediaMeta);
-      mediaUrl = await downloadAndStoreMedia(admin, UAZAPI_BASE_URL, UAZAPI_INSTANCE_TOKEN, waMessageId, mediaMime, clientId, senderChatId, mediaMeta);
+      mediaUrl = await downloadAndStoreMedia(admin, UAZAPI_BASE_URL, UAZAPI_INSTANCE_TOKEN, waMessageId, mediaMime, clientId, senderChatId, mediaMeta, mediaDbg);
     }
 
     const { error: msgErr } = await admin.from("whatsapp_messages").insert({
@@ -403,6 +442,7 @@ Deno.serve(async (req) => {
       message_text: messageText,
       media_url: mediaUrl,
       media_mime_type: mediaMime,
+      media_debug: mediaUrl ? null : (Object.keys(mediaDbg).length ? mediaDbg : null),
       sender_name: senderName,
       sender_phone: senderPhone,
       manychat_message_id: waMessageId,
