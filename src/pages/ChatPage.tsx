@@ -4,8 +4,6 @@ import { Input } from "@/components/ui/input";
 import { WhatsAppChat } from "@/components/whatsapp/WhatsAppChat";
 import { useWhatsAppConversations, useMarkConversationRead } from "@/hooks/useWhatsAppConversations";
 import { useClients } from "@/hooks/useClients";
-import { useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
 import { motion } from "framer-motion";
 import { Client } from "@/types/database";
 
@@ -30,23 +28,12 @@ export default function ChatPage() {
   const { data: allClients } = useClients();
   const [selectedChat, setSelectedChat] = useState<ActiveChat | null>(null);
   const [search, setSearch] = useState("");
-  const qc = useQueryClient();
   const markRead = useMarkConversationRead();
 
   useEffect(() => {
     if (selectedChat?.client_id) markRead.mutate(selectedChat.client_id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedChat?.client_id]);
-
-  useEffect(() => {
-    const channel = supabase
-      .channel("chat-page-realtime")
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "whatsapp_messages" }, () => {
-        qc.invalidateQueries({ queryKey: ["whatsapp-conversations"] });
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [qc]);
 
   const filteredConversations = useMemo(() => {
     if (!search.trim()) return conversations || [];

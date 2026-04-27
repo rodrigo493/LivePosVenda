@@ -2,6 +2,7 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { Bell, Search, LogOut, Shield } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { useWhatsAppRealtimeSync } from "@/hooks/useWhatsAppRealtimeSync";
 import {
   Popover,
   PopoverContent,
@@ -13,6 +14,7 @@ interface AppLayoutProps {
 }
 
 export function AppLayout({ children }: AppLayoutProps) {
+  useWhatsAppRealtimeSync();
   const { user, roles, signOut } = useAuth();
 
   const initials = user?.user_metadata?.full_name
