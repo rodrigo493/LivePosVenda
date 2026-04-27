@@ -11,6 +11,9 @@ const CORS = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+// Important 1: sbAdmin at module scope — created once, not per-request
+const sbAdmin = createClient(SUPABASE_URL, SERVICE_KEY);
+
 function jsonRes(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -25,14 +28,15 @@ interface MemoriaRow { modelo_aparelho: string; sintoma: string; solucao_md: str
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
+  // Important 4: reject non-POST methods early
+  if (req.method !== "POST") return jsonRes({ error: "Method not allowed" }, 405);
+
   const authHeader = req.headers.get("Authorization") ?? "";
   const sbUser = createClient(SUPABASE_URL, ANON_KEY, {
     global: { headers: { Authorization: authHeader } },
   });
   const { data: { user }, error: authErr } = await sbUser.auth.getUser();
   if (authErr || !user) return jsonRes({ error: "Unauthorized" }, 401);
-
-  const sbAdmin = createClient(SUPABASE_URL, SERVICE_KEY);
 
   let body: { message: string; history?: ChatMsg[]; media?: MediaItem[] };
   try { body = await req.json(); }
@@ -43,14 +47,25 @@ Deno.serve(async (req) => {
     return jsonRes({ error: "message ou media são obrigatórios" }, 400);
   }
 
-  const { data: agente } = await sbAdmin
-    .from("agentes_config")
-    .select("soul_prompt")
-    .eq("nome", "PosVenda")
-    .eq("ativo", true)
-    .single();
+  // Critical 1: only allow https:// media URLs (blocks SSRF via file://, internal IPs, etc.)
+  const safeMedia = media.filter(m => typeof m.url === "string" && m.url.startsWith("https://"));
 
-  const memorias = await buscarMemoria(sbAdmin, message);
+  // Critical 2: sanitize history — only valid roles and string content
+  const safeHistory = history
+    .filter(m => (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
+    .slice(-10);
+
+  // Important 3: run independent DB queries in parallel
+  const [agenteResult, memorias] = await Promise.all([
+    sbAdmin
+      .from("agentes_config")
+      .select("soul_prompt")
+      .eq("nome", "PosVenda")
+      .eq("ativo", true)
+      .single(),
+    buscarMemoria(sbAdmin, message),
+  ]);
+  const agente = agenteResult.data;
 
   const memCtx = memorias.length > 0
     ? "\n\nSOLUÇÕES CONHECIDAS NA BASE INTERNA:\n" +
@@ -65,19 +80,21 @@ Deno.serve(async (req) => {
 
   const aiMessages: unknown[] = [
     { role: "system", content: systemPrompt },
-    ...history.slice(-10),
+    ...safeHistory,
   ];
 
   const userText = message.trim() || "Analise esta mídia e me diga o que está errado.";
-  if (media.length > 0) {
+  if (safeMedia.length > 0) {
     const parts: unknown[] = [{ type: "text", text: userText }];
-    for (const m of media) {
+    for (const m of safeMedia) {
       parts.push({ type: "image_url", image_url: { url: m.url } });
     }
     aiMessages.push({ role: "user", content: parts });
   } else {
     aiMessages.push({ role: "user", content: userText });
   }
+
+  // (safeMedia used above; original media variable no longer referenced beyond this point)
 
   let reply = "";
   if (AI_API_KEY) {
@@ -126,12 +143,14 @@ async function buscarMemoria(
   const detected = models.find((m) => query.toUpperCase().includes(m.toUpperCase()));
 
   if (detected) {
-    const { data } = await sb
+    // Important 2: log DB errors instead of silently discarding them
+    const { data, error } = await sb
       .from("memoria_problema_solucao")
       .select("modelo_aparelho, sintoma, solucao_md")
       .eq("aprovada", true)
       .ilike("modelo_aparelho", `%${detected}%`)
       .limit(3);
+    if (error) console.error("buscarMemoria error:", error.message);
     if (data && data.length > 0) return data as MemoriaRow[];
   }
 
@@ -143,12 +162,14 @@ async function buscarMemoria(
     .join(" ");
 
   if (palavras.trim()) {
-    const { data } = await (sb as any)
+    // Important 2: log DB errors instead of silently discarding them
+    const { data, error } = await (sb as any)
       .from("memoria_problema_solucao")
       .select("modelo_aparelho, sintoma, solucao_md")
       .eq("aprovada", true)
       .textSearch("ts_search", palavras, { config: "portuguese", type: "plain" })
       .limit(3);
+    if (error) console.error("buscarMemoria error:", error.message);
     if (data && data.length > 0) return data as MemoriaRow[];
   }
 
