@@ -638,6 +638,13 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
         .update({ pipeline_id: pipelineId, pipeline_stage: firstStageKey, pipeline_position: 9999, updated_at: new Date().toISOString() })
         .eq("id", ticketId);
       if (error) throw error;
+      // Garante que o responsável atual tem acesso ao novo funil
+      const assignedTo = ticket?.assigned_to;
+      if (assignedTo) {
+        await (supabase as any)
+          .from("pipeline_user_access")
+          .upsert({ user_id: assignedTo, pipeline_id: pipelineId }, { onConflict: "user_id,pipeline_id" });
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["pipeline-tickets"] });
@@ -648,12 +655,19 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   });
 
   const changeAssignedTo = useMutation({
-    mutationFn: async (userId: string | null) => {
+    mutationFn: async (newUserId: string | null) => {
       const { error } = await supabase
         .from("tickets")
-        .update({ assigned_to: userId, updated_at: new Date().toISOString() } as any)
+        .update({ assigned_to: newUserId, updated_at: new Date().toISOString() } as any)
         .eq("id", ticketId!);
       if (error) throw error;
+      // Garante que o novo responsável tem acesso ao funil do ticket
+      const pipelineId = ticket?.pipeline_id;
+      if (newUserId && pipelineId) {
+        await (supabase as any)
+          .from("pipeline_user_access")
+          .upsert({ user_id: newUserId, pipeline_id: pipelineId }, { onConflict: "user_id,pipeline_id" });
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["pipeline-tickets"] });
