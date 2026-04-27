@@ -1,6 +1,8 @@
+// src/components/whatsapp/UnreadFab.tsx
 import { useState } from "react";
-import { MessageCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { MessageSquare, X } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useWhatsAppConversations } from "@/hooks/useWhatsAppConversations";
 
 function formatRelativeTime(iso: string): string {
@@ -14,65 +16,86 @@ function formatRelativeTime(iso: string): string {
 }
 
 export function UnreadFab() {
-  const { data: conversations } = useWhatsAppConversations();
-  const [isOpen, setIsOpen] = useState(false);
+  const [open, setOpen] = useState(false);
   const navigate = useNavigate();
+  const { data: conversations = [] } = useWhatsAppConversations();
 
-  const unreadConvs = (conversations || []).filter((c) => c.unread_count > 0);
+  const unreadConvs = conversations.filter((c) => c.unread_count > 0);
   const totalUnread = unreadConvs.reduce((sum, c) => sum + c.unread_count, 0);
 
   if (totalUnread === 0) return null;
 
+  const handleConvClick = (clientId: string) => {
+    setOpen(false);
+    navigate(`/chat?client=${clientId}`);
+  };
+
   return (
-    <>
-      {isOpen && (
-        <div
-          className="fixed inset-0 z-30"
-          onClick={() => setIsOpen(false)}
-        />
+    <div className="fixed bottom-6 right-24 z-40 flex flex-col items-end gap-2">
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: 8, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 8, scale: 0.95 }}
+            transition={{ duration: 0.15 }}
+            className="bg-card border border-[#c2410c]/40 rounded-xl shadow-xl overflow-hidden w-64 mb-1"
+          >
+            <div className="px-3 py-2 border-b border-border flex items-center justify-between">
+              <span className="text-xs font-bold text-[#f97316] uppercase tracking-wide">
+                {totalUnread} {totalUnread === 1 ? "não lida" : "não lidas"}
+              </span>
+              <button onClick={() => setOpen(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <div className="max-h-64 overflow-y-auto">
+              {unreadConvs.slice(0, 5).map((conv) => (
+                <button
+                  key={conv.client_id}
+                  onClick={() => handleConvClick(conv.client_id)}
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 border-b last:border-0 border-border/50 hover:bg-muted/50 text-left transition-colors"
+                >
+                  <div className="h-7 w-7 rounded-full bg-[#f97316]/20 flex items-center justify-center text-xs font-bold text-[#f97316] shrink-0">
+                    {conv.client_name.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-[#f97316] truncate">{conv.client_name}</p>
+                    <p className="text-[10px] text-muted-foreground truncate">{conv.last_message}</p>
+                  </div>
+                  <div className="flex flex-col items-end gap-0.5 shrink-0">
+                    <span className="text-[9px] text-muted-foreground">{formatRelativeTime(conv.last_message_at)}</span>
+                    <span className="bg-[#c2410c] text-white text-[9px] font-bold rounded-full px-1.5 py-0.5 min-w-4 text-center leading-none">
+                      {conv.unread_count}
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+            {unreadConvs.length > 5 && (
+              <button
+                onClick={() => { setOpen(false); navigate("/chat"); }}
+                className="w-full px-3 py-2 text-xs text-[#f97316] hover:bg-muted/50 text-center transition-colors border-t border-border"
+              >
+                Ver todas ({unreadConvs.length}) →
+              </button>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {open && (
+        <div className="fixed inset-0 z-[-1]" onClick={() => setOpen(false)} />
       )}
 
-      <div className="fixed bottom-20 right-6 z-40 flex flex-col items-end gap-2">
-        {isOpen && (
-          <div className="bg-background border rounded-xl shadow-xl w-72 overflow-hidden mb-1">
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-3 py-2 border-b">
-              Mensagens não lidas
-            </p>
-            {unreadConvs.slice(0, 5).map((conv) => (
-              <button
-                key={conv.client_id}
-                onClick={() => {
-                  setIsOpen(false);
-                  navigate(`/chat?client=${conv.client_id}`);
-                }}
-                className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-muted/50 transition-colors border-b last:border-0 text-left"
-              >
-                <div className="h-8 w-8 shrink-0 rounded-full bg-orange-100 flex items-center justify-center text-sm font-bold text-orange-700">
-                  {conv.client_name.charAt(0).toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-[#f97316] truncate">{conv.client_name}</span>
-                    <span className="text-[10px] text-muted-foreground ml-1 shrink-0">{formatRelativeTime(conv.last_message_at)}</span>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground truncate">{conv.last_message}</p>
-                </div>
-                <span className="shrink-0 h-4 min-w-4 rounded-full bg-[#c2410c] text-white text-[10px] flex items-center justify-center px-1">
-                  {conv.unread_count}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
-
-        <button
-          onClick={() => setIsOpen((o) => !o)}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-[#c2410c] hover:bg-[#9a3412] text-white shadow-lg text-sm font-semibold transition-all hover:scale-105 focus:outline-none animate-unread-pulse"
-        >
-          <MessageCircle className="h-4 w-4 shrink-0" />
-          <span>{totalUnread} não {totalUnread === 1 ? "lida" : "lidas"}</span>
-        </button>
-      </div>
-    </>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-2 bg-[#c2410c] hover:bg-[#9a3412] text-white rounded-full px-4 py-2.5 shadow-lg transition-colors animate-unread-pulse"
+        aria-label="Mensagens não lidas"
+      >
+        <MessageSquare className="h-4 w-4" />
+        <span className="text-sm font-bold">{totalUnread}</span>
+      </button>
+    </div>
   );
 }
