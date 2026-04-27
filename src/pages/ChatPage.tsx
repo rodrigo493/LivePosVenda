@@ -5,10 +5,12 @@ import { Button } from "@/components/ui/button";
 import { WhatsAppChat } from "@/components/whatsapp/WhatsAppChat";
 import { useWhatsAppConversations, useMarkConversationRead } from "@/hooks/useWhatsAppConversations";
 import { useClients } from "@/hooks/useClients";
+import { useAuth } from "@/hooks/useAuth";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 import { Client } from "@/types/database";
 
 function formatRelativeTime(iso: string): string {
@@ -30,8 +32,10 @@ interface ActiveChat {
 export default function ChatPage() {
   const { data: conversations, isLoading } = useWhatsAppConversations();
   const { data: allClients } = useClients();
+  const { user } = useAuth();
   const [selectedChat, setSelectedChat] = useState<ActiveChat | null>(null);
   const [search, setSearch] = useState("");
+  const [creatingCard, setCreatingCard] = useState(false);
   const markRead = useMarkConversationRead();
   const [searchParams, setSearchParams] = useSearchParams();
   const clientParam = searchParams.get("client");
@@ -41,24 +45,45 @@ export default function ChatPage() {
     queryKey: ["client-crm-ticket", selectedChat?.client_id],
     enabled: !!selectedChat?.client_id,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data } = await (supabase as any)
         .from("tickets")
         .select("id")
         .eq("client_id", selectedChat!.client_id)
         .not("pipeline_stage", "is", null)
+        .not("pipeline_id", "is", null)
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
-      return data;
+      return data as { id: string } | null;
     },
   });
 
-  const handleCrmCard = () => {
+  const handleCrmCard = async () => {
     if (!selectedChat) return;
     if (clientTicket?.id) {
       navigate(`/crm?open_ticket=${clientTicket.id}`);
-    } else {
-      navigate(`/crm?new_for_client=${selectedChat.client_id}`);
+      return;
+    }
+    setCreatingCard(true);
+    try {
+      const { data, error } = await (supabase as any)
+        .from("tickets")
+        .insert({
+          client_id: selectedChat.client_id,
+          ticket_type: "chamado_tecnico",
+          title: `Atendimento - ${selectedChat.client_name}`,
+          ticket_number: "",
+          pipeline_stage: "sem_atendimento",
+          created_by: user?.id,
+        })
+        .select("id")
+        .single();
+      if (error) throw error;
+      navigate(`/crm?open_ticket=${data.id}`);
+    } catch (e: any) {
+      toast.error(e?.message || "Erro ao criar card no CRM");
+    } finally {
+      setCreatingCard(false);
     }
   };
 
@@ -249,10 +274,11 @@ export default function ChatPage() {
                 variant="outline"
                 className="shrink-0 gap-1.5 text-xs h-7 px-2.5"
                 onClick={handleCrmCard}
+                disabled={creatingCard}
                 title={clientTicket?.id ? "Abrir card no CRM" : "Criar card no CRM"}
               >
                 <LayoutGrid className="h-3.5 w-3.5" />
-                {clientTicket?.id ? "Card" : "Novo card"}
+                {creatingCard ? "Criando..." : clientTicket?.id ? "Card" : "Novo card"}
               </Button>
             </div>
             <div className="flex-1 overflow-hidden flex flex-col">

@@ -157,40 +157,6 @@ const CrmPipelinePage = () => {
     }
   }, [searchParams, tickets, setSearchParams]);
 
-  useEffect(() => {
-    const newForClientId = searchParams.get("new_for_client");
-    if (!newForClientId) return;
-    setSearchParams({}, { replace: true });
-
-    (async () => {
-      const { data: client } = await supabase
-        .from("clients")
-        .select("id, name")
-        .eq("id", newForClientId)
-        .maybeSingle();
-      if (!client) { toast.error("Cliente não encontrado"); return; }
-
-      try {
-        const newTicket = await createTicket.mutateAsync({
-          client_id: client.id,
-          ticket_type: "chamado_tecnico",
-          title: `Atendimento - ${client.name}`,
-          ticket_number: "",
-          pipeline_stage: "sem_atendimento",
-          created_by: user?.id,
-        } as any);
-        await qc.refetchQueries({ queryKey: ["pipeline-tickets"] });
-        if (newTicket) {
-          setDetailTicket({ ...newTicket, clients: { name: client.name }, equipments: null });
-          toast.success("Card criado no CRM");
-        }
-      } catch {
-        toast.error("Erro ao criar card");
-      }
-    })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
-
   // Build grouped data from server tickets
   const grouped = useMemo(() => {
     const map: Record<string, any[]> = {};
