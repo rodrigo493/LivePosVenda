@@ -1,3 +1,4 @@
+Initialising login role...
 export type Json =
   | string
   | number
@@ -10,7 +11,32 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.4"
+    PostgrestVersion: "14.5"
+  }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
   }
   public: {
     Tables: {
@@ -237,6 +263,7 @@ export type Database = {
           updated_at: string
           user_id: string | null
           whatsapp: string | null
+          whatsapp_last_read_at: string | null
           zip_code: string | null
         }
         Insert: {
@@ -258,6 +285,7 @@ export type Database = {
           updated_at?: string
           user_id?: string | null
           whatsapp?: string | null
+          whatsapp_last_read_at?: string | null
           zip_code?: string | null
         }
         Update: {
@@ -279,6 +307,7 @@ export type Database = {
           updated_at?: string
           user_id?: string | null
           whatsapp?: string | null
+          whatsapp_last_read_at?: string | null
           zip_code?: string | null
         }
         Relationships: []
@@ -740,6 +769,33 @@ export type Database = {
           },
         ]
       }
+      nomus_id_cache: {
+        Row: {
+          created_at: string | null
+          entity_key: string
+          entity_type: string
+          id: string
+          nomus_id: number
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          entity_key: string
+          entity_type: string
+          id?: string
+          nomus_id: number
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          entity_key?: string
+          entity_type?: string
+          id?: string
+          nomus_id?: number
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       product_compatibility: {
         Row: {
           created_at: string
@@ -1088,13 +1144,6 @@ export type Database = {
             referencedRelation: "warranty_claims"
             referencedColumns: ["id"]
           },
-          {
-            foreignKeyName: "quotes_work_order_id_fkey"
-            columns: ["work_order_id"]
-            isOneToOne: false
-            referencedRelation: "work_orders"
-            referencedColumns: ["id"]
-          },
         ]
       }
       service_requests: {
@@ -1106,6 +1155,9 @@ export type Database = {
           notes: string | null
           request_number: string | null
           request_type: Database["public"]["Enums"]["service_request_type"]
+          squad_error: string | null
+          squad_response_status: number | null
+          squad_sent_at: string | null
           status: Database["public"]["Enums"]["service_request_status"]
           ticket_id: string
           updated_at: string
@@ -1119,6 +1171,9 @@ export type Database = {
           notes?: string | null
           request_number?: string | null
           request_type?: Database["public"]["Enums"]["service_request_type"]
+          squad_error?: string | null
+          squad_response_status?: number | null
+          squad_sent_at?: string | null
           status?: Database["public"]["Enums"]["service_request_status"]
           ticket_id: string
           updated_at?: string
@@ -1132,6 +1187,9 @@ export type Database = {
           notes?: string | null
           request_number?: string | null
           request_type?: Database["public"]["Enums"]["service_request_type"]
+          squad_error?: string | null
+          squad_response_status?: number | null
+          squad_sent_at?: string | null
           status?: Database["public"]["Enums"]["service_request_status"]
           ticket_id?: string
           updated_at?: string
@@ -1354,6 +1412,7 @@ export type Database = {
           internal_notes: string | null
           last_interaction_at: string | null
           origin: string | null
+          pipeline_position: number | null
           pipeline_stage: string
           priority: string
           problem_category: string | null
@@ -1379,6 +1438,7 @@ export type Database = {
           internal_notes?: string | null
           last_interaction_at?: string | null
           origin?: string | null
+          pipeline_position?: number | null
           pipeline_stage?: string
           priority?: string
           problem_category?: string | null
@@ -1404,6 +1464,7 @@ export type Database = {
           internal_notes?: string | null
           last_interaction_at?: string | null
           origin?: string | null
+          pipeline_position?: number | null
           pipeline_stage?: string
           priority?: string
           problem_category?: string | null
@@ -1466,6 +1527,9 @@ export type Database = {
           internal_cost: number | null
           purchase_date: string | null
           rejection_reason: string | null
+          squad_error: string | null
+          squad_response_status: number | null
+          squad_sent_at: string | null
           technical_analysis: string | null
           ticket_id: string
           updated_at: string
@@ -1486,6 +1550,9 @@ export type Database = {
           internal_cost?: number | null
           purchase_date?: string | null
           rejection_reason?: string | null
+          squad_error?: string | null
+          squad_response_status?: number | null
+          squad_sent_at?: string | null
           technical_analysis?: string | null
           ticket_id: string
           updated_at?: string
@@ -1506,6 +1573,9 @@ export type Database = {
           internal_cost?: number | null
           purchase_date?: string | null
           rejection_reason?: string | null
+          squad_error?: string | null
+          squad_response_status?: number | null
+          squad_sent_at?: string | null
           technical_analysis?: string | null
           ticket_id?: string
           updated_at?: string
@@ -1584,6 +1654,8 @@ export type Database = {
           id: string
           manychat_message_id: string | null
           manychat_subscriber_id: string | null
+          media_mime_type: string | null
+          media_url: string | null
           message_text: string
           sender_name: string | null
           sender_phone: string | null
@@ -1597,6 +1669,8 @@ export type Database = {
           id?: string
           manychat_message_id?: string | null
           manychat_subscriber_id?: string | null
+          media_mime_type?: string | null
+          media_url?: string | null
           message_text: string
           sender_name?: string | null
           sender_phone?: string | null
@@ -1610,6 +1684,8 @@ export type Database = {
           id?: string
           manychat_message_id?: string | null
           manychat_subscriber_id?: string | null
+          media_mime_type?: string | null
+          media_url?: string | null
           message_text?: string
           sender_name?: string | null
           sender_phone?: string | null
@@ -1786,8 +1862,20 @@ export type Database = {
         Returns: boolean
       }
       is_staff: { Args: { _user_id: string }; Returns: boolean }
+      nomus_get_cached_id: {
+        Args: { p_key: string; p_type: string }
+        Returns: number
+      }
       nomus_http_post: {
         Args: { auth_header: string; payload: Json; timeout_ms?: number }
+        Returns: Json
+      }
+      nomus_search_clientes: {
+        Args: { auth_header: string; search_term: string }
+        Returns: Json
+      }
+      nomus_search_produtos: {
+        Args: { auth_header: string; product_code: string }
         Returns: Json
       }
     }
@@ -1983,6 +2071,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       app_role: [

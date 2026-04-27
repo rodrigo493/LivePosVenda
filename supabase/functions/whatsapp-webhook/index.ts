@@ -27,36 +27,52 @@ async function downloadAndStoreMedia(
   admin: ReturnType<typeof createClient>,
   uazapiBaseUrl: string,
   uazapiToken: string,
-  _messageid: string | null,
+  messageId: string | null,
   mime: string,
   clientId: string,
-  _directUrl?: string | null,
+  chatId?: string | null,
   mediaMeta?: Record<string, unknown> | null,
 ): Promise<string | null> {
   try {
-    if (!mediaMeta) { console.error("media_download: no crypto metadata, skipping"); return null; }
-
     const endpoint = mime.startsWith("audio/") ? "/chat/downloadaudio"
       : mime.startsWith("image/") ? "/chat/downloadimage"
       : mime.startsWith("video/") ? "/chat/downloadvideo"
       : "/chat/downloaddocument";
 
-    const payload: Record<string, unknown> = {
-      Url: mediaMeta.URL || mediaMeta.url || mediaMeta.Url,
-      MediaKey: mediaMeta.mediaKey || mediaMeta.MediaKey,
-      Mimetype: mediaMeta.mimetype || mediaMeta.Mimetype || mime,
-      FileSHA256: mediaMeta.fileSHA256 || mediaMeta.fileSha256 || mediaMeta.FileSHA256,
-      FileLength: mediaMeta.fileLength || mediaMeta.FileLength,
-      FileEncSHA256: mediaMeta.fileEncSHA256 || mediaMeta.fileEncSha256 || mediaMeta.FileEncSHA256,
-    };
-
-    // Uazapi requires Url + MediaKey to decrypt. Skip the direct CDN fallback:
-    // the WhatsApp CDN returns AES-encrypted bytes and salvaging them without
-    // the key produces garbage that we would upload as-is.
-    if (!payload.Url || !payload.MediaKey) {
-      console.error(`${endpoint}: missing Url/MediaKey in crypto metadata, cannot decrypt`);
-      return null;
+    // Build crypto-based payload from mediaMeta fields (handles several casing variants).
+    let payload: Record<string, unknown> | null = null;
+    if (mediaMeta) {
+      const url = mediaMeta.URL || mediaMeta.url || mediaMeta.Url;
+      const mediaKey = mediaMeta.mediaKey || mediaMeta.MediaKey;
+      if (url && mediaKey) {
+        payload = {
+          Url: url,
+          MediaKey: mediaKey,
+          Mimetype: mediaMeta.mimetype || mediaMeta.Mimetype || mime,
+          FileSHA256: mediaMeta.fileSHA256 || mediaMeta.fileSha256 || mediaMeta.FileSHA256,
+          FileLength: mediaMeta.fileLength || mediaMeta.FileLength,
+          FileEncSHA256: mediaMeta.fileEncSHA256 || mediaMeta.fileEncSha256 || mediaMeta.FileEncSHA256,
+        };
+      } else {
+        console.error(`${endpoint}: mediaMeta present but missing Url(${!!url}) or MediaKey(${!!mediaKey}). Keys:`, Object.keys(mediaMeta).join(","));
+      }
+    } else {
+      console.error(`${endpoint}: no mediaMeta`);
     }
+
+    // Fallback: ask Uazapi to handle decryption internally by chatId+messageId.
+    // Some Uazapi builds store message metadata and can decrypt without the caller
+    // providing the raw crypto fields.
+    if (!payload) {
+      if (chatId && messageId) {
+        console.log(`${endpoint}: no crypto payload — trying chatId+messageId fallback`);
+        payload = { chatId, messageId };
+      } else {
+        console.error(`${endpoint}: no payload and no chatId/messageId fallback — skipping`);
+        return null;
+      }
+    }
+
     console.log(`${endpoint} payload:`, JSON.stringify(payload).slice(0, 300));
 
     let bytes: Uint8Array | null = null;
@@ -162,6 +178,7 @@ Deno.serve(async (req) => {
     let mediaMime: string | null = null;
     let directMediaUrl: string | null = null;
     let mediaMeta: Record<string, unknown> | null = null;
+    let senderChatId: string | null = null;
 
     // Uazapi actual format: { EventType, message: { fromMe, sender_pn, chatid, text, senderName, messageid }, chat }
     if (body?.EventType && body?.message) {
@@ -173,6 +190,7 @@ Deno.serve(async (req) => {
       }
       if (m.fromMe === true || m.wasSentByApi === true) return new Response("OK", { status: 200 });
       senderPhone = (m.sender_pn || m.chatid || m.sender || "").toString().replace("@s.whatsapp.net", "").replace(/\D/g, "");
+      senderChatId = m.chatid || m.sender_pn || null;
       const resolveMediaText = (mime: string) => {
         if (mime.startsWith("image/")) return "📷 Imagem";
         if (mime.startsWith("video/")) return "🎥 Vídeo";
@@ -202,31 +220,36 @@ Deno.serve(async (req) => {
             if (mediaMime) mediaMeta = parsed;
           } catch { messageText = "📎 Mídia"; }
         } else if (!rawContent) {
+          // Helper: if the named sub-object is null, fall back to the top-level
+          // message object itself — some Uazapi versions inline the crypto fields.
+          const hasCryptoFields = (obj: any) =>
+            obj && (obj.url || obj.URL || obj.Url || obj.directPath || obj.mediaKey || obj.MediaKey);
+
           if (m.PTT === true || m.audioMessage) {
             messageText = "🎵 Áudio";
             const am = m.audioMessage as any;
-            mediaMime = am?.mimetype || "audio/ogg";
-            directMediaUrl = am?.url || am?.mediaUrl || null;
-            mediaMeta = am || null;
-            console.log("AUDIO_PTT audioMessage keys:", am ? Object.keys(am).join(",") : "null", "| PTT:", m.PTT);
+            mediaMime = am?.mimetype || (m as any).mimetype || "audio/ogg";
+            directMediaUrl = am?.url || am?.mediaUrl || (m as any).url || null;
+            mediaMeta = hasCryptoFields(am) ? am : hasCryptoFields(m) ? (m as any) : null;
+            console.log("AUDIO_PTT audioMessage keys:", am ? Object.keys(am).join(",") : "null", "| m keys:", Object.keys(m).join(","), "| PTT:", m.PTT, "| mediaMeta:", !!mediaMeta);
           } else if (m.imageMessage) {
             messageText = "📷 Imagem";
             const im = m.imageMessage as any;
             mediaMime = im?.mimetype || "image/jpeg";
             directMediaUrl = im?.url || im?.mediaUrl || null;
-            mediaMeta = im || null;
+            mediaMeta = hasCryptoFields(im) ? im : hasCryptoFields(m) ? (m as any) : null;
           } else if (m.videoMessage) {
             messageText = "🎥 Vídeo";
             const vm = m.videoMessage as any;
             mediaMime = vm?.mimetype || "video/mp4";
             directMediaUrl = vm?.url || vm?.mediaUrl || null;
-            mediaMeta = vm || null;
+            mediaMeta = hasCryptoFields(vm) ? vm : hasCryptoFields(m) ? (m as any) : null;
           } else if (m.documentMessage) {
             messageText = "📎 Arquivo";
             const dm = m.documentMessage as any;
             mediaMime = dm?.mimetype || "application/octet-stream";
             directMediaUrl = dm?.url || dm?.mediaUrl || null;
-            mediaMeta = dm || null;
+            mediaMeta = hasCryptoFields(dm) ? dm : hasCryptoFields(m) ? (m as any) : null;
           }
         } else {
           messageText = rawContent;
@@ -368,9 +391,9 @@ Deno.serve(async (req) => {
     }
 
     let mediaUrl: string | null = null;
-    if (mediaMime && (waMessageId || directMediaUrl)) {
-      console.log("downloading media: mime=", mediaMime, "directUrl=", directMediaUrl?.slice(0, 80), "msgid=", waMessageId);
-      mediaUrl = await downloadAndStoreMedia(admin, UAZAPI_BASE_URL, UAZAPI_INSTANCE_TOKEN, waMessageId, mediaMime, clientId, directMediaUrl, mediaMeta);
+    if (mediaMime) {
+      console.log("downloading media: mime=", mediaMime, "chatId=", senderChatId, "msgid=", waMessageId, "hasMeta=", !!mediaMeta);
+      mediaUrl = await downloadAndStoreMedia(admin, UAZAPI_BASE_URL, UAZAPI_INSTANCE_TOKEN, waMessageId, mediaMime, clientId, senderChatId, mediaMeta);
     }
 
     const { error: msgErr } = await admin.from("whatsapp_messages").insert({
@@ -379,6 +402,7 @@ Deno.serve(async (req) => {
       direction: "inbound",
       message_text: messageText,
       media_url: mediaUrl,
+      media_mime_type: mediaMime,
       sender_name: senderName,
       sender_phone: senderPhone,
       manychat_message_id: waMessageId,
