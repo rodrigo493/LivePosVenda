@@ -3,8 +3,9 @@ import { useNavigate } from "react-router-dom";
 import {
   Clock, User, Tag, FileText, MessageSquare, Calendar, Package,
   AlertTriangle, Send, Pencil, Check, X, Wrench, Shield, ClipboardList,
-  ExternalLink, Receipt, Settings2, ArrowLeft, Cpu, Plus, ChevronDown, History, CheckSquare,
+  ExternalLink, Receipt, Settings2, ArrowLeft, Cpu, Plus, ChevronDown, History, CheckSquare, Brain,
 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { WhatsAppChat } from "@/components/whatsapp/WhatsAppChat";
@@ -198,6 +199,34 @@ function useClientTasks(clientId: string | undefined) {
   });
 }
 
+function useTicketEntregaveis(ticketId: string | undefined) {
+  return useQuery({
+    queryKey: ["ticket-entregaveis", ticketId], enabled: !!ticketId,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("entregaveis_agente")
+        .select("*")
+        .eq("ticket_id", ticketId!)
+        .order("created_at", { ascending: false });
+      if (error) throw error; return data as any[];
+    },
+  });
+}
+
+function useTicketMemoria(ticketId: string | undefined) {
+  return useQuery({
+    queryKey: ["ticket-memoria", ticketId], enabled: !!ticketId,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("memoria_problema_solucao")
+        .select("id, modelo_aparelho, sintoma, solucao_md, pecas, tags, aprovada, created_at, origem_ticket_id")
+        .eq("origem_ticket_id", ticketId!)
+        .order("created_at", { ascending: false });
+      if (error) throw error; return data as any[];
+    },
+  });
+}
+
 // ─── Utilities ─────────────────────────────────────────────────
 
 function daysSince(dateStr: string | null) {
@@ -328,6 +357,25 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   const { data: clientServiceRequests } = useClientServiceRequests(enabledClientId);
   const { data: clientTasks } = useClientTasks(enabledClientId);
   const { data: clientHistory } = useClientServiceHistory(enabledClientId);
+  const { data: ticketEntregaveis } = useTicketEntregaveis(enabledId);
+  const { data: ticketMemoria } = useTicketMemoria(enabledId);
+  const { hasRole } = useAuth();
+  const isAdmin = hasRole("admin" as any);
+
+  const aprovarMemoria = useMutation({
+    mutationFn: async (memoriaId: string) => {
+      const { error } = await (supabase as any)
+        .from("memoria_problema_solucao")
+        .update({ aprovada: true })
+        .eq("id", memoriaId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["ticket-memoria", ticketId] });
+      toast.success("Solução aprovada e adicionada à base de conhecimento!");
+    },
+    onError: () => toast.error("Erro ao aprovar solução."),
+  });
   const { data: equipmentModels } = useQuery({
     queryKey: ["equipment_models_for_ticket_dialog"],
     queryFn: async () => {
@@ -761,6 +809,10 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
               </TabsTrigger>
               <TabsTrigger value="activity" className="text-xs rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-3 pb-2">
                 Atividades
+              </TabsTrigger>
+
+              <TabsTrigger value="memoria-ia" className="text-xs rounded-none border-b-2 border-transparent data-[state=active]:border-violet-500 data-[state=active]:shadow-none px-3 pb-2 gap-1 data-[state=active]:text-violet-600">
+                <Brain className="h-3 w-3" /> Memória IA {(ticketEntregaveis?.length || 0) > 0 ? `(${ticketEntregaveis!.length})` : ""}
               </TabsTrigger>
 
               <div className="h-5 w-px bg-border mx-2 self-center" />
@@ -1503,6 +1555,83 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                       </div>
                     </div>
                   ))}
+                </TabsContent>
+
+                {/* ── Tab: Memória IA ────────────────────── */}
+                <TabsContent value="memoria-ia" className="mt-0 space-y-5">
+
+                  {/* Triagens da Laivinha */}
+                  {ticketEntregaveis && ticketEntregaveis.length > 0 && (
+                    <div className="space-y-3">
+                      <h3 className="text-sm font-semibold text-violet-700 flex items-center gap-1.5">
+                        <Brain className="h-4 w-4" /> Triagem da Laivinha
+                      </h3>
+                      {ticketEntregaveis.map((e: any) => (
+                        <div key={e.id} className="rounded-lg border border-violet-200 bg-violet-50/40 p-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-[10px] text-muted-foreground">
+                              {fmtDate(e.created_at)} · tipo: {e.tipo}
+                            </span>
+                          </div>
+                          <div className="prose prose-sm max-w-none text-sm text-foreground/90 leading-relaxed">
+                            <ReactMarkdown skipHtml>{e.conteudo_md}</ReactMarkdown>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {(!ticketEntregaveis || ticketEntregaveis.length === 0) && (
+                    <EmptyState label="Nenhuma triagem gerada pela Laivinha ainda." />
+                  )}
+
+                  {/* Rascunhos de memória para este ticket */}
+                  {ticketMemoria && ticketMemoria.length > 0 && (
+                    <div className="space-y-3">
+                      <h3 className="text-sm font-semibold text-amber-700 flex items-center gap-1.5">
+                        <FileText className="h-4 w-4" /> Rascunhos de Solução (base interna)
+                      </h3>
+                      {ticketMemoria.map((m: any) => (
+                        <div key={m.id} className={`rounded-lg border p-4 space-y-2 ${m.aprovada ? "border-emerald-300 bg-emerald-50/40" : "border-amber-200 bg-amber-50/30"}`}>
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="space-y-1 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-xs font-medium">{m.modelo_aparelho}</span>
+                                {m.aprovada
+                                  ? <span className="text-[10px] bg-emerald-100 text-emerald-700 rounded px-1.5 py-0.5 font-medium">✅ Aprovada</span>
+                                  : <span className="text-[10px] bg-amber-100 text-amber-700 rounded px-1.5 py-0.5 font-medium">⏳ Rascunho</span>
+                                }
+                                {m.tags?.length > 0 && m.tags.map((t: string) => (
+                                  <span key={t} className="text-[10px] bg-muted text-muted-foreground rounded px-1.5 py-0.5">{t}</span>
+                                ))}
+                              </div>
+                              <p className="text-xs text-muted-foreground">{m.sintoma.slice(0, 120)}</p>
+                            </div>
+                            {isAdmin && !m.aprovada && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-xs gap-1 border-emerald-300 text-emerald-700 hover:bg-emerald-50 shrink-0"
+                                onClick={() => aprovarMemoria.mutate(m.id)}
+                                disabled={aprovarMemoria.isPending}
+                              >
+                                <Check className="h-3 w-3" /> Aprovar
+                              </Button>
+                            )}
+                          </div>
+                          <div className="prose prose-sm max-w-none text-sm text-foreground/90 leading-relaxed border-t pt-2">
+                            <ReactMarkdown skipHtml>{m.solucao_md.slice(0, 600)}</ReactMarkdown>
+                          </div>
+                          {Array.isArray(m.pecas) && m.pecas.length > 0 && (
+                            <p className="text-xs text-muted-foreground">
+                              <span className="font-medium">Peças:</span> {m.pecas.join(", ")}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                 </TabsContent>
 
                 {/* ── Tab: WhatsApp ──────────────────────── */}
