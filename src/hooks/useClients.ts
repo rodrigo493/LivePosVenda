@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { ClientInsert } from "@/types/database";
+import { useAuth } from "@/hooks/useAuth";
 
 export function useClients() {
   return useQuery({
@@ -34,9 +35,14 @@ export function useClient(id: string | undefined) {
 
 export function useCreateClient() {
   const qc = useQueryClient();
+  const { user } = useAuth();
   return useMutation({
     mutationFn: async (client: ClientInsert) => {
-      const { data, error } = await supabase.from("clients").insert(client).select().single();
+      const { data, error } = await (supabase as any)
+        .from("clients")
+        .insert({ ...client, created_by: user?.id ?? null })
+        .select()
+        .single();
       if (error) throw error;
       return data;
     },
