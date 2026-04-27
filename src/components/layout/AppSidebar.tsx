@@ -22,6 +22,7 @@ import {
   MessageSquare,
   Lock,
   Shield,
+  CalendarCheck,
 } from "lucide-react";
 import { NavLink } from "@/components/layout/NavLink";
 import posvendaLogo from "@/assets/posvenda.png";
@@ -55,6 +56,7 @@ const mainNav = [
 ];
 
 const operationsNav = [
+  { title: "Tarefas",                url: "/tarefas",            icon: CalendarCheck,  moduleKey: "tarefas" },
   { title: "Chamados",              url: "/chamados",           icon: HeadphonesIcon, moduleKey: "chamados" },
   { title: "Pedidos de Acessórios", url: "/pedidos-acessorios", icon: Package,        moduleKey: "pedidos_acessorios" },
   { title: "Pedidos de Garantia",   url: "/pedidos-garantia",   icon: ShieldCheck,    moduleKey: "pedidos_garantia" },
