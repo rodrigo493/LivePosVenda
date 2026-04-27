@@ -302,8 +302,8 @@ const APP_ROLES = [
 
 const EDGE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/manage-users`;
 
-async function callEdge(method: string, body?: object) {
-  const { data, error } = await (supabase.functions as any).invoke("manage-users", {
+async function callEdge(method: string, body?: object, query = "") {
+  const { data, error } = await (supabase.functions as any).invoke(`manage-users${query}`, {
     method,
     body,
   });
@@ -370,7 +370,7 @@ function UserManagement() {
   });
 
   const deleteMut = useMutation({
-    mutationFn: (user_id: string) => callEdge("DELETE", { user_id }),
+    mutationFn: (user_id: string) => callEdge("DELETE", undefined, `?user_id=${user_id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["manage_users"] });
       qc.invalidateQueries({ queryKey: ["all-users"] });

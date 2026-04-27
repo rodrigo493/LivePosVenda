@@ -38,9 +38,8 @@ const CrmPermissionsPage = () => {
 
   const deleteUser = useMutation({
     mutationFn: async (userId: string) => {
-      const { error } = await (supabase.functions as any).invoke("manage-users", {
+      const { error } = await (supabase.functions as any).invoke(`manage-users?user_id=${userId}`, {
         method: "DELETE",
-        body: { user_id: userId },
       });
       if (error) throw new Error(error.message || "Erro ao excluir usuário");
     },

@@ -124,9 +124,10 @@ Deno.serve(async (req) => {
     return json({ ok: true });
   }
 
-  // DELETE — remove user
+  // DELETE — remove user (user_id via query param)
   if (req.method === "DELETE") {
-    const { user_id } = await req.json();
+    const url = new URL(req.url);
+    const user_id = url.searchParams.get("user_id");
     if (!user_id) return json({ error: "user_id é obrigatório" }, 400);
 
     const { error } = await admin.auth.admin.deleteUser(user_id);
