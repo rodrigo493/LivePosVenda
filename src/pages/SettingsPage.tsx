@@ -303,12 +303,20 @@ const APP_ROLES = [
 const EDGE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/manage-users`;
 
 async function callEdge(method: string, body?: object, query = "") {
-  const { data, error } = await (supabase.functions as any).invoke(`manage-users${query}`, {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData?.session?.access_token ?? "";
+  const res = await fetch(`${EDGE_URL}${query}`, {
     method,
-    body,
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`,
+      "apikey": import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+    },
+    body: body ? JSON.stringify(body) : undefined,
   });
-  if (error) throw new Error(error.message ?? "Erro desconhecido");
-  return data;
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(payload.error ?? payload.message ?? `Erro ${res.status}`);
+  return payload;
 }
 
 function UserManagement() {

@@ -38,10 +38,20 @@ const CrmPermissionsPage = () => {
 
   const deleteUser = useMutation({
     mutationFn: async (userId: string) => {
-      const { error } = await (supabase.functions as any).invoke(`manage-users?user_id=${userId}`, {
-        method: "DELETE",
-      });
-      if (error) throw new Error(error.message || "Erro ao excluir usuário");
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token ?? "";
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/manage-users?user_id=${userId}`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+          },
+        },
+      );
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload.error ?? payload.message ?? `Erro ${res.status}`);
     },
     onSuccess: () => {
       toast.success("Usuário excluído com sucesso");
