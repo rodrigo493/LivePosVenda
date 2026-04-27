@@ -41,9 +41,12 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { useQueryClient } from "@tanstack/react-query";
-import { usePipelineTickets, useMovePipelineStage, PIPELINE_STAGES } from "@/hooks/usePipeline";
+import { usePipelineTickets, useMovePipelineStage } from "@/hooks/usePipeline";
+import { usePipelines, type Pipeline } from "@/hooks/usePipelines";
+import { usePipelineStages } from "@/hooks/usePipelineStages";
+import { FunnelSwitcher } from "@/components/crm/FunnelSwitcher";
+import { FunnelManagerDropdown } from "@/components/crm/FunnelManagerDropdown";
 import { useWhatsAppConversations } from "@/hooks/useWhatsAppConversations";
-import { usePipelineSettings, getDelayMap } from "@/hooks/usePipelineSettings";
 import { useAuth } from "@/hooks/useAuth";
 import { useCreateTask } from "@/hooks/useTasks";
 import { useCreateClient } from "@/hooks/useClients";
@@ -64,28 +67,6 @@ function normalizePhone(value?: string | null) {
 
 const priorityOrder: Record<string, number> = { urgente: 0, alta: 1, media: 2, baixa: 3 };
 
-const stageKeySet = new Set<string>(PIPELINE_STAGES.map((s) => s.key));
-
-// Custom collision: try sortable items first (closestCorners), then fall back
-// to droppable containers (rectIntersection) so empty columns are reachable.
-const multiContainerCollision: CollisionDetection = (args) => {
-  // First check pointer-within for precise hits
-  const pointerCollisions = pointerWithin(args);
-  if (pointerCollisions.length > 0) {
-    // Prefer sortable items (tickets) over droppable containers (stages)
-    const itemHit = pointerCollisions.find((c) => !stageKeySet.has(c.id as string));
-    if (itemHit) return [itemHit];
-    return pointerCollisions;
-  }
-
-  // Fall back to rect intersection (catches empty columns)
-  const rectCollisions = rectIntersection(args);
-  if (rectCollisions.length > 0) return rectCollisions;
-
-  // Last resort
-  return closestCorners(args);
-};
-
 function findContainer(columns: Record<string, any[]>, id: string): string | null {
   if (id in columns) return id;
   for (const [stage, items] of Object.entries(columns)) {
@@ -100,10 +81,40 @@ const CrmPipelinePage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const isAdmin = roles.includes("admin");
   const [viewAll, setViewAll] = useState(isAdmin);
-  const { data: tickets, isLoading } = usePipelineTickets(viewAll ? undefined : user?.id);
+
+  const { data: pipelines = [] } = usePipelines();
+  const [currentPipeline, setCurrentPipeline] = useState<Pipeline | null>(null);
+
+  useEffect(() => {
+    if (pipelines.length > 0 && !currentPipeline) {
+      setCurrentPipeline(pipelines[0]);
+    }
+  }, [pipelines, currentPipeline]);
+
+  const { data: stages = [] } = usePipelineStages(currentPipeline?.id);
+
+  const stageKeySet = useMemo(() => new Set<string>(stages.map((s) => s.key)), [stages]);
+
+  const multiContainerCollision: CollisionDetection = useCallback((args) => {
+    const pointerCollisions = pointerWithin(args);
+    if (pointerCollisions.length > 0) {
+      const itemHit = pointerCollisions.find((c) => !stageKeySet.has(c.id as string));
+      if (itemHit) return [itemHit];
+      return pointerCollisions;
+    }
+    const rectCollisions = rectIntersection(args);
+    if (rectCollisions.length > 0) return rectCollisions;
+    return closestCorners(args);
+  }, [stageKeySet]);
+
+  const delayMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    stages.forEach((s) => { map[s.key] = s.delay_days; });
+    return map;
+  }, [stages]);
+
+  const { data: tickets, isLoading } = usePipelineTickets(currentPipeline?.id, viewAll ? undefined : user?.id);
   const { data: conversations } = useWhatsAppConversations();
-  const { data: stageConfigs } = usePipelineSettings();
-  const delayMap = useMemo(() => getDelayMap(stageConfigs), [stageConfigs]);
   const whatsappUnread = useMemo(() => {
     const map = new Map<string, number>();
     conversations?.forEach((c) => { if (c.unread_count > 0) map.set(c.client_id, c.unread_count); });
@@ -149,7 +160,7 @@ const CrmPipelinePage = () => {
   // Build grouped data from server tickets
   const grouped = useMemo(() => {
     const map: Record<string, any[]> = {};
-    PIPELINE_STAGES.forEach((s) => (map[s.key] = []));
+    stages.forEach((s) => (map[s.key] = []));
     const term = searchTerm.toLowerCase().trim();
 
     tickets?.forEach((t: any) => {
@@ -182,7 +193,7 @@ const CrmPipelinePage = () => {
     );
 
     return map;
-  }, [tickets, delayMap, searchTerm]);
+  }, [tickets, delayMap, searchTerm, stages]);
 
   // Sync columns from grouped when not dragging and not mutating
   useEffect(() => {
@@ -309,7 +320,7 @@ const CrmPipelinePage = () => {
       if (stageChanged || positionChanged) {
         isMutatingRef.current = true;
         moveStage.mutate(
-          { id: ticketId, stage: targetStage, position },
+          { id: ticketId, stage: targetStage, position, pipelineId: currentPipeline?.id ?? "" },
           {
             onSuccess: () => toast.success("Pipeline atualizado"),
             onSettled: () => { isMutatingRef.current = false; },
@@ -321,7 +332,7 @@ const CrmPipelinePage = () => {
       setTimeout(() => setActiveId(null), 0);
       return finalColumns;
     });
-  }, [grouped, moveStage]);
+  }, [grouped, moveStage, stageKeySet, currentPipeline]);
 
   const handleQuickTask = (ticketId: string, clientId: string) => {
     setTaskDialog({ open: true, ticketId, clientId });
@@ -373,6 +384,23 @@ const CrmPipelinePage = () => {
         }
       />
 
+      <div className="flex items-center gap-2 mb-3">
+        <span className="font-semibold text-sm">{currentPipeline?.name ?? "Pipeline CRM"}</span>
+        <FunnelSwitcher
+          currentPipelineId={currentPipeline?.id ?? null}
+          onSelect={setCurrentPipeline}
+        />
+        {isAdmin && (
+          <>
+            <div className="w-px h-5 bg-border mx-1" />
+            <FunnelManagerDropdown
+              currentPipeline={currentPipeline}
+              onPipelineCreated={setCurrentPipeline}
+            />
+          </>
+        )}
+      </div>
+
       <div className="relative mb-4 max-w-sm">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <input
@@ -384,7 +412,9 @@ const CrmPipelinePage = () => {
         />
       </div>
 
-      {isLoading ? (
+      {!currentPipeline && !isLoading && pipelines.length === 0 ? (
+        <div className="p-12 text-center text-muted-foreground text-sm">Sem acesso ao CRM. Solicite acesso ao administrador.</div>
+      ) : isLoading ? (
         <div className="p-8 text-center text-muted-foreground text-sm">Carregando pipeline...</div>
       ) : (
         <DndContext
@@ -414,7 +444,7 @@ const CrmPipelinePage = () => {
               scrollRef.current.scrollLeft = grabState.current.scrollLeft - walk;
             }}
           >
-            {(stageConfigs || PIPELINE_STAGES).map((stage) => {
+            {stages.map((stage) => {
               const items = columns[stage.key] || [];
               const totalValue = items.reduce((s: number, t: any) => s + Number(t.estimated_value || 0), 0);
 
@@ -491,7 +521,7 @@ const CrmPipelinePage = () => {
             label: "Etapa do Pipeline",
             type: "select" as const,
             required: true,
-            options: PIPELINE_STAGES.map((s) => ({ value: s.key, label: s.label })),
+            options: stages.map((s) => ({ value: s.key, label: s.label })),
           },
           {
             name: "equipment_id",
