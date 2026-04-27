@@ -9,6 +9,7 @@ import { CrmPermissionsProvider } from "@/contexts/CrmPermissionsContext";
 import AuthPage from "./pages/AuthPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import { LaivinhaChat } from "@/components/laivinha/LaivinhaChat";
+import { UnreadFab } from "@/components/whatsapp/UnreadFab";
 const ChatPage = lazy(() => import("./pages/ChatPage"));
 
 // Lazy-loaded pages
@@ -126,6 +127,7 @@ function AppRoutes() {
           </Routes>
         </Suspense>
       </AppLayout>
+      <UnreadFab />
       <LaivinhaChat />
     </CrmPermissionsProvider>
   );

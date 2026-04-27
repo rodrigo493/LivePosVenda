@@ -4,7 +4,8 @@ import { Input } from "@/components/ui/input";
 import { WhatsAppChat } from "@/components/whatsapp/WhatsAppChat";
 import { useWhatsAppConversations, useMarkConversationRead } from "@/hooks/useWhatsAppConversations";
 import { useClients } from "@/hooks/useClients";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
+import { useSearchParams } from "react-router-dom";
 import { Client } from "@/types/database";
 
 function formatRelativeTime(iso: string): string {
@@ -29,6 +30,8 @@ export default function ChatPage() {
   const [selectedChat, setSelectedChat] = useState<ActiveChat | null>(null);
   const [search, setSearch] = useState("");
   const markRead = useMarkConversationRead();
+  const [searchParams] = useSearchParams();
+  const clientParam = searchParams.get("client");
 
   useEffect(() => {
     if (selectedChat?.client_id) markRead.mutate(selectedChat.client_id);
@@ -63,11 +66,18 @@ export default function ChatPage() {
   }, [allClients, search, conversationClientIds]);
 
   useEffect(() => {
-    if (!selectedChat && filteredConversations.length > 0) {
-      const first = filteredConversations[0];
-      setSelectedChat({ client_id: first.client_id, client_name: first.client_name, client_phone: first.client_phone || "" });
+    if (!conversations || conversations.length === 0) return;
+    if (selectedChat) return;
+    if (clientParam) {
+      const match = conversations.find((c) => c.client_id === clientParam);
+      if (match) {
+        setSelectedChat({ client_id: match.client_id, client_name: match.client_name, client_phone: match.client_phone || "" });
+        return;
+      }
     }
-  }, [filteredConversations, selectedChat]);
+    const first = conversations[0];
+    setSelectedChat({ client_id: first.client_id, client_name: first.client_name, client_phone: first.client_phone || "" });
+  }, [conversations, selectedChat, clientParam]);
 
   const selectConversation = (conv: typeof filteredConversations[0]) => {
     setSelectedChat({ client_id: conv.client_id, client_name: conv.client_name, client_phone: conv.client_phone || "" });
@@ -137,35 +147,49 @@ export default function ChatPage() {
               <p className="text-sm">{search ? "Nenhum resultado." : "Nenhuma conversa ainda."}</p>
             </div>
           ) : (
-            filteredConversations.map((conv) => (
-              <button
-                key={conv.client_id}
-                onClick={() => selectConversation(conv)}
-                className={`w-full flex items-start gap-3 p-3 hover:bg-muted/50 transition-colors border-b last:border-0 text-left ${
-                  selectedChat?.client_id === conv.client_id ? "bg-muted/60" : ""
-                }`}
-              >
-                <div className="h-9 w-9 shrink-0 rounded-full bg-emerald-100 flex items-center justify-center text-sm font-bold text-emerald-700">
-                  {conv.client_name.charAt(0).toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between mb-0.5">
-                    <span className="text-sm font-medium truncate">{conv.client_name}</span>
-                    <span className="text-[10px] text-muted-foreground shrink-0 ml-1">
-                      {formatRelativeTime(conv.last_message_at)}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs text-muted-foreground truncate">{conv.last_message}</p>
-                    {conv.unread_count > 0 && (
-                      <span className="ml-1 shrink-0 h-4 min-w-4 rounded-full bg-emerald-600 text-white text-[10px] flex items-center justify-center px-1">
-                        {conv.unread_count}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </button>
-            ))
+            <AnimatePresence initial={false}>
+              {filteredConversations.map((conv) => {
+                const hasUnread = conv.unread_count > 0;
+                return (
+                  <motion.button
+                    key={conv.client_id}
+                    layout
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    onClick={() => selectConversation(conv)}
+                    className={`w-full flex items-start gap-3 p-3 hover:bg-muted/50 transition-colors border-b last:border-0 text-left ${
+                      selectedChat?.client_id === conv.client_id ? "bg-muted/60" : ""
+                    } ${hasUnread ? "bg-[#f97316]/10 animate-unread-pulse border border-[#c2410c]" : ""}`}
+                  >
+                    <div className="relative h-9 w-9 shrink-0">
+                      <div className="h-9 w-9 rounded-full bg-emerald-100 flex items-center justify-center text-sm font-bold text-emerald-700">
+                        {conv.client_name.charAt(0).toUpperCase()}
+                      </div>
+                      {hasUnread && (
+                        <span className="absolute top-[-1px] right-[-1px] w-[10px] h-[10px] bg-[#c2410c] rounded-full border-2 border-background animate-dot-pulse" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-0.5">
+                        <span className={`text-sm truncate ${hasUnread ? "font-bold text-[#f97316]" : "font-medium"}`}>{conv.client_name}</span>
+                        <span className={`text-[10px] shrink-0 ml-1 ${hasUnread ? "text-[#f97316] font-semibold" : "text-muted-foreground"}`}>
+                          {formatRelativeTime(conv.last_message_at)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-muted-foreground truncate">{conv.last_message}</p>
+                        {hasUnread && (
+                          <span className="ml-1 shrink-0 h-4 min-w-4 rounded-full bg-[#c2410c] text-white text-[10px] flex items-center justify-center px-1">
+                            {conv.unread_count}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </motion.button>
+                );
+              })}
+            </AnimatePresence>
           )}
         </div>
       </div>
