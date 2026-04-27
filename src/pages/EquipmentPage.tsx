@@ -1,29 +1,35 @@
 import { useState } from "react";
-import { Package, Plus } from "lucide-react";
+import { Package, Plus, Pencil } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { CrudDialog } from "@/components/shared/CrudDialog";
-import { useEquipmentModels } from "@/hooks/useEquipments";
-import { useCreateEquipmentModel } from "@/hooks/useEquipments";
+import { useEquipmentModels, useCreateEquipmentModel, useUpdateEquipmentModel } from "@/hooks/useEquipments";
 import { motion } from "framer-motion";
+
+const fields = [
+  {
+    name: "name",
+    label: "Nome do Aparelho",
+    type: "text" as const,
+    required: true,
+    placeholder: "Ex: Autoclave 21L",
+  },
+];
 
 const EquipmentPage = () => {
   const { data: models, isLoading } = useEquipmentModels();
   const createModel = useCreateEquipmentModel();
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const updateModel = useUpdateEquipmentModel();
 
-  const fields = [
-    {
-      name: "name",
-      label: "Nome do Aparelho",
-      type: "text" as const,
-      required: true,
-      placeholder: "Ex: Autoclave 21L",
-    },
-  ];
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editingModel, setEditingModel] = useState<{ id: string; name: string } | null>(null);
 
   const handleCreate = async (values: Record<string, any>) => {
     await createModel.mutateAsync({ name: values.name });
+  };
+
+  const handleEdit = async (values: Record<string, any>) => {
+    await updateModel.mutateAsync({ id: editingModel!.id, name: values.name });
   };
 
   return (
@@ -32,7 +38,7 @@ const EquipmentPage = () => {
         title="Equipamentos"
         description="Cadastro e histórico técnico dos equipamentos"
         icon={Package}
-        action={<Button size="sm" className="gap-1.5" onClick={() => setDialogOpen(true)}><Plus className="h-3.5 w-3.5" /> Novo Equipamento</Button>}
+        action={<Button size="sm" className="gap-1.5" onClick={() => setCreateOpen(true)}><Plus className="h-3.5 w-3.5" /> Novo Equipamento</Button>}
       />
 
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="bg-card rounded-xl border shadow-card overflow-hidden">
@@ -45,8 +51,8 @@ const EquipmentPage = () => {
             <table className="w-full">
               <thead>
                 <tr className="border-b bg-muted/50">
-                  {["Nome do Aparelho", "Categoria", "Status"].map((h) => (
-                    <th key={h} className="text-left text-[11px] uppercase tracking-wider text-muted-foreground font-medium px-4 py-3">{h}</th>
+                  {["Nome do Aparelho", "Categoria", "Status", ""].map((h, i) => (
+                    <th key={i} className="text-left text-[11px] uppercase tracking-wider text-muted-foreground font-medium px-4 py-3">{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -56,6 +62,17 @@ const EquipmentPage = () => {
                     <td className="px-4 py-3 text-sm font-medium">{m.name}</td>
                     <td className="px-4 py-3 text-sm text-muted-foreground">{m.category || "—"}</td>
                     <td className="px-4 py-3 text-sm text-muted-foreground">{m.status || "ativo"}</td>
+                    <td className="px-4 py-3 text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0"
+                        title="Editar nome"
+                        onClick={() => setEditingModel({ id: m.id, name: m.name })}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -64,7 +81,22 @@ const EquipmentPage = () => {
         )}
       </motion.div>
 
-      <CrudDialog open={dialogOpen} onOpenChange={setDialogOpen} title="Novo Equipamento" fields={fields} onSubmit={handleCreate} />
+      <CrudDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        title="Novo Equipamento"
+        fields={fields}
+        onSubmit={handleCreate}
+      />
+
+      <CrudDialog
+        open={!!editingModel}
+        onOpenChange={(open) => { if (!open) setEditingModel(null); }}
+        title="Editar Equipamento"
+        fields={fields}
+        initialValues={editingModel ? { name: editingModel.name } : undefined}
+        onSubmit={handleEdit}
+      />
     </div>
   );
 };

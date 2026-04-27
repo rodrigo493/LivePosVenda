@@ -67,6 +67,18 @@ export function useCreateEquipmentModel() {
   });
 }
 
+export function useUpdateEquipmentModel() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, name }: { id: string; name: string }) => {
+      const { data, error } = await supabase.from("equipment_models").update({ name }).eq("id", id).select().single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["equipment_models"] }),
+  });
+}
+
 export function useUpdateEquipment() {
   const qc = useQueryClient();
   return useMutation({
