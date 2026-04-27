@@ -60,10 +60,9 @@ export function useMarkConversationRead() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (clientId: string) => {
-      const { error } = await supabase
-        .from("clients")
-        .update({ whatsapp_last_read_at: new Date().toISOString() } as any)
-        .eq("id", clientId);
+      const { error } = await (supabase as any).rpc("mark_client_whatsapp_read", {
+        p_client_id: clientId,
+      });
       if (error) throw error;
     },
     onSuccess: () => {

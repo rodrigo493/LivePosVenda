@@ -87,9 +87,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (!selectedChat?.client_id) return;
-    const id = selectedChat.client_id;
-    const timer = setTimeout(() => markRead.mutate(id), 2500);
-    return () => clearTimeout(timer);
+    markRead.mutate(selectedChat.client_id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedChat?.client_id]);
 
