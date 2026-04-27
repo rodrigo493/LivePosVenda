@@ -15,6 +15,7 @@ export function useWhatsAppConversations() {
     queryKey: ["whatsapp-conversations"],
     staleTime: 0,
     refetchOnMount: "always",
+    refetchInterval: 15_000,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("whatsapp_messages")
