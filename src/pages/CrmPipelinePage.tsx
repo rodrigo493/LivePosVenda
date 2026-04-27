@@ -9,6 +9,7 @@ import {
   Search,
   FileSpreadsheet,
   MessageSquare,
+  Pencil,
 } from "lucide-react";
 import {
   DndContext,
@@ -43,9 +44,13 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePipelineTickets, useMovePipelineStage } from "@/hooks/usePipeline";
 import { usePipelines, type Pipeline } from "@/hooks/usePipelines";
-import { usePipelineStages } from "@/hooks/usePipelineStages";
+import { usePipelineStages, type PipelineStageDB } from "@/hooks/usePipelineStages";
 import { FunnelSwitcher } from "@/components/crm/FunnelSwitcher";
 import { FunnelManagerDropdown } from "@/components/crm/FunnelManagerDropdown";
+import { PipelineEditMode } from "@/components/crm/PipelineEditMode";
+import { usePipelineAutomations, type AutomationActionType } from "@/hooks/useStageAutomations";
+import { useUpdatePipeline } from "@/hooks/useManagePipelines";
+import { useCreateStage, useUpdateStage, useDeleteStage, useReorderStages } from "@/hooks/useManageStages";
 import { useWhatsAppConversations } from "@/hooks/useWhatsAppConversations";
 import { useAuth } from "@/hooks/useAuth";
 import { useCreateTask } from "@/hooks/useTasks";
@@ -135,6 +140,24 @@ const CrmPipelinePage = () => {
   const [excelImportOpen, setExcelImportOpen] = useState(false);
   const [detailTicket, setDetailTicket] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState("");
+
+  // ── Edit mode ──────────────────────────────────────────────────
+  interface LocalAutomation {
+    id: string;
+    trigger_type: string;
+    action_type: AutomationActionType;
+    action_config: Record<string, unknown>;
+    is_active: boolean;
+  }
+  const [isEditing, setIsEditing] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editStages, setEditStages] = useState<PipelineStageDB[]>([]);
+  const [editAutomations, setEditAutomations] = useState<Record<string, LocalAutomation[]>>({});
+  const [saveEditPending, setSaveEditPending] = useState(false);
+  const { data: pipelineAutomations = [] } = usePipelineAutomations(currentPipeline?.id);
+  const updatePipeline = useUpdatePipeline();
+  const createStageHook = useCreateStage();
+  const deleteStageHook = useDeleteStage();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [isGrabbing, setIsGrabbing] = useState(false);
   const grabState = useRef({ isDown: false, startX: 0, scrollLeft: 0 });
@@ -354,6 +377,124 @@ const CrmPipelinePage = () => {
     });
   }, [grouped, moveStage, stageKeySet, currentPipeline]);
 
+  const cardCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    stages.forEach((s) => { counts[s.key] = (columns[s.key] || []).length; });
+    return counts;
+  }, [stages, columns]);
+
+  // ── Edit mode handlers ─────────────────────────────────────────
+  function enterEditMode() {
+    if (!currentPipeline) return;
+    setEditName(currentPipeline.name);
+    setEditStages([...stages]);
+    const autoMap: Record<string, LocalAutomation[]> = {};
+    stages.forEach((s) => { autoMap[s.id] = []; });
+    pipelineAutomations.forEach((a) => {
+      if (!autoMap[a.stage_id]) autoMap[a.stage_id] = [];
+      autoMap[a.stage_id].push({
+        id: a.id,
+        trigger_type: a.trigger_type,
+        action_type: a.action_type,
+        action_config: a.action_config as Record<string, unknown>,
+        is_active: a.is_active,
+      });
+    });
+    setEditAutomations(autoMap);
+    setIsEditing(true);
+  }
+
+  function handleAddEditStage() {
+    const tempId = `temp-${Date.now()}`;
+    const newStage: PipelineStageDB = {
+      id: tempId,
+      pipeline_id: currentPipeline?.id ?? "",
+      key: "",
+      label: "Nova etapa",
+      color: "hsl(210 80% 55%)",
+      delay_days: 3,
+      position: editStages.length,
+    };
+    setEditStages((prev) => [...prev, newStage]);
+    setEditAutomations((prev) => ({ ...prev, [tempId]: [] }));
+  }
+
+  async function handleDeleteEditStage(stageId: string) {
+    if (stageId.startsWith("temp-")) {
+      setEditStages((prev) => prev.filter((s) => s.id !== stageId));
+      setEditAutomations((prev) => { const n = { ...prev }; delete n[stageId]; return n; });
+      return;
+    }
+    if (!currentPipeline) return;
+    try {
+      await deleteStageHook.mutateAsync({ id: stageId, pipelineId: currentPipeline.id });
+      setEditStages((prev) => prev.filter((s) => s.id !== stageId));
+      setEditAutomations((prev) => { const n = { ...prev }; delete n[stageId]; return n; });
+    } catch { /* toast already shown by hook */ }
+  }
+
+  async function handleSaveEdit() {
+    if (!currentPipeline || !editName.trim()) return;
+    setSaveEditPending(true);
+    try {
+      // 1. Pipeline name
+      if (editName.trim() !== currentPipeline.name) {
+        const { error } = await (supabase as any).from("pipelines").update({ name: editName.trim() }).eq("id", currentPipeline.id);
+        if (error) throw error;
+        setCurrentPipeline({ ...currentPipeline, name: editName.trim() });
+      }
+
+      // 2. Update + reorder existing stages
+      const existing = editStages.filter((s) => !s.id.startsWith("temp-"));
+      const newStages = editStages.filter((s) => s.id.startsWith("temp-"));
+      await Promise.all(
+        existing.map((s, i) =>
+          (supabase as any).from("pipeline_stages").update({
+            label: s.label, color: s.color, delay_days: s.delay_days, position: i,
+          }).eq("id", s.id)
+        )
+      );
+
+      // 3. Create new stages
+      const idMap: Record<string, string> = {};
+      for (let i = 0; i < newStages.length; i++) {
+        const s = newStages[i];
+        const key = s.label.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") + "_" + Date.now().toString(36);
+        const { data, error } = await (supabase as any)
+          .from("pipeline_stages")
+          .insert({ pipeline_id: currentPipeline.id, key, label: s.label, color: s.color, delay_days: s.delay_days, position: existing.length + i })
+          .select("id").single();
+        if (error) throw error;
+        idMap[s.id] = data.id;
+      }
+
+      // 4. Save automations
+      for (const [stageId, autos] of Object.entries(editAutomations)) {
+        const realId = idMap[stageId] ?? stageId;
+        await (supabase as any).from("pipeline_stage_automations").delete().eq("stage_id", realId);
+        if (autos.length > 0) {
+          const { error } = await (supabase as any).from("pipeline_stage_automations").insert(
+            autos.map((a, pos) => ({
+              stage_id: realId, trigger_type: a.trigger_type, action_type: a.action_type,
+              action_config: a.action_config, position: pos, is_active: a.is_active,
+            }))
+          );
+          if (error) throw error;
+        }
+      }
+
+      qc.invalidateQueries({ queryKey: ["pipeline-stages", currentPipeline.id] });
+      qc.invalidateQueries({ queryKey: ["pipeline-automations", currentPipeline.id] });
+      qc.invalidateQueries({ queryKey: ["pipelines"] });
+      toast.success("Funil salvo com sucesso");
+      setIsEditing(false);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Erro ao salvar funil");
+    } finally {
+      setSaveEditPending(false);
+    }
+  }
+
   const handleQuickTask = (ticketId: string, clientId: string) => {
     setTaskDialog({ open: true, ticketId, clientId });
   };
@@ -404,13 +545,25 @@ const CrmPipelinePage = () => {
 
       <div className="flex items-center gap-2 mb-3">
         <span className="font-semibold text-sm">{currentPipeline?.name ?? "Pipeline CRM"}</span>
-        <FunnelSwitcher
-          currentPipelineId={currentPipeline?.id ?? null}
-          onSelect={setCurrentPipeline}
-        />
-        {isAdmin && (
+        {!isEditing && (
+          <FunnelSwitcher
+            currentPipelineId={currentPipeline?.id ?? null}
+            onSelect={setCurrentPipeline}
+          />
+        )}
+        {isAdmin && !isEditing && (
           <>
             <div className="w-px h-5 bg-border mx-1" />
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5"
+              onClick={enterEditMode}
+              disabled={!currentPipeline}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              Editar funil
+            </Button>
             <FunnelManagerDropdown
               currentPipeline={currentPipeline}
               onPipelineCreated={setCurrentPipeline}
@@ -419,6 +572,23 @@ const CrmPipelinePage = () => {
         )}
       </div>
 
+      {isEditing && currentPipeline ? (
+        <PipelineEditMode
+          pipeline={{ ...currentPipeline, name: editName }}
+          stages={editStages}
+          automations={editAutomations}
+          cardCounts={cardCounts}
+          onNameChange={setEditName}
+          onStagesChange={setEditStages}
+          onAutomationsChange={setEditAutomations}
+          onAddStage={handleAddEditStage}
+          onDeleteStage={handleDeleteEditStage}
+          onSave={handleSaveEdit}
+          onCancel={() => setIsEditing(false)}
+          isSaving={saveEditPending}
+        />
+      ) : (
+        <>
       <div className="relative mb-4 max-w-sm">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <input
@@ -487,6 +657,8 @@ const CrmPipelinePage = () => {
             ) : null}
           </DragOverlay>
         </DndContext>
+      )}
+        </>
       )}
 
       <CrudDialog
@@ -743,9 +915,20 @@ const QUOTE_STATUS_OPTIONS = [
   { value: "reprovado", label: "Reprovado" },
 ];
 
+function getLastOrderTag(quotes: any[]): "ORÇ" | "PA" | "PG" | null {
+  if (!quotes || quotes.length === 0) return null;
+  const last = [...quotes].sort(
+    (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+  )[0];
+  if (last.warranty_claim_id) return "PG";
+  if (last.service_request_id) return "PA";
+  return "ORÇ";
+}
+
 function PipelineCard({ ticket, onQuickTask, onClick }: { ticket: any; onQuickTask: () => void; onClick: () => void }) {
   const typeInfo = TICKET_TYPE_LABELS[ticket.ticket_type] || { label: ticket.ticket_type, color: "bg-muted text-muted-foreground" };
   const unreadWpp = ticket._unreadWhatsapp || 0;
+  const lastOrderTag = getLastOrderTag(ticket.quotes || []);
 
   return (
     <div
@@ -766,7 +949,14 @@ function PipelineCard({ ticket, onQuickTask, onClick }: { ticket: any; onQuickTa
       )}
       <div className="p-3">
         <div className="flex items-center justify-between mb-1.5">
-          <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded ${typeInfo.color}`}>{typeInfo.label}</span>
+          <div className="flex items-center gap-1">
+            <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded ${typeInfo.color}`}>{typeInfo.label}</span>
+            {lastOrderTag && (
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 border border-blue-200">
+                {lastOrderTag}
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-1">
             {unreadWpp > 0 && (
               <span className="flex items-center gap-0.5 bg-[#c2410c] text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">
