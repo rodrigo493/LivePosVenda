@@ -774,6 +774,7 @@ const CrmPipelinePage = () => {
             ticket_type: "chamado_tecnico",
             title: title || `Atendimento - ${clientData.name}`,
             ticket_number: "",
+            pipeline_id: currentPipeline?.id,
             pipeline_stage: pipeline_stage || "sem_atendimento",
             created_by: user?.id,
           } as any);

@@ -38,7 +38,21 @@ export function useCreateTicket() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (ticket: TicketInsert) => {
-      const { data, error } = await supabase.from("tickets").insert(ticket).select().single();
+      let pipeline_id = (ticket as any).pipeline_id;
+      if (!pipeline_id) {
+        const { data: pipelines } = await supabase
+          .from("pipelines")
+          .select("id")
+          .eq("is_active", true)
+          .order("position")
+          .limit(1);
+        pipeline_id = pipelines?.[0]?.id ?? null;
+      }
+      const { data, error } = await supabase
+        .from("tickets")
+        .insert({ ...ticket, pipeline_id })
+        .select()
+        .single();
       if (error) throw error;
       return data;
     },
