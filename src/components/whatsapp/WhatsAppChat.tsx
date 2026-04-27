@@ -613,7 +613,7 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
       )}
 
       {/* Input area */}
-      <div className="border-t pt-3 mt-2 pr-20">
+      <div className="border-t pt-3 mt-2 pr-24">
         {isRecording ? (
           /* Recording UI — waveform + timer + cancel/send */
           <div className="flex items-center gap-2">
