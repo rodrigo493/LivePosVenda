@@ -166,3 +166,61 @@
     @apply bg-card/80 backdrop-blur-xl;
   }
 }
+
+/* ─── Dashboard edit mode ─────────────────────────────── */
+
+.rgl-edit-item > .ring-transparent,
+.rgl-edit-item > .ring-primary,
+.rgl-edit-item > .ring-destructive {
+  outline: 2px dashed hsl(var(--primary) / 0.6);
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
+
+.drag-handle {
+  display: none;
+  position: absolute;
+  inset-x: 0;
+  top: 0;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+  letter-spacing: 4px;
+  cursor: grab;
+  user-select: none;
+}
+
+.rgl-edit-item .drag-handle {
+  display: flex;
+}
+
+.rgl-edit-item:active .drag-handle {
+  cursor: grabbing;
+}
+
+.rgl-edit-item .kpi-click-layer {
+  pointer-events: none;
+}
+
+.react-grid-item > .react-resizable-handle {
+  display: none;
+}
+
+.rgl-edit-item.react-grid-item > .react-resizable-handle {
+  display: block;
+}
+
+.react-resizable-handle::after {
+  border-right-color: hsl(var(--primary)) !important;
+  border-bottom-color: hsl(var(--primary)) !important;
+  width: 8px !important;
+  height: 8px !important;
+}
+
+.react-grid-item.react-draggable-dragging {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+}
