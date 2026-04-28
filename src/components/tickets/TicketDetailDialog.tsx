@@ -2222,6 +2222,83 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
             </ScrollArea>
           </div>
         </Tabs>
+
+        {/* ── Confirm Delete Card ── */}
+        {confirmDelete && (
+          <div className="absolute inset-0 bg-black/40 z-10 flex items-center justify-center rounded-lg">
+            <div className="bg-card rounded-xl border shadow-xl p-6 max-w-sm w-full mx-4">
+              <h3 className="font-semibold text-base mb-1">Deletar card</h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                Tem certeza? Esta ação não pode ser desfeita facilmente.
+              </p>
+              <div className="flex gap-2 justify-end">
+                <Button variant="outline" size="sm" onClick={() => setConfirmDelete(false)}>
+                  Cancelar
+                </Button>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  disabled={softDelete.isPending}
+                  onClick={async () => {
+                    try {
+                      await softDelete.mutateAsync(ticket.id);
+                      toast.success("Card deletado.");
+                      setConfirmDelete(false);
+                      onOpenChange(false);
+                    } catch {
+                      toast.error("Erro ao deletar card. Tente novamente.");
+                      setConfirmDelete(false);
+                    }
+                  }}
+                >
+                  {softDelete.isPending ? "Deletando..." : "Deletar"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Unpause Dialog ── */}
+        {unpauseOpen && (
+          <div className="absolute inset-0 bg-black/40 z-10 flex items-center justify-center rounded-lg">
+            <div className="bg-card rounded-xl border shadow-xl p-6 max-w-sm w-full mx-4">
+              <h3 className="font-semibold text-base mb-1">Despausar card</h3>
+              <p className="text-sm text-muted-foreground mb-3">
+                Selecione a etapa onde o card deve retornar:
+              </p>
+              <select
+                className="w-full text-sm border rounded px-2 py-1.5 bg-background mb-4"
+                value={unpauseStage}
+                onChange={(e) => setUnpauseStage(e.target.value)}
+              >
+                {(pipelineStages || []).map((s: any) => (
+                  <option key={s.key} value={s.key}>{s.label}</option>
+                ))}
+              </select>
+              <div className="flex gap-2 justify-end">
+                <Button variant="outline" size="sm" onClick={() => setUnpauseOpen(false)}>
+                  Cancelar
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={!unpauseStage}
+                  onClick={async () => {
+                    try {
+                      await updateTicket.mutateAsync({ id: ticket.id, is_paused: false, pipeline_stage: unpauseStage } as any);
+                      toast.success("Card despausado.");
+                      setUnpauseOpen(false);
+                      onOpenChange(false);
+                    } catch {
+                      toast.error("Erro ao despausar card.");
+                    }
+                  }}
+                >
+                  Despausar
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </DialogContent>
 
       <CrudDialog
@@ -2300,82 +2377,6 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
       </DialogContent>
     </Dialog>
 
-    {/* ── Confirm Delete Card ── */}
-    {confirmDelete && (
-      <div className="fixed inset-0 bg-black/40 z-[200] flex items-center justify-center">
-        <div className="bg-card rounded-xl border shadow-xl p-6 max-w-sm w-full mx-4">
-          <h3 className="font-semibold text-base mb-1">Deletar card</h3>
-          <p className="text-sm text-muted-foreground mb-4">
-            Tem certeza? Esta ação não pode ser desfeita facilmente.
-          </p>
-          <div className="flex gap-2 justify-end">
-            <Button variant="outline" size="sm" onClick={() => setConfirmDelete(false)}>
-              Cancelar
-            </Button>
-            <Button
-              size="sm"
-              variant="destructive"
-              disabled={softDelete.isPending}
-              onClick={async () => {
-                try {
-                  await softDelete.mutateAsync(ticket.id);
-                  toast.success("Card deletado.");
-                  setConfirmDelete(false);
-                  onOpenChange(false);
-                } catch {
-                  toast.error("Erro ao deletar card. Tente novamente.");
-                  setConfirmDelete(false);
-                }
-              }}
-            >
-              {softDelete.isPending ? "Deletando..." : "Deletar"}
-            </Button>
-          </div>
-        </div>
-      </div>
-    )}
-
-    {/* ── Unpause Dialog ── */}
-    {unpauseOpen && (
-      <div className="fixed inset-0 bg-black/40 z-[200] flex items-center justify-center">
-        <div className="bg-card rounded-xl border shadow-xl p-6 max-w-sm w-full mx-4">
-          <h3 className="font-semibold text-base mb-1">Despausar card</h3>
-          <p className="text-sm text-muted-foreground mb-3">
-            Selecione a etapa onde o card deve retornar:
-          </p>
-          <select
-            className="w-full text-sm border rounded px-2 py-1.5 bg-background mb-4"
-            value={unpauseStage}
-            onChange={(e) => setUnpauseStage(e.target.value)}
-          >
-            {(pipelineStages || []).map((s: any) => (
-              <option key={s.key} value={s.key}>{s.label}</option>
-            ))}
-          </select>
-          <div className="flex gap-2 justify-end">
-            <Button variant="outline" size="sm" onClick={() => setUnpauseOpen(false)}>
-              Cancelar
-            </Button>
-            <Button
-              size="sm"
-              disabled={!unpauseStage}
-              onClick={async () => {
-                try {
-                  await updateTicket.mutateAsync({ id: ticket.id, is_paused: false, pipeline_stage: unpauseStage } as any);
-                  toast.success("Card despausado.");
-                  setUnpauseOpen(false);
-                  onOpenChange(false);
-                } catch {
-                  toast.error("Erro ao despausar card.");
-                }
-              }}
-            >
-              Despausar
-            </Button>
-          </div>
-        </div>
-      </div>
-    )}
     </>
   );
 }
