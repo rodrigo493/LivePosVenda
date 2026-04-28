@@ -23,6 +23,7 @@ import {
   Lock,
   Shield,
   CalendarCheck,
+  ShoppingBag,
 } from "lucide-react";
 import { NavLink } from "@/components/layout/NavLink";
 import posvendaLogo from "@/assets/posvenda.png";
@@ -66,8 +67,9 @@ const operationsNav = [
 ];
 
 const managementNav = [
-  { title: "Produtos e Peças",   url: "/produtos",           icon: Box,             moduleKey: "produtos_pecas" },
-  { title: "Serviços",           url: "/servicos",           icon: Wrench,          moduleKey: "servicos" },
+  { title: "Produtos e Peças",        url: "/produtos",              icon: Box,          moduleKey: "produtos_pecas" },
+  { title: "Produtos p/ Negociação",  url: "/produtos-negociacao",   icon: ShoppingBag,  moduleKey: "produtos_pecas" },
+  { title: "Serviços",                url: "/servicos",              icon: Wrench,       moduleKey: "servicos" },
   { title: "Técnicos",           url: "/tecnicos",           icon: HardHat,         moduleKey: "tecnicos" },
   { title: "Importar Histórico", url: "/importar-historico", icon: FileSpreadsheet, moduleKey: "importar_historico" },
   { title: "Relatórios",         url: "/relatorios",         icon: BarChart3,       moduleKey: "relatorios" },
