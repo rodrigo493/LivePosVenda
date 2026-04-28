@@ -61,3 +61,25 @@ export function useUpdateClient() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["clients"] }),
   });
 }
+
+export function useDeleteClient() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (clientId: string) => {
+      // Verifica se há tickets ativos (sem deleted_at)
+      const { data: activeTickets, error: checkErr } = await (supabase as any)
+        .from("tickets")
+        .select("id")
+        .eq("client_id", clientId)
+        .is("deleted_at", null)
+        .limit(1);
+      if (checkErr) throw checkErr;
+      if (activeTickets && activeTickets.length > 0) {
+        throw new Error(`ACTIVE_TICKETS:${activeTickets.length}`);
+      }
+      const { error } = await supabase.from("clients").delete().eq("id", clientId);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["clients"] }),
+  });
+}

@@ -9,6 +9,7 @@ export function useTickets(type?: TicketType) {
       let q = supabase
         .from("tickets")
         .select("*, clients(name), equipments(serial_number, equipment_models(name))")
+        .is("deleted_at", null)
         .order("created_at", { ascending: false });
       if (type) q = q.eq("ticket_type", type);
       const { data, error } = await q;
@@ -70,6 +71,23 @@ export function useUpdateTicket() {
       const { data, error } = await supabase.from("tickets").update(updates).eq("id", id).select().single();
       if (error) throw error;
       return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tickets"] });
+      qc.invalidateQueries({ queryKey: ["pipeline-tickets"] });
+    },
+  });
+}
+
+export function useSoftDeleteTicket() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (ticketId: string) => {
+      const { error } = await supabase
+        .from("tickets")
+        .update({ deleted_at: new Date().toISOString() } as any)
+        .eq("id", ticketId);
+      if (error) throw error;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["tickets"] });
