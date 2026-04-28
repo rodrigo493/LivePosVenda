@@ -18,17 +18,8 @@ interface ProductSearchProps {
 
 type StockEntry = { loading: boolean; qty: number | null };
 
-// Fila global: serializa todos os requests Nomus com 250ms entre eles
-const _nomusIdMap: Map<string, number> = new Map();
-let _nomusMapLoaded = false;
-let _nomusMapPromise: Promise<void> | null = null;
+// Fila global: serializa requests Nomus com 300ms entre eles para evitar 429
 let _nomusQueue: Promise<void> = Promise.resolve();
-
-const _addToMap = (list: any[]) => {
-  list.forEach((p: any) => {
-    if (p.codigo && p.id) _nomusIdMap.set(String(p.codigo).trim(), Number(p.id));
-  });
-};
 
 const _nomusGet = (url: string): Promise<Response> => {
   let resolve!: (r: Response) => void;
@@ -39,38 +30,10 @@ const _nomusGet = (url: string): Promise<Response> => {
       setTimeout(async () => {
         try { resolve(await fetch(url, { headers: { Accept: "application/json" } })); } catch (e) { reject(e); }
         done();
-      }, 250)
+      }, 300)
     )
   );
   return promise;
-};
-
-const ensureNomusMap = (): Promise<void> => {
-  if (_nomusMapLoaded) return Promise.resolve();
-  if (_nomusMapPromise) return _nomusMapPromise;
-  _nomusMapPromise = (async () => {
-    try {
-      const r1 = await _nomusGet("/api/nomus/rest/produtos");
-      if (!r1.ok) { _nomusMapLoaded = true; return; }
-      const list1 = await r1.json();
-      if (!Array.isArray(list1) || list1.length === 0) { _nomusMapLoaded = true; return; }
-      _addToMap(list1);
-      if (list1.length < 50) { _nomusMapLoaded = true; return; }
-
-      for (let page = 2; page <= 200; page++) {
-        try {
-          const r = await _nomusGet(`/api/nomus/rest/produtos?pagina=${page}`);
-          if (!r.ok) break;
-          const list = await r.json();
-          if (!Array.isArray(list) || list.length === 0) break;
-          _addToMap(list);
-          if (list.length < 50) break;
-        } catch { break; }
-      }
-    } catch { /* silently fail */ }
-    _nomusMapLoaded = true;
-  })();
-  return _nomusMapPromise;
 };
 
 const defaultItemTypes = [
@@ -160,13 +123,10 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
       fetchedRef.current.add(code);
       setStockMap(prev => ({ ...prev, [code]: { loading: true, qty: null } }));
       try {
-        await ensureNomusMap();
-        const nomusId = _nomusIdMap.get(code);
-        if (!nomusId) throw new Error("not found");
-        const r = await _nomusGet(`/api/nomus/rest/saldosEstoqueProduto/${nomusId}`);
+        const encoded = encodeURIComponent(code);
+        const r = await _nomusGet(`/api/nomus/rest/saldosEstoqueProduto?query=produto.codigo==${encoded}`);
         if (!r.ok) throw new Error();
         const stockData = await r.json();
-        // Soma saldo de TODAS as empresas/setores (= Saldo total disponível do Nomus)
         const total = Array.isArray(stockData)
           ? stockData.reduce((sum: number, s: any) => {
               const v = parseFloat((s.saldoTotal || "0").replace(",", "."));
