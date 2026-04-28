@@ -152,7 +152,7 @@ const PGDetailPage = () => {
     if (nomusSearchTimer.current) clearTimeout(nomusSearchTimer.current);
     nomusSearchTimer.current = setTimeout(async () => {
       setNomusClientLoading(true);
-      const enc = encodeURIComponent(query.trim());
+      const enc = encodeURIComponent(query.trim().toUpperCase());
       // Busca sequencial: nome primeiro (rápido), depois razaoSocial e nomeFantasia
       const seen = new Set<number>();
       const results: { id: number; nome: string }[] = [];
@@ -181,8 +181,9 @@ const PGDetailPage = () => {
   const resolveNomusClientId = async (name: string): Promise<number | null> => {
     const q = name.trim();
     if (!q) return null;
-    const words = q.split(/\s+/);
-    const terms = [q, ...(words.length > 2 ? [words.slice(0, 2).join(" ")] : []), words[0]];
+    const words = q.toUpperCase().split(/\s+/);
+    const uq = q.toUpperCase();
+    const terms = [uq, ...(words.length > 2 ? [words.slice(0, 2).join(" ")] : []), words[0]];
     for (const term of terms) {
       const enc = encodeURIComponent(term);
       for (const field of ["nome", "razaoSocial", "nomeFantasia"]) {
