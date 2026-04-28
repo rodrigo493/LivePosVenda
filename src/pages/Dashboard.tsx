@@ -531,9 +531,10 @@ function DashboardContent() {
 // ─── Dashboard (guard de acesso) ─────────────────────────────────────────────
 
 const Dashboard = () => {
-  const { rolesLoading, hasRole } = useAuth();
+  const { roles, rolesLoading, hasRole } = useAuth();
 
-  if (rolesLoading) {
+  // Aguarda roles carregarem (loading state ou array ainda vazio)
+  if (rolesLoading || roles.length === 0) {
     return (
       <div className="flex items-center justify-center py-20">
         <div className="h-8 w-8 rounded-lg bg-primary/20 flex items-center justify-center animate-pulse">

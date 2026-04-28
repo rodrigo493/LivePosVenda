@@ -27,35 +27,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const fetchRoles = async () => {
     setRolesLoading(true);
-    const { data, error } = await supabase.rpc("get_my_roles");
-    if (!error && data) {
-      setRoles(data as AppRole[]);
+    try {
+      const { data, error } = await supabase.rpc("get_my_roles");
+      if (!error && data) setRoles(data as AppRole[]);
+    } finally {
+      setRolesLoading(false);
     }
-    setRolesLoading(false);
   };
 
   useEffect(() => {
+    // Usa apenas onAuthStateChange como fonte de verdade para evitar
+    // chamadas duplicadas de fetchRoles (getSession + onAuthStateChange)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        setTimeout(() => fetchRoles(), 0);
-      } else {
-        setRoles([]);
-      }
-      setLoading(false);
-      if (!session?.user) setRolesLoading(false);
-    });
-
-    supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
         fetchRoles();
       } else {
+        setRoles([]);
         setRolesLoading(false);
       }
       setLoading(false);
+    });
+
+    // Dispara a sessão inicial manualmente (onAuthStateChange pode não disparar INITIAL_SESSION em todos os ambientes)
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session?.user) {
+        setRolesLoading(false);
+        setLoading(false);
+      }
     });
 
     return () => subscription.unsubscribe();
