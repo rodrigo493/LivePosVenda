@@ -100,23 +100,31 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
   useEffect(() => {
     if (!showNomusStock || !filtered.length) return;
 
-    const resolveNomusId = async (code: string): Promise<number | null> => {
-      const variants = [code, code.toUpperCase()];
-      for (const v of variants) {
+    const resolveNomusId = async (code: string, name?: string): Promise<number | null> => {
+      const codeVariants = [code, code.toUpperCase(), code.replace(/\./g, ""), code.replace(/\./g, "-")];
+      for (const v of codeVariants) {
         const r = await fetch(`/api/nomus/rest/produtos?query=codigo==${encodeURIComponent(v)}`, { headers: { Accept: "application/json" } });
         if (!r.ok) continue;
         const prods = await r.json();
         if (Array.isArray(prods) && prods.length > 0) return prods[0].id as number;
       }
+      if (name) {
+        const firstWord = name.split(" ").slice(0, 3).join(" ");
+        const r = await fetch(`/api/nomus/rest/produtos?query=descricao=*${encodeURIComponent(firstWord.toUpperCase())}*`, { headers: { Accept: "application/json" } });
+        if (r.ok) {
+          const prods = await r.json();
+          if (Array.isArray(prods) && prods.length > 0) return prods[0].id as number;
+        }
+      }
       return null;
     };
 
-    const fetchStock = async (code: string) => {
+    const fetchStock = async (code: string, name?: string) => {
       if (!code || fetchedRef.current.has(code)) return;
       fetchedRef.current.add(code);
       setStockMap(prev => ({ ...prev, [code]: { loading: true, qty: null } }));
       try {
-        const nomusId = await resolveNomusId(code);
+        const nomusId = await resolveNomusId(code, name);
         if (nomusId === null) throw new Error("not found");
         const r2 = await fetch(`/api/nomus/rest/saldosEstoqueProduto/${nomusId}`, { headers: { Accept: "application/json" } });
         if (!r2.ok) throw new Error();
@@ -133,7 +141,7 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
       }
     };
 
-    filtered.forEach(p => fetchStock(p.code));
+    filtered.forEach(p => fetchStock(p.code, p.name));
   }, [filtered, showNomusStock]);
 
   const renderStock = (code: string) => {
@@ -141,9 +149,7 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
     if (!s || s.loading) {
       return <span className="text-[10px] text-muted-foreground animate-pulse whitespace-nowrap">estoque…</span>;
     }
-    if (s.qty === null) {
-      return <span className="text-[10px] text-muted-foreground">—</span>;
-    }
+    if (s.qty === null) return null;
     return (
       <span className={cn(
         "text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap",
