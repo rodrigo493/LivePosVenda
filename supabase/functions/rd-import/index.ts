@@ -102,13 +102,14 @@ async function importContacts(token: string): Promise<number> {
 async function importDeals(
   token: string,
   rdPipelineId: string,
+  pipelineName: string,
 ): Promise<{ dealIds: string[]; count: number }> {
   const dealIds: string[] = [];
 
   const { data: pipeline } = await admin
     .from("pipelines")
     .select("id")
-    .eq("name", "Funil de Vendas")
+    .eq("name", pipelineName)
     .limit(1)
     .single();
 
@@ -179,14 +180,17 @@ async function importDeals(
             ?.find((p) => p.whatsapp_url_web)?.phone ?? null;
           const { data: newClient } = await admin
             .from("clients")
-            .insert({
-              name: (contact.name as string) || "Contato RD Station",
-              email: email ?? null,
-              phone: phone ?? null,
-              whatsapp: whatsapp ?? null,
-              rd_contact_id: (contact.id as string) ?? null,
-              status: "ativo",
-            })
+            .upsert(
+              {
+                name: (contact.name as string) || "Contato RD Station",
+                email: email ?? null,
+                phone: phone ?? null,
+                whatsapp: whatsapp ?? null,
+                rd_contact_id: (contact.id as string) ?? null,
+                status: "ativo",
+              },
+              { onConflict: "rd_contact_id" },
+            )
             .select("id")
             .single();
           if (newClient) { clientId = newClient.id; break; }
@@ -345,7 +349,7 @@ Deno.serve(async (req) => {
     const totalContacts = await importContacts(token);
     console.log(`rd-import: ${totalContacts} contacts imported`);
 
-    const { dealIds, count: totalDeals } = await importDeals(token, rdPipelineId);
+    const { dealIds, count: totalDeals } = await importDeals(token, rdPipelineId, config.pipeline_name as string || "Funil de Vendas");
     console.log(`rd-import: ${totalDeals} deals imported`);
 
     let totalComments = 0;
