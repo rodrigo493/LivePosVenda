@@ -37,7 +37,7 @@ import { useMarkConversationRead } from "@/hooks/useWhatsAppConversations";
 import { TaskCreateDialog } from "@/components/tasks/TaskCreateDialog";
 import { toast } from "sonner";
 import { useMovePipelineStage } from "@/hooks/usePipeline";
-import { useSoftDeleteTicket } from "@/hooks/useTickets";
+import { useSoftDeleteTicket, useUpdateTicket } from "@/hooks/useTickets";
 import { usePipelineStages } from "@/hooks/usePipelineStages";
 import { usePipelines } from "@/hooks/usePipelines";
 import { useAllUsers } from "@/hooks/useUserAccess";
@@ -359,6 +359,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   const [unpauseOpen, setUnpauseOpen] = useState(false);
   const [unpauseStage, setUnpauseStage] = useState("");
   const softDelete = useSoftDeleteTicket();
+  const updateTicket = useUpdateTicket();
 
   const toggleSel = (set: Set<string>, setFn: (s: Set<string>) => void, id: string) => {
     const next = new Set(set);
@@ -399,7 +400,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   const { data: clientHistory } = useClientServiceHistory(enabledClientId);
   const { data: ticketEntregaveis } = useTicketEntregaveis(enabledId);
   const { data: ticketMemoria } = useTicketMemoria(enabledId);
-  const isAdmin = hasRole("admin" as any);
+  const isAdmin = hasRole("admin");
 
   const aprovarMemoria = useMutation({
     mutationFn: async (memoriaId: string) => {
@@ -506,7 +507,14 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   });
 
   // Reset tab when dialog opens
-  useEffect(() => { if (open) setActiveTab("info"); }, [open]);
+  useEffect(() => {
+    if (open) {
+      setActiveTab("info");
+      setConfirmDelete(false);
+      setUnpauseOpen(false);
+      setUnpauseStage("");
+    }
+  }, [open]);
 
   const markRead = useMarkConversationRead();
   useEffect(() => {
@@ -1063,28 +1071,33 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                       <DropdownMenuItem
                         className="cursor-pointer"
                         onSelect={async () => {
-                          const { data: stages } = await (supabase as any)
-                            .from("pipeline_stages")
-                            .select("key, position")
-                            .eq("pipeline_id", localPipelineId)
-                            .order("position", { ascending: true })
-                            .limit(1);
-                          const firstStage = stages?.[0]?.key ?? "sem_atendimento";
-                          await (supabase as any).from("tickets").insert({
-                            title: ticket.title,
-                            client_id: ticket.client_id,
-                            ticket_type: ticket.ticket_type,
-                            priority: ticket.priority,
-                            assigned_to: user?.id,
-                            pipeline_id: localPipelineId,
-                            pipeline_stage: firstStage,
-                            pipeline_position: 9999,
-                            status: "aberto",
-                            ticket_number: "",
-                          });
-                          qc.invalidateQueries({ queryKey: ["pipeline-tickets"] });
-                          toast.success("Card duplicado na 1ª etapa.");
-                          onOpenChange(false);
+                          try {
+                            const { data: stages } = await (supabase as any)
+                              .from("pipeline_stages")
+                              .select("key, position")
+                              .eq("pipeline_id", localPipelineId)
+                              .order("position", { ascending: true })
+                              .limit(1);
+                            const firstStage = stages?.[0]?.key ?? "sem_atendimento";
+                            const { error } = await (supabase as any).from("tickets").insert({
+                              title: ticket.title,
+                              client_id: ticket.client_id,
+                              ticket_type: ticket.ticket_type,
+                              priority: ticket.priority,
+                              assigned_to: user?.id,
+                              pipeline_id: localPipelineId,
+                              pipeline_stage: firstStage,
+                              pipeline_position: 9999,
+                              status: "aberto",
+                              ticket_number: "",
+                            });
+                            if (error) throw error;
+                            qc.invalidateQueries({ queryKey: ["pipeline-tickets"] });
+                            toast.success("Card duplicado na 1ª etapa.");
+                            onOpenChange(false);
+                          } catch {
+                            toast.error("Erro ao duplicar card.");
+                          }
                         }}
                       >
                         <Copy className="h-3.5 w-3.5 mr-2" />
@@ -1109,10 +1122,13 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                         <DropdownMenuItem
                           className="cursor-pointer"
                           onSelect={async () => {
-                            await (supabase as any).from("tickets").update({ is_paused: true }).eq("id", ticket.id);
-                            qc.invalidateQueries({ queryKey: ["pipeline-tickets"] });
-                            toast.success("Card pausado.");
-                            onOpenChange(false);
+                            try {
+                              await updateTicket.mutateAsync({ id: ticket.id, is_paused: true } as any);
+                              toast.success("Card pausado.");
+                              onOpenChange(false);
+                            } catch {
+                              toast.error("Erro ao pausar card.");
+                            }
                           }}
                         >
                           <PauseCircle className="h-3.5 w-3.5 mr-2" />
@@ -2337,15 +2353,16 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
             </Button>
             <Button
               size="sm"
+              disabled={!unpauseStage}
               onClick={async () => {
-                await (supabase as any)
-                  .from("tickets")
-                  .update({ is_paused: false, pipeline_stage: unpauseStage })
-                  .eq("id", ticket.id);
-                qc.invalidateQueries({ queryKey: ["pipeline-tickets"] });
-                toast.success("Card despausado.");
-                setUnpauseOpen(false);
-                onOpenChange(false);
+                try {
+                  await updateTicket.mutateAsync({ id: ticket.id, is_paused: false, pipeline_stage: unpauseStage } as any);
+                  toast.success("Card despausado.");
+                  setUnpauseOpen(false);
+                  onOpenChange(false);
+                } catch {
+                  toast.error("Erro ao despausar card.");
+                }
               }}
             >
               Despausar
