@@ -10,7 +10,7 @@ import { useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, AlertTriangle, CheckCircle, Clock, ListTodo, Package,
   PhoneCall, TrendingUp, Receipt, Wrench, Shield, ClipboardList, Ticket,
-  X, DollarSign, Edit2, Save, RotateCcw,
+  X, DollarSign, Edit2, Save, RotateCcw, CalendarClock, ListChecks, PhoneOff,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { KpiCard } from "@/components/dashboard/KpiCard";
@@ -127,6 +127,7 @@ type DrillDownKey =
   | "active" | "concluded" | "delayed" | "noContact" | "awaitingParts"
   | "pendingQuotes" | "openWOs" | "completedWOs" | "pendingWarranties" | "openSR"
   | "warrantyCost"
+  | "dp-delayed" | "dp-overdue-tasks" | "dp-today-tasks" | "dp-no-contact" | "dp-stale"
   | null;
 
 const DRILL_LABELS: Record<string, string> = {
@@ -141,6 +142,11 @@ const DRILL_LABELS: Record<string, string> = {
   pendingWarranties: "Garantias em análise",
   openSR: "Assistências abertas",
   warrantyCost: "Custo de Garantias — detalhamento por OS",
+  "dp-delayed": "Clientes atrasados",
+  "dp-overdue-tasks": "Tarefas vencidas",
+  "dp-today-tasks": "Tarefas para hoje",
+  "dp-no-contact": "Sem primeiro contato",
+  "dp-stale": "Sem interação >2 dias",
 };
 
 const MyDashboardPage = () => {
@@ -237,8 +243,10 @@ const MyDashboardPage = () => {
     const allSR = serviceRequests || [];
     const openSR = allSR.filter((sr: any) => sr.status === "aberto" || sr.status === "em_andamento");
 
+    const stale = delayed.filter((t: any) => t.pipeline_stage !== "sem_atendimento");
+
     return {
-      all, delayed, concluded, active, awaitingParts, noContact,
+      all, delayed, concluded, active, awaitingParts, noContact, stale,
       pendingTasks, todayTasks, overdueTasks, avgDays,
       allQuotes, pendingQuotes, approvedQuotes, totalQuoteValue,
       allWOs, openWOs, completedWOs,
@@ -347,6 +355,40 @@ const MyDashboardPage = () => {
         .sort((a: any, b: any) => b._cost - a._cost);
     }
 
+    if (drillDown === "dp-delayed") {
+      return stats.delayed.map((t: any) => ({
+        id: t.id, ticketId: t.id, clientName: t.clients?.name || "—",
+        title: t.title, subtitle: `${t.ticket_number} · ${t.pipeline_stage}`,
+        status: t.status, extra: `${daysSince(t.last_interaction_at)}d sem interação`,
+      }));
+    }
+    if (drillDown === "dp-overdue-tasks") {
+      return stats.overdueTasks.map((t: any) => ({
+        id: t.id, ticketId: t.ticket_id, clientName: t.clients?.name || "—",
+        title: t.title, subtitle: `Vence: ${t.due_date}`, status: t.status,
+      }));
+    }
+    if (drillDown === "dp-today-tasks") {
+      return stats.todayTasks.map((t: any) => ({
+        id: t.id, ticketId: t.ticket_id, clientName: t.clients?.name || "—",
+        title: t.title, subtitle: `Hoje: ${t.due_date}`, status: t.status,
+      }));
+    }
+    if (drillDown === "dp-no-contact") {
+      return stats.noContact.map((t: any) => ({
+        id: t.id, ticketId: t.id, clientName: t.clients?.name || "—",
+        title: t.title, subtitle: `${t.ticket_number} · ${t.pipeline_stage}`,
+        status: t.status,
+      }));
+    }
+    if (drillDown === "dp-stale") {
+      return stats.stale.map((t: any) => ({
+        id: t.id, ticketId: t.id, clientName: t.clients?.name || "—",
+        title: t.title, subtitle: `${t.ticket_number} · ${t.pipeline_stage}`,
+        status: t.status, extra: `${daysSince(t.last_interaction_at)}d sem interação`,
+      }));
+    }
+
     return [];
   }, [drillDown, stats, warrantyCostOrders]);
 
@@ -354,7 +396,7 @@ const MyDashboardPage = () => {
     <div>
       <PageHeader title="Meu Painel" description="Visão operacional completa do sistema" icon={LayoutDashboard} />
 
-      <DailyPriorities tickets={stats.all} tasks={tasks || []} today={today} userName={userName} />
+      <DailyPriorities tickets={stats.all} tasks={tasks || []} today={today} userName={userName} hideBlocks />
 
       {/* ── Botões do modo de edição ── */}
       <div className="flex items-center justify-end gap-2 mb-3">
@@ -414,6 +456,51 @@ const MyDashboardPage = () => {
           margin={[12, 12]}
           containerPadding={[0, 0]}
         >
+          {/* dp-delayed */}
+          <div key="dp-delayed" className={isEditing ? "rgl-edit-item" : ""} style={{ position: "relative" }}>
+            {isEditing && <span className="drag-handle">⠿⠿</span>}
+            <div className={`kpi-click-layer h-full cursor-pointer rounded-xl ring-2 transition-all ${drillDown === "dp-delayed" ? "ring-destructive" : "ring-transparent"}`}
+              onClick={() => !isEditing && toggleDrill("dp-delayed")}>
+              <KpiCard title="Clientes atrasados" value={stats.delayed.length} icon={AlertTriangle} variant="warning" />
+            </div>
+          </div>
+
+          {/* dp-overdue-tasks */}
+          <div key="dp-overdue-tasks" className={isEditing ? "rgl-edit-item" : ""} style={{ position: "relative" }}>
+            {isEditing && <span className="drag-handle">⠿⠿</span>}
+            <div className={`kpi-click-layer h-full cursor-pointer rounded-xl ring-2 transition-all ${drillDown === "dp-overdue-tasks" ? "ring-destructive" : "ring-transparent"}`}
+              onClick={() => !isEditing && toggleDrill("dp-overdue-tasks")}>
+              <KpiCard title="Tarefas vencidas" value={stats.overdueTasks.length} icon={CalendarClock} variant="warning" />
+            </div>
+          </div>
+
+          {/* dp-today-tasks */}
+          <div key="dp-today-tasks" className={isEditing ? "rgl-edit-item" : ""} style={{ position: "relative" }}>
+            {isEditing && <span className="drag-handle">⠿⠿</span>}
+            <div className={`kpi-click-layer h-full cursor-pointer rounded-xl ring-2 transition-all ${drillDown === "dp-today-tasks" ? "ring-primary" : "ring-transparent"}`}
+              onClick={() => !isEditing && toggleDrill("dp-today-tasks")}>
+              <KpiCard title="Tarefas para hoje" value={stats.todayTasks.length} icon={ListChecks} variant="primary" />
+            </div>
+          </div>
+
+          {/* dp-no-contact */}
+          <div key="dp-no-contact" className={isEditing ? "rgl-edit-item" : ""} style={{ position: "relative" }}>
+            {isEditing && <span className="drag-handle">⠿⠿</span>}
+            <div className={`kpi-click-layer h-full cursor-pointer rounded-xl ring-2 transition-all ${drillDown === "dp-no-contact" ? "ring-primary" : "ring-transparent"}`}
+              onClick={() => !isEditing && toggleDrill("dp-no-contact")}>
+              <KpiCard title="Sem primeiro contato" value={stats.noContact.length} icon={PhoneOff} variant="warning" />
+            </div>
+          </div>
+
+          {/* dp-stale */}
+          <div key="dp-stale" className={isEditing ? "rgl-edit-item" : ""} style={{ position: "relative" }}>
+            {isEditing && <span className="drag-handle">⠿⠿</span>}
+            <div className={`kpi-click-layer h-full cursor-pointer rounded-xl ring-2 transition-all ${drillDown === "dp-stale" ? "ring-primary" : "ring-transparent"}`}
+              onClick={() => !isEditing && toggleDrill("dp-stale")}>
+              <KpiCard title="Sem interação >2d" value={stats.stale.length} icon={Clock} variant="warning" />
+            </div>
+          </div>
+
           {/* tickets-ativos */}
           <div key="tickets-ativos" className={isEditing ? "rgl-edit-item" : ""} style={{ position: "relative" }}>
             {isEditing && <span className="drag-handle">⠿⠿</span>}

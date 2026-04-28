@@ -11,6 +11,7 @@ interface DailyPrioritiesProps {
   tasks: any[];
   today: string;
   userName?: string;
+  hideBlocks?: boolean;
 }
 
 function daysSince(dateStr: string | null) {
@@ -28,7 +29,7 @@ interface PriorityBlock {
   items: any[];
 }
 
-export function DailyPriorities({ tickets, tasks, today, userName }: DailyPrioritiesProps) {
+export function DailyPriorities({ tickets, tasks, today, userName, hideBlocks }: DailyPrioritiesProps) {
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const blocks = useMemo<PriorityBlock[]>(() => {
@@ -139,33 +140,35 @@ export function DailyPriorities({ tickets, tasks, today, userName }: DailyPriori
       )}
 
       {/* Priority blocks */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-        {blocks.map((block) => {
-          const Icon = block.icon;
-          const isOpen = expanded === block.key;
-          return (
-            <div key={block.key}>
-              <button
-                onClick={() => setExpanded(isOpen ? null : block.key)}
-                className={`w-full text-left rounded-lg border p-3 transition-all hover:shadow-sm ${block.bgColor} ${
-                  isOpen ? "ring-1 ring-primary/30" : ""
-                }`}
-              >
-                <div className="flex items-center justify-between mb-1">
-                  <Icon className={`h-3.5 w-3.5 ${block.color}`} />
-                  {isOpen ? (
-                    <ChevronUp className="h-3 w-3 text-muted-foreground" />
-                  ) : (
-                    <ChevronDown className="h-3 w-3 text-muted-foreground" />
-                  )}
-                </div>
-                <p className="text-xl font-bold font-mono">{block.count}</p>
-                <p className="text-[10px] text-muted-foreground leading-tight">{block.label}</p>
-              </button>
-            </div>
-          );
-        })}
-      </div>
+      {!hideBlocks && (
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+          {blocks.map((block) => {
+            const Icon = block.icon;
+            const isOpen = expanded === block.key;
+            return (
+              <div key={block.key}>
+                <button
+                  onClick={() => setExpanded(isOpen ? null : block.key)}
+                  className={`w-full text-left rounded-lg border p-3 transition-all hover:shadow-sm ${block.bgColor} ${
+                    isOpen ? "ring-1 ring-primary/30" : ""
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <Icon className={`h-3.5 w-3.5 ${block.color}`} />
+                    {isOpen ? (
+                      <ChevronUp className="h-3 w-3 text-muted-foreground" />
+                    ) : (
+                      <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                    )}
+                  </div>
+                  <p className="text-xl font-bold font-mono">{block.count}</p>
+                  <p className="text-[10px] text-muted-foreground leading-tight">{block.label}</p>
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Expanded list */}
       <AnimatePresence>
