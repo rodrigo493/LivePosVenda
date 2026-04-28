@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import { Navigate } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -12,7 +12,12 @@ import {
   Users,
   ChevronDown,
   X,
+  Edit2,
+  Save,
+  RotateCcw,
+  Palette,
 } from "lucide-react";
+import GridLayout, { WidthProvider } from "react-grid-layout/legacy";
 import { KpiCard } from "@/components/dashboard/KpiCard";
 import { KpiDrilldownDialog, DrilldownItem } from "@/components/dashboard/KpiDrilldownDialog";
 import { OperationalAlerts } from "@/components/dashboard/OperationalAlerts";
@@ -29,12 +34,15 @@ import { useEquipments } from "@/hooks/useEquipments";
 import { useAllServiceHistory } from "@/hooks/useAllServiceHistory";
 import { usePipelines } from "@/hooks/usePipelines";
 import { useAdminTickets } from "@/hooks/useAdminTickets";
+import { useAdminDashboardLayout, AdminColors } from "@/hooks/useAdminDashboardLayout";
+import { DEFAULT_ADMIN_LAYOUT, AdminLayoutItem, ACCENT_COLORS } from "@/constants/adminDashboardLayout";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
+import { toast } from "sonner";
 import {
   PieChart,
   Pie,
@@ -43,6 +51,62 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { DASHBOARD_COLORS as COLORS } from "@/constants/colors";
+
+const AutoWidthGridLayout = WidthProvider(GridLayout);
+
+// ─── Color Picker por card ────────────────────────────────────────────────────
+
+function CardColorPicker({
+  kpiKey,
+  colors,
+  onChange,
+}: {
+  kpiKey: string;
+  colors: AdminColors;
+  onChange: (c: AdminColors) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const current = colors[kpiKey] ?? null;
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          onClick={(e) => e.stopPropagation()}
+          className="absolute top-1.5 right-1.5 z-30 h-5 w-5 rounded-full flex items-center justify-center bg-background/80 backdrop-blur-sm border shadow-sm hover:bg-muted transition-colors"
+          title="Cor do card"
+        >
+          <Palette className="h-3 w-3 text-muted-foreground" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        side="top"
+        align="end"
+        sideOffset={6}
+        className="w-auto p-2"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <p className="text-[10px] text-muted-foreground mb-2 font-medium uppercase tracking-wide">Cor do card</p>
+        <div className="grid grid-cols-6 gap-1.5">
+          {ACCENT_COLORS.map((c) => (
+            <button
+              key={c.value ?? "default"}
+              onClick={() => { onChange({ ...colors, [kpiKey]: c.value }); setOpen(false); }}
+              title={c.label}
+              className="h-6 w-6 rounded-full border-2 transition-all hover:scale-110 flex items-center justify-center"
+              style={{
+                background: c.value ?? "transparent",
+                borderColor: current === c.value ? "#000" : "transparent",
+                boxShadow: current === c.value ? "0 0 0 2px #fff, 0 0 0 3px #000" : "inset 0 0 0 1px rgba(0,0,0,0.15)",
+              }}
+            >
+              {!c.value && <span className="text-[8px] text-muted-foreground font-bold">D</span>}
+            </button>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 // ─── User Multi-Select ────────────────────────────────────────────────────────
 
@@ -130,6 +194,55 @@ function DashboardContent() {
   const [selectedPipelineId, setSelectedPipelineId] = useState<string>("all");
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [drilldown, setDrilldown] = useState<{ title: string; items: DrilldownItem[] } | null>(null);
+
+  // ── Layout editor ──────────────────────────────────────────────────────────
+  const { currentLayout, currentColors, saveLayout, resetLayout, isSaving, isResetting } =
+    useAdminDashboardLayout();
+  const [isEditing, setIsEditing] = useState(false);
+  const [draftLayout, setDraftLayout] = useState<AdminLayoutItem[]>([]);
+  const [draftColors, setDraftColors] = useState<AdminColors>({});
+  const [preEditLayout, setPreEditLayout] = useState<AdminLayoutItem[]>([]);
+  const [preEditColors, setPreEditColors] = useState<AdminColors>({});
+
+  const enterEdit = useCallback(() => {
+    setPreEditLayout(currentLayout);
+    setPreEditColors(currentColors);
+    setDraftLayout(currentLayout);
+    setDraftColors(currentColors);
+    setIsEditing(true);
+  }, [currentLayout, currentColors]);
+
+  const cancelEdit = useCallback(() => {
+    setDraftLayout(preEditLayout);
+    setDraftColors(preEditColors);
+    setIsEditing(false);
+  }, [preEditLayout, preEditColors]);
+
+  const handleSave = useCallback(async () => {
+    try {
+      await saveLayout({ layout: draftLayout, colors: draftColors });
+      toast.success("Layout salvo com sucesso");
+    } catch {
+      toast.error("Erro ao salvar layout");
+    }
+    setIsEditing(false);
+  }, [draftLayout, draftColors, saveLayout]);
+
+  const handleReset = useCallback(async () => {
+    try {
+      await resetLayout();
+      setDraftLayout(DEFAULT_ADMIN_LAYOUT);
+      setDraftColors({});
+      toast.success("Layout resetado para o padrão");
+    } catch {
+      toast.error("Erro ao resetar layout");
+    }
+    setIsEditing(false);
+  }, [resetLayout]);
+
+  const activeLayout = isEditing ? draftLayout : currentLayout;
+  const activeColors = isEditing ? draftColors : currentColors;
+  // ──────────────────────────────────────────────────────────────────────────
 
   const hasFilter = selectedPipelineId !== "all" || selectedUserIds.length > 0;
 
@@ -388,90 +501,126 @@ function DashboardContent() {
       <AdminTeamOverview />
       <OperationalAlerts />
 
-      {/* KPI Row 1 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-        <KpiCard
-          title="Chamados Abertos"
-          value={openTicketsList.length}
-          icon={HeadphonesIcon}
-          variant="primary"
-          onClick={() =>
-            openDrilldown("Chamados Abertos", openTicketsList.map(ticketToDrilldown))
-          }
-        />
-        <KpiCard
-          title="Garantias em Análise"
-          value={warrantyInAnalysisList.length}
-          icon={ShieldCheck}
-          variant="warning"
-          onClick={() =>
-            openDrilldown(
-              "Garantias em Análise",
-              warrantyInAnalysisList.map((c) => claimToDrilldown(c, "em_analise"))
-            )
-          }
-        />
-        <KpiCard
-          title="Em Andamento"
-          value={inProgressList.length}
-          icon={Clock}
-          onClick={() =>
-            openDrilldown("Chamados Em Andamento", inProgressList.map(ticketToDrilldown))
-          }
-        />
-        <KpiCard
-          title="Resolvidos"
-          value={resolvedList.length}
-          icon={CheckCircle}
-          variant="success"
-          onClick={() =>
-            openDrilldown("Chamados Resolvidos", resolvedList.map(ticketToDrilldown))
-          }
-        />
+      {/* ── Botões do modo de edição ── */}
+      <div className="flex items-center justify-end gap-2 mb-3">
+        {isEditing ? (
+          <>
+            <span className="text-xs text-muted-foreground mr-auto flex items-center gap-1.5 bg-primary/10 border border-primary/30 rounded-lg px-3 py-1.5">
+              <Edit2 className="h-3 w-3 text-primary" />
+              Arraste para reposicionar · Puxe o canto ↘ para redimensionar · <Palette className="h-3 w-3 inline" /> para cor
+            </span>
+            <button
+              onClick={handleReset}
+              disabled={isResetting}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-border bg-card hover:bg-muted text-muted-foreground transition-colors"
+            >
+              <RotateCcw className="h-3 w-3" />
+              Resetar padrão
+            </button>
+            <button
+              onClick={cancelEdit}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-border bg-card hover:bg-muted transition-colors"
+            >
+              <X className="h-3 w-3" />
+              Cancelar
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={isSaving}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+            >
+              <Save className="h-3 w-3" />
+              {isSaving ? "Salvando…" : "Salvar"}
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={enterEdit}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-border bg-card hover:bg-muted text-muted-foreground transition-colors"
+          >
+            <Edit2 className="h-3 w-3" />
+            Editar layout
+          </button>
+        )}
       </div>
 
-      {/* KPI Row 2 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <KpiCard
-          title="Total Chamados"
-          value={filteredTickets.length}
-          icon={HeadphonesIcon}
-          onClick={() =>
-            openDrilldown("Todos os Chamados", filteredTickets.map(ticketToDrilldown))
-          }
-        />
-        <KpiCard
-          title="Ordens de Serviço"
-          value={filteredOrders.length}
-          icon={Package}
-          onClick={() =>
-            openDrilldown("Ordens de Serviço", filteredOrders.map(orderToDrilldown))
-          }
-        />
-        <KpiCard
-          title="Custo Garantia"
-          value={`R$ ${totalInternalCost.toFixed(0)}`}
-          icon={DollarSign}
-          onClick={() =>
-            openDrilldown(
-              "Garantias (Custo)",
-              filteredClaims
-                .filter((c) => Number(c.internal_cost || 0) > 0)
-                .map((c) => claimToDrilldown(c, "custo"))
-            )
-          }
-        />
-        <KpiCard
-          title="Equip. em Garantia"
-          value={equipInWarrantyList.length}
-          icon={TrendingUp}
-          onClick={() =>
-            openDrilldown(
-              "Equipamentos em Garantia",
-              equipInWarrantyList.map(equipToDrilldown)
-            )
-          }
-        />
+      {/* ── KPI Grid (react-grid-layout) ── */}
+      <div className="mb-6">
+        <AutoWidthGridLayout
+          layout={activeLayout}
+          cols={12}
+          rowHeight={88}
+          isDraggable={isEditing}
+          isResizable={isEditing}
+          draggableHandle=".drag-handle"
+          onLayoutChange={(layout) => { if (isEditing) setDraftLayout(layout as AdminLayoutItem[]); }}
+          margin={[12, 12]}
+          containerPadding={[0, 0]}
+        >
+          {/* kpi-abertos */}
+          <div key="kpi-abertos" className={isEditing ? "rgl-edit-item" : ""} style={{ position: "relative" }}>
+            {isEditing && <><span className="drag-handle">⠿⠿</span><CardColorPicker kpiKey="kpi-abertos" colors={draftColors} onChange={setDraftColors} /></>}
+            <div className="h-full" onClick={() => !isEditing && openDrilldown("Chamados Abertos", openTicketsList.map(ticketToDrilldown))}>
+              <KpiCard title="Chamados Abertos" value={openTicketsList.length} icon={HeadphonesIcon} variant="primary" accentColor={activeColors["kpi-abertos"]} onClick={!isEditing ? () => openDrilldown("Chamados Abertos", openTicketsList.map(ticketToDrilldown)) : undefined} />
+            </div>
+          </div>
+
+          {/* kpi-garantias */}
+          <div key="kpi-garantias" className={isEditing ? "rgl-edit-item" : ""} style={{ position: "relative" }}>
+            {isEditing && <><span className="drag-handle">⠿⠿</span><CardColorPicker kpiKey="kpi-garantias" colors={draftColors} onChange={setDraftColors} /></>}
+            <div className="h-full">
+              <KpiCard title="Garantias em Análise" value={warrantyInAnalysisList.length} icon={ShieldCheck} variant="warning" accentColor={activeColors["kpi-garantias"]} onClick={!isEditing ? () => openDrilldown("Garantias em Análise", warrantyInAnalysisList.map((c) => claimToDrilldown(c, "em_analise"))) : undefined} />
+            </div>
+          </div>
+
+          {/* kpi-andamento */}
+          <div key="kpi-andamento" className={isEditing ? "rgl-edit-item" : ""} style={{ position: "relative" }}>
+            {isEditing && <><span className="drag-handle">⠿⠿</span><CardColorPicker kpiKey="kpi-andamento" colors={draftColors} onChange={setDraftColors} /></>}
+            <div className="h-full">
+              <KpiCard title="Em Andamento" value={inProgressList.length} icon={Clock} accentColor={activeColors["kpi-andamento"]} onClick={!isEditing ? () => openDrilldown("Chamados Em Andamento", inProgressList.map(ticketToDrilldown)) : undefined} />
+            </div>
+          </div>
+
+          {/* kpi-resolvidos */}
+          <div key="kpi-resolvidos" className={isEditing ? "rgl-edit-item" : ""} style={{ position: "relative" }}>
+            {isEditing && <><span className="drag-handle">⠿⠿</span><CardColorPicker kpiKey="kpi-resolvidos" colors={draftColors} onChange={setDraftColors} /></>}
+            <div className="h-full">
+              <KpiCard title="Resolvidos" value={resolvedList.length} icon={CheckCircle} variant="success" accentColor={activeColors["kpi-resolvidos"]} onClick={!isEditing ? () => openDrilldown("Chamados Resolvidos", resolvedList.map(ticketToDrilldown)) : undefined} />
+            </div>
+          </div>
+
+          {/* kpi-total */}
+          <div key="kpi-total" className={isEditing ? "rgl-edit-item" : ""} style={{ position: "relative" }}>
+            {isEditing && <><span className="drag-handle">⠿⠿</span><CardColorPicker kpiKey="kpi-total" colors={draftColors} onChange={setDraftColors} /></>}
+            <div className="h-full">
+              <KpiCard title="Total Chamados" value={filteredTickets.length} icon={HeadphonesIcon} accentColor={activeColors["kpi-total"]} onClick={!isEditing ? () => openDrilldown("Todos os Chamados", filteredTickets.map(ticketToDrilldown)) : undefined} />
+            </div>
+          </div>
+
+          {/* kpi-os */}
+          <div key="kpi-os" className={isEditing ? "rgl-edit-item" : ""} style={{ position: "relative" }}>
+            {isEditing && <><span className="drag-handle">⠿⠿</span><CardColorPicker kpiKey="kpi-os" colors={draftColors} onChange={setDraftColors} /></>}
+            <div className="h-full">
+              <KpiCard title="Ordens de Serviço" value={filteredOrders.length} icon={Package} accentColor={activeColors["kpi-os"]} onClick={!isEditing ? () => openDrilldown("Ordens de Serviço", filteredOrders.map(orderToDrilldown)) : undefined} />
+            </div>
+          </div>
+
+          {/* kpi-custo */}
+          <div key="kpi-custo" className={isEditing ? "rgl-edit-item" : ""} style={{ position: "relative" }}>
+            {isEditing && <><span className="drag-handle">⠿⠿</span><CardColorPicker kpiKey="kpi-custo" colors={draftColors} onChange={setDraftColors} /></>}
+            <div className="h-full">
+              <KpiCard title="Custo Garantia" value={`R$ ${totalInternalCost.toFixed(0)}`} icon={DollarSign} accentColor={activeColors["kpi-custo"]} onClick={!isEditing ? () => openDrilldown("Garantias (Custo)", filteredClaims.filter((c) => Number(c.internal_cost || 0) > 0).map((c) => claimToDrilldown(c, "custo"))) : undefined} />
+            </div>
+          </div>
+
+          {/* kpi-equip */}
+          <div key="kpi-equip" className={isEditing ? "rgl-edit-item" : ""} style={{ position: "relative" }}>
+            {isEditing && <><span className="drag-handle">⠿⠿</span><CardColorPicker kpiKey="kpi-equip" colors={draftColors} onChange={setDraftColors} /></>}
+            <div className="h-full">
+              <KpiCard title="Equip. em Garantia" value={equipInWarrantyList.length} icon={TrendingUp} accentColor={activeColors["kpi-equip"]} onClick={!isEditing ? () => openDrilldown("Equipamentos em Garantia", equipInWarrantyList.map(equipToDrilldown)) : undefined} />
+            </div>
+          </div>
+        </AutoWidthGridLayout>
       </div>
 
       {/* Gráficos */}
