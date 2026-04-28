@@ -18,6 +18,26 @@ interface ProductSearchProps {
 
 type StockEntry = { loading: boolean; qty: number | null };
 
+// Cache de módulo: carrega todos os produtos Nomus uma vez por sessão
+const _nomusIdMap: Map<string, number> = new Map();
+let _nomusMapLoaded = false;
+let _nomusMapPromise: Promise<void> | null = null;
+
+const ensureNomusMap = (): Promise<void> => {
+  if (_nomusMapLoaded) return Promise.resolve();
+  if (_nomusMapPromise) return _nomusMapPromise;
+  _nomusMapPromise = fetch("/api/nomus/rest/produtos", { headers: { Accept: "application/json" } })
+    .then(r => r.ok ? r.json() : [])
+    .then((list: any[]) => {
+      if (Array.isArray(list)) {
+        list.forEach(p => { if (p.codigo && p.id) _nomusIdMap.set(p.codigo, Number(p.id)); });
+      }
+      _nomusMapLoaded = true;
+    })
+    .catch(() => { _nomusMapLoaded = true; });
+  return _nomusMapPromise;
+};
+
 const defaultItemTypes = [
   { value: "peca_cobrada", label: "Peça (Cobrada)" },
   { value: "peca_garantia", label: "Peça (Garantia)" },
@@ -100,39 +120,17 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
   useEffect(() => {
     if (!showNomusStock || !filtered.length) return;
 
-    const resolveNomusId = async (code: string): Promise<number | null> => {
-      // Tenta diferentes formatos de query FIQL que o Nomus aceita
-      const attempts = [
-        // Valor entre aspas duplas + query inteira encoded (mais seguro com pontos)
-        `/api/nomus/rest/produtos?query=${encodeURIComponent(`codigo=="${code}"`)}`,
-        // FIQL == com valor url-encoded direto
-        `/api/nomus/rest/produtos?query=codigo==${encodeURIComponent(code)}`,
-        // Mesmo padrão do client search (= simples + aspas)
-        `/api/nomus/rest/produtos?query=${encodeURIComponent(`codigo="${code}"`)}`,
-        // Wildcard no código para capturar variações
-        `/api/nomus/rest/produtos?query=${encodeURIComponent(`codigo="*${code}*"`)}`,
-      ];
-      for (const url of attempts) {
-        try {
-          const r = await fetch(url, { headers: { Accept: "application/json" } });
-          if (!r.ok) continue;
-          const prods = await r.json();
-          if (Array.isArray(prods) && prods.length > 0) return prods[0].id as number;
-        } catch { continue; }
-      }
-      return null;
-    };
-
     const fetchStock = async (code: string) => {
       if (!code || fetchedRef.current.has(code)) return;
       fetchedRef.current.add(code);
       setStockMap(prev => ({ ...prev, [code]: { loading: true, qty: null } }));
       try {
-        const nomusId = await resolveNomusId(code);
-        if (nomusId === null) throw new Error("not found");
-        const r2 = await fetch(`/api/nomus/rest/saldosEstoqueProduto/${nomusId}`, { headers: { Accept: "application/json" } });
-        if (!r2.ok) throw new Error();
-        const stockData = await r2.json();
+        await ensureNomusMap();
+        const nomusId = _nomusIdMap.get(code);
+        if (!nomusId) throw new Error("not found");
+        const r = await fetch(`/api/nomus/rest/saldosEstoqueProduto/${nomusId}`, { headers: { Accept: "application/json" } });
+        if (!r.ok) throw new Error();
+        const stockData = await r.json();
         const total = Array.isArray(stockData)
           ? stockData.reduce((sum: number, s: any) => {
               const v = parseFloat((s.saldoTotal || "0").replace(",", "."));
