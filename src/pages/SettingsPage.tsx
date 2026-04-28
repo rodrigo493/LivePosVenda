@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Settings, Users, Bell, Database, Mail, Shield, DollarSign, FlaskConical, Save, Brain, UserPlus, Trash2, Pencil, KeyRound, Link, MessageSquare } from "lucide-react";
+import { Settings, Users, Bell, Database, Mail, Shield, DollarSign, FlaskConical, Save, Brain, UserPlus, Trash2, Pencil, KeyRound, Link, MessageSquare, ChevronDown, Briefcase } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,6 +7,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
 import { motion } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -289,7 +291,7 @@ const SettingsPage = () => {
   );
 };
 
-type UserRow = { user_id: string; full_name: string; email: string | null; roles: string[] };
+type UserRow = { user_id: string; full_name: string; email: string | null; roles: string[]; job_functions: string[] };
 
 const APP_ROLES = [
   { value: "admin", label: "Administrador" },
@@ -299,6 +301,50 @@ const APP_ROLES = [
   { value: "financeiro", label: "Financeiro / Administrativo" },
   { value: "cliente", label: "Cliente" },
 ];
+
+const JOB_FUNCTIONS = [
+  { value: "vendedor",               label: "Vendedor" },
+  { value: "pre_vendedor",           label: "Pré-vendedor" },
+  { value: "atendente_pos_venda",    label: "Atendente de pós venda" },
+  { value: "atendente_assistencia",  label: "Atendente de assistência técnica" },
+];
+
+function JobFunctionsSelect({ selected, onChange }: { selected: string[]; onChange: (v: string[]) => void }) {
+  const [open, setOpen] = useState(false);
+  const toggle = (v: string) =>
+    onChange(selected.includes(v) ? selected.filter((x) => x !== v) : [...selected, v]);
+
+  const label =
+    selected.length === 0
+      ? "Nenhuma função selecionada"
+      : selected.map((v) => JOB_FUNCTIONS.find((f) => f.value === v)?.label ?? v).join(", ");
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm" className="h-8 w-full justify-start text-xs font-normal gap-1.5 truncate">
+          <span className="flex-1 text-left truncate text-muted-foreground">{label}</span>
+          <ChevronDown className="h-3 w-3 opacity-50 shrink-0" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-72 p-2" sideOffset={4}>
+        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-2 px-1">Funções no sistema</p>
+        <div className="space-y-0.5">
+          {JOB_FUNCTIONS.map((fn) => (
+            <div
+              key={fn.value}
+              className="flex items-center gap-2.5 px-2 py-1.5 rounded hover:bg-muted cursor-pointer select-none"
+              onClick={() => toggle(fn.value)}
+            >
+              <Checkbox checked={selected.includes(fn.value)} readOnly className="pointer-events-none" />
+              <span className="text-sm">{fn.label}</span>
+            </div>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 const EDGE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/manage-users`;
 
@@ -322,20 +368,21 @@ async function callEdge(method: string, body?: object, query = "") {
 function UserManagement() {
   const qc = useQueryClient();
   const { user: me } = useAuth();
-  const [form, setForm] = useState({ full_name: "", email: "", password: "", role: "atendimento" });
+  const [form, setForm] = useState({ full_name: "", email: "", password: "", role: "atendimento", job_functions: [] as string[] });
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editMode, setEditMode] = useState<"role" | "password" | "info">("role");
+  const [editMode, setEditMode] = useState<"role" | "password" | "info" | "functions">("role");
   const [editRole, setEditRole] = useState("");
   const [editPassword, setEditPassword] = useState("");
   const [editName, setEditName] = useState("");
   const [editEmail, setEditEmail] = useState("");
+  const [editFunctions, setEditFunctions] = useState<string[]>([]);
 
   // Query direta ao Supabase — evita o mismatch de IDs no edge function GET
   const { data: users = [], isLoading } = useQuery<UserRow[]>({
     queryKey: ["manage_users"],
     queryFn: async () => {
       const [{ data: profiles }, { data: rolesData }] = await Promise.all([
-        (supabase as any).from("profiles").select("user_id, full_name, email").order("full_name"),
+        (supabase as any).from("profiles").select("user_id, full_name, email, job_functions").order("full_name"),
         (supabase as any).from("user_roles").select("user_id, role"),
       ]);
       const rolesMap: Record<string, string[]> = {};
@@ -348,6 +395,7 @@ function UserManagement() {
         full_name: p.full_name,
         email: p.email,
         roles: rolesMap[p.user_id] ?? [],
+        job_functions: p.job_functions ?? [],
       })) as UserRow[];
     },
   });
@@ -356,7 +404,7 @@ function UserManagement() {
     mutationFn: () => callEdge("POST", form),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["manage_users"] });
-      setForm({ full_name: "", email: "", password: "", role: "atendimento" });
+      setForm({ full_name: "", email: "", password: "", role: "atendimento", job_functions: [] });
       toast.success("Usuário criado com sucesso!");
     },
     onError: (e: Error) => toast.error(e.message),
@@ -436,6 +484,13 @@ function UserManagement() {
             </Select>
           </div>
         </div>
+        <div className="mt-3 space-y-1">
+          <Label className="text-xs">Funções no sistema <span className="text-muted-foreground font-normal">(opcional)</span></Label>
+          <JobFunctionsSelect
+            selected={form.job_functions}
+            onChange={(fns) => setForm((f) => ({ ...f, job_functions: fns }))}
+          />
+        </div>
         <Button
           size="sm"
           className="mt-3 gap-1.5 text-xs"
@@ -459,6 +514,15 @@ function UserManagement() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{u.full_name}</p>
                   <p className="text-xs text-muted-foreground truncate">{u.email}</p>
+                  {u.job_functions.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {u.job_functions.map((f) => (
+                        <span key={f} className="text-[10px] bg-muted border px-1.5 py-0.5 rounded text-muted-foreground">
+                          {JOB_FUNCTIONS.find((x) => x.value === f)?.label ?? f}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 {editingId === u.user_id ? (
                   <div className="flex items-center gap-2 flex-wrap justify-end">
@@ -489,6 +553,10 @@ function UserManagement() {
                           ))}
                         </SelectContent>
                       </Select>
+                    ) : editMode === "functions" ? (
+                      <div className="w-64">
+                        <JobFunctionsSelect selected={editFunctions} onChange={setEditFunctions} />
+                      </div>
                     ) : (
                       <Input
                         type="password"
@@ -504,6 +572,7 @@ function UserManagement() {
                       onClick={() => {
                         if (editMode === "info") updateMut.mutate({ user_id: u.user_id, full_name: editName || undefined, email: editEmail || undefined });
                         else if (editMode === "role") updateMut.mutate({ user_id: u.user_id, role: editRole });
+                        else if (editMode === "functions") updateMut.mutate({ user_id: u.user_id, job_functions: editFunctions } as any);
                         else updateMut.mutate({ user_id: u.user_id, password: editPassword });
                       }}
                       disabled={updateMut.isPending || (editMode === "password" && editPassword.length < 6)}
@@ -543,6 +612,15 @@ function UserManagement() {
                       onClick={() => { setEditingId(u.user_id); setEditMode("role"); setEditRole(u.roles[0] ?? "atendimento"); }}
                     >
                       <Shield className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 w-7 p-0"
+                      title="Editar funções"
+                      onClick={() => { setEditingId(u.user_id); setEditMode("functions"); setEditFunctions(u.job_functions); }}
+                    >
+                      <Briefcase className="h-3.5 w-3.5" />
                     </Button>
                     <Button
                       size="sm"
