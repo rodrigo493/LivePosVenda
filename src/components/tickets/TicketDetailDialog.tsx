@@ -1007,18 +1007,32 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                 {clientTasks && clientTasks.length > 0 && (
                   <button
                     onClick={() => setActiveTab("client-tasks")}
-                    className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-medium bg-muted hover:bg-muted/80 transition-colors cursor-pointer max-w-[200px]"
+                    className="inline-flex flex-col items-start gap-0.5 rounded-md border border-green-500/50 px-2.5 py-1 bg-green-500/10 hover:bg-green-500/20 transition-colors cursor-pointer"
                     title={clientTasks[0].title}
                   >
-                    <CheckSquare className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-                    <span className="truncate">{clientTasks[0].title}</span>
-                    <span className={`ml-0.5 flex-shrink-0 rounded px-1 text-[9px] font-semibold ${
-                      clientTasks[0].status === "concluida"
-                        ? "bg-green-500/20 text-green-400"
-                        : "bg-orange-500/20 text-orange-400"
-                    }`}>
-                      {clientTasks[0].status === "concluida" ? "✓" : "●"}
-                    </span>
+                    <div className="flex items-center gap-1">
+                      <CheckSquare className="h-3 w-3 text-green-400 flex-shrink-0" />
+                      <span className="text-[10px] font-semibold text-green-300 truncate max-w-[180px]">
+                        {clientTasks[0].title}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 pl-4 text-[9px] text-green-400/80">
+                      {clientTasks[0].due_date && (
+                        <span className="flex items-center gap-0.5">
+                          <Calendar className="h-2.5 w-2.5" />
+                          {fmtDate(clientTasks[0].due_date)}
+                        </span>
+                      )}
+                      {clientTasks[0].due_time && (
+                        <span className="flex items-center gap-0.5">
+                          <Clock className="h-2.5 w-2.5" />
+                          {clientTasks[0].due_time.slice(0, 5)}
+                        </span>
+                      )}
+                      {!clientTasks[0].due_date && !clientTasks[0].due_time && (
+                        <span className="italic opacity-60">sem prazo</span>
+                      )}
+                    </div>
                   </button>
                 )}
               </div>
