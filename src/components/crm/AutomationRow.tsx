@@ -10,6 +10,7 @@ interface LocalAutomation {
   action_type: AutomationActionType;
   action_config: Record<string, unknown>;
   is_active: boolean;
+  delay_minutes: number;
 }
 
 interface AutomationRowProps {
@@ -25,6 +26,32 @@ const ACTION_OPTIONS: { value: AutomationActionType; label: string }[] = [
   { value: "move_stage", label: "➡️ Mover para etapa" },
   { value: "send_email", label: "📧 Enviar e-mail" },
 ];
+
+const VARIABLES = [
+  { label: "{{cliente_nome}}", key: "{{cliente_nome}}" },
+  { label: "{{tecnico_nome}}", key: "{{tecnico_nome}}" },
+  { label: "{{tecnico_telefone}}", key: "{{tecnico_telefone}}" },
+  { label: "{{etapa_nome}}", key: "{{etapa_nome}}" },
+  { label: "{{funil_nome}}", key: "{{funil_nome}}" },
+  { label: "{{ticket_numero}}", key: "{{ticket_numero}}" },
+];
+
+function VariableChips({ onInsert }: { onInsert: (v: string) => void }) {
+  return (
+    <div className="flex flex-wrap gap-1 mt-1">
+      {VARIABLES.map((v) => (
+        <button
+          key={v.key}
+          type="button"
+          onClick={() => onInsert(v.key)}
+          className="px-1.5 py-0.5 rounded text-[10px] bg-amber-100 text-amber-800 hover:bg-amber-200 transition-colors font-mono"
+        >
+          {v.label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export function AutomationRow({ automation, onChange, onDelete }: AutomationRowProps) {
   function handleActionTypeChange(newType: AutomationActionType) {
@@ -90,15 +117,48 @@ export function AutomationRow({ automation, onChange, onDelete }: AutomationRowP
         </Button>
       </div>
 
+      {/* Delay */}
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] text-muted-foreground">Executar após</span>
+        <input
+          type="number"
+          min={0}
+          value={automation.delay_minutes}
+          onChange={(e) =>
+            onChange({ ...automation, delay_minutes: Math.max(0, Number(e.target.value)) })
+          }
+          className="h-6 w-16 rounded border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+        <span className="text-[10px] text-muted-foreground">min</span>
+      </div>
+
       {/* Campos de config por action_type */}
       {automation.action_type === "whatsapp_message" && (
-        <textarea
-          value={(cfg.message as string) ?? ""}
-          onChange={(e) => handleConfigChange("message", e.target.value)}
-          placeholder="Mensagem..."
-          rows={3}
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
-        />
+        <div className="space-y-1.5">
+          <Input
+            value={(cfg.to as string) ?? ""}
+            onChange={(e) => handleConfigChange("to", e.target.value)}
+            placeholder="Para: número ou {{tecnico_telefone}}"
+            className="h-7 text-xs font-mono"
+          />
+          <VariableChips
+            onInsert={(v) =>
+              handleConfigChange("to", ((cfg.to as string) ?? "") + v)
+            }
+          />
+          <textarea
+            value={(cfg.message as string) ?? ""}
+            onChange={(e) => handleConfigChange("message", e.target.value)}
+            placeholder="Mensagem..."
+            rows={3}
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+          />
+          <VariableChips
+            onInsert={(v) =>
+              handleConfigChange("message", ((cfg.message as string) ?? "") + v)
+            }
+          />
+        </div>
       )}
 
       {automation.action_type === "create_task" && (
@@ -109,27 +169,48 @@ export function AutomationRow({ automation, onChange, onDelete }: AutomationRowP
             placeholder="Título da tarefa"
             className="h-7 text-xs"
           />
-          <div className="flex items-center gap-2">
-            <Input
-              type="number"
-              min={1}
-              value={(cfg.due_days as number) ?? ""}
-              onChange={(e) => handleConfigChange("due_days", Number(e.target.value))}
-              placeholder="0"
-              className="h-7 w-20 text-xs"
-            />
-            <span className="text-xs text-muted-foreground">dia(s) para vencer</span>
-          </div>
+          <VariableChips
+            onInsert={(v) =>
+              handleConfigChange("title", ((cfg.title as string) ?? "") + v)
+            }
+          />
+          <textarea
+            value={(cfg.description as string) ?? ""}
+            onChange={(e) => handleConfigChange("description", e.target.value)}
+            placeholder="Descrição (opcional)"
+            rows={2}
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+          />
+          <Input
+            value={(cfg.squad_user_id as string) ?? ""}
+            onChange={(e) => handleConfigChange("squad_user_id", e.target.value)}
+            placeholder="ID do usuário no Squad (responsável)"
+            className="h-7 text-xs font-mono"
+          />
         </div>
       )}
 
       {automation.action_type === "notify_user" && (
-        <Input
-          value={(cfg.message as string) ?? ""}
-          onChange={(e) => handleConfigChange("message", e.target.value)}
-          placeholder="Mensagem de notificação"
-          className="h-7 text-xs"
-        />
+        <div className="space-y-1.5">
+          <Input
+            value={(cfg.squad_user_id as string) ?? ""}
+            onChange={(e) => handleConfigChange("squad_user_id", e.target.value)}
+            placeholder="ID do usuário no Squad"
+            className="h-7 text-xs font-mono"
+          />
+          <textarea
+            value={(cfg.message as string) ?? ""}
+            onChange={(e) => handleConfigChange("message", e.target.value)}
+            placeholder="Mensagem para o workspace"
+            rows={2}
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+          />
+          <VariableChips
+            onInsert={(v) =>
+              handleConfigChange("message", ((cfg.message as string) ?? "") + v)
+            }
+          />
+        </div>
       )}
 
       {automation.action_type === "move_stage" && (

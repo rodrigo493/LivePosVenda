@@ -156,6 +156,7 @@ const CrmPipelinePage = () => {
     action_type: AutomationActionType;
     action_config: Record<string, unknown>;
     is_active: boolean;
+    delay_minutes: number;
   }
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState("");
@@ -412,6 +413,7 @@ const CrmPipelinePage = () => {
         action_type: a.action_type,
         action_config: a.action_config as Record<string, unknown>,
         is_active: a.is_active,
+        delay_minutes: a.delay_minutes ?? 0,
       });
     });
     setEditAutomations(autoMap);

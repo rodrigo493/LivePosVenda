@@ -14,6 +14,7 @@ interface LocalAutomation {
   action_type: AutomationActionType;
   action_config: Record<string, unknown>;
   is_active: boolean;
+  delay_minutes: number;
 }
 
 interface EditableStageColumnProps {
@@ -63,6 +64,7 @@ export function EditableStageColumn({
       action_type: "create_task",
       action_config: {},
       is_active: true,
+      delay_minutes: 0,
     };
     onAutomationsChange([...automations, newAuto]);
   }
