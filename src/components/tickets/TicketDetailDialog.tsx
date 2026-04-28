@@ -367,6 +367,9 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
 
   // Ticket-level data
   const { data: ticketTasks } = useTicketTasks(enabledId);
+  const lastCompletedTask = ticketTasks
+    ?.filter((t) => t.status === "concluida" && t.completed_at)
+    .sort((a, b) => new Date(b.completed_at!).getTime() - new Date(a.completed_at!).getTime())[0] ?? null;
   const { data: activities } = useTicketActivities(enabledId);
   const { data: ticketQuotes } = useTicketQuotes(enabledId);
   const { data: ticketWorkOrders } = useTicketWorkOrders(enabledId);
@@ -1107,6 +1110,13 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                         ? `${fmtDate(ticket.last_interaction_at)} (${days}d atrás)` : "—"
                     } />
                     <InfoRow icon={Calendar} label="Criado em" value={fmtDate(ticket.created_at)} />
+                    {lastCompletedTask && (
+                      <InfoRow
+                        icon={CheckSquare}
+                        label="Última tarefa concluída"
+                        value={`${lastCompletedTask.title} — ${fmtDate(lastCompletedTask.completed_at!)}`}
+                      />
+                    )}
                     {ticket.equipments && (
                       <InfoRow icon={Package} label="Equipamento" value={
                         `${ticket.equipments.equipment_models?.name || ""} - ${ticket.equipments.serial_number}`
