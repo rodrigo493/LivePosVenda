@@ -1,9 +1,9 @@
 import { useState, useMemo } from "react";
-import { Users, Plus, Search, History, Upload, MessageSquare, Ticket } from "lucide-react";
+import { Users, Plus, Search, History, Upload, MessageSquare, Ticket, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { CrudDialog } from "@/components/shared/CrudDialog";
-import { useClients, useCreateClient, useUpdateClient } from "@/hooks/useClients";
+import { useClients, useCreateClient, useUpdateClient, useDeleteClient } from "@/hooks/useClients";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { motion } from "framer-motion";
 import { useAuth } from "@/hooks/useAuth";
@@ -13,6 +13,12 @@ import { BulkHistoryImportDialog } from "@/components/import/BulkHistoryImportDi
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { WhatsAppChat } from "@/components/whatsapp/WhatsAppChat";
 import { useCreateTicket } from "@/hooks/useTickets";
+import { useAllUsers } from "@/hooks/useUserAccess";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const PIPELINE_STAGES_FALLBACK = [
   { key: "sem_atendimento", label: "Sem atendimento" },
@@ -46,7 +52,10 @@ const ClientsPage = () => {
   const { data: clients, isLoading } = useClients();
   const createClient = useCreateClient();
   const updateClient = useUpdateClient();
-  const { user } = useAuth();
+  const { user, hasRole } = useAuth();
+  const isAdmin = hasRole("admin");
+  const deleteClient = useDeleteClient();
+  const { data: allUsers } = useAllUsers();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
@@ -54,7 +63,15 @@ const ClientsPage = () => {
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [chatClient, setChatClient] = useState<Client | null>(null);
   const [ticketClient, setTicketClient] = useState<Client | null>(null);
-  const [ticketForm, setTicketForm] = useState({ title: "", ticket_type: "chamado_tecnico", pipeline_stage: "sem_atendimento", priority: "media", description: "" });
+  const [deletingClient, setDeletingClient] = useState<Client | null>(null);
+  const [ticketForm, setTicketForm] = useState({
+    title: "",
+    ticket_type: "chamado_tecnico",
+    pipeline_stage: "sem_atendimento",
+    priority: "media",
+    description: "",
+    assigned_to: user?.id ?? "",
+  });
   const createTicket = useCreateTicket();
 
   const filteredClients = useMemo(() => {
@@ -123,7 +140,9 @@ const ClientsPage = () => {
             <table className="w-full">
               <thead>
                 <tr className="border-b bg-muted/50">
-                  {["Código", "Nome", "CPF/CNPJ", "Cidade", "Estado", "Email", "Status", ""].map((h) => (
+                  {["Código", "Nome", "CPF/CNPJ", "Cidade", "Estado", "Email", "Status",
+                    ...(isAdmin ? ["Responsável"] : []),
+                    ""].map((h) => (
                     <th key={h} className="text-left text-[11px] uppercase tracking-wider text-muted-foreground font-medium px-4 py-3">{h}</th>
                   ))}
                 </tr>
@@ -138,6 +157,27 @@ const ClientsPage = () => {
                     <td className="px-4 py-3 text-sm">{client.state || "—"}</td>
                     <td className="px-4 py-3 text-sm text-muted-foreground">{client.email || "—"}</td>
                     <td className="px-4 py-3"><StatusBadge status={client.status} /></td>
+                    {isAdmin && (
+                      <td className="px-4 py-3">
+                        <select
+                          className="text-xs border rounded px-1.5 py-1 bg-background max-w-[140px]"
+                          value={(client as any).assigned_to ?? ""}
+                          onChange={(e) => {
+                            updateClient.mutate({
+                              id: client.id,
+                              assigned_to: e.target.value || null,
+                            } as any);
+                          }}
+                        >
+                          <option value="">— Ninguém —</option>
+                          {(allUsers ?? []).map((u) => (
+                            <option key={u.user_id} value={u.user_id}>
+                              {u.full_name}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                    )}
                     <td className="px-4 py-3">
                       <div className="flex gap-1.5">
                         <Button variant="ghost" size="sm" className="text-xs h-7 gap-1" onClick={() => setHistoryClient(client)} title="Histórico">
@@ -146,9 +186,30 @@ const ClientsPage = () => {
                         <Button variant="ghost" size="sm" className="text-xs h-7 gap-1 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50" onClick={() => setChatClient(client)} title="WhatsApp">
                           <MessageSquare className="h-3.5 w-3.5" />
                         </Button>
-                        <Button variant="ghost" size="sm" className="text-xs h-7 gap-1 text-blue-600 hover:text-blue-700 hover:bg-blue-50" onClick={() => { setTicketClient(client); setTicketForm({ title: `Atendimento — ${client.name}`, ticket_type: "chamado_tecnico", pipeline_stage: "sem_atendimento", priority: "media", description: "" }); }} title="Criar card">
+                        <Button variant="ghost" size="sm" className="text-xs h-7 gap-1 text-blue-600 hover:text-blue-700 hover:bg-blue-50" onClick={() => {
+                          setTicketClient(client);
+                          setTicketForm({
+                            title: `Atendimento — ${client.name}`,
+                            ticket_type: "chamado_tecnico",
+                            pipeline_stage: "sem_atendimento",
+                            priority: "media",
+                            description: "",
+                            assigned_to: user?.id ?? "",
+                          });
+                        }} title="Criar card">
                           <Ticket className="h-3.5 w-3.5" />
                         </Button>
+                        {isAdmin && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-xs h-7 gap-1 text-destructive hover:text-destructive hover:bg-destructive/10"
+                            onClick={(e) => { e.stopPropagation(); setDeletingClient(client); }}
+                            title="Excluir cliente"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
                         <Button variant="outline" size="sm" className="text-xs h-7" onClick={() => handleEdit(client)}>Editar</Button>
                       </div>
                     </td>
@@ -232,6 +293,22 @@ const ClientsPage = () => {
               </Select>
             </div>
             <div className="space-y-1.5">
+              <Label className="text-xs">Responsável</Label>
+              <Select
+                value={ticketForm.assigned_to}
+                onValueChange={(v) => setTicketForm((f) => ({ ...f, assigned_to: v }))}
+              >
+                <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Selecionar" /></SelectTrigger>
+                <SelectContent>
+                  {(allUsers ?? []).map((u) => (
+                    <SelectItem key={u.user_id} value={u.user_id}>
+                      {u.full_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
               <Label className="text-xs">Descrição <span className="text-muted-foreground">(opcional)</span></Label>
               <Textarea value={ticketForm.description} onChange={(e) => setTicketForm((f) => ({ ...f, description: e.target.value }))} placeholder="Descreva o atendimento..." rows={3} className="text-sm resize-none" />
             </div>
@@ -251,7 +328,7 @@ const ClientsPage = () => {
                   status: "aberto",
                   ticket_number: "",
                   created_by: user?.id,
-                  assigned_to: user?.id,
+                  assigned_to: ticketForm.assigned_to || user?.id,
                 } as any);
                 toast.success(`Card criado para ${ticketClient.name}`);
                 setTicketClient(null);
@@ -284,6 +361,42 @@ const ClientsPage = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* ── AlertDialog: confirmar exclusão de cliente ── */}
+      <AlertDialog open={!!deletingClient} onOpenChange={(open) => !open && setDeletingClient(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir cliente</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir <strong>{deletingClient?.name}</strong>? Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={async () => {
+                if (!deletingClient) return;
+                try {
+                  await deleteClient.mutateAsync(deletingClient.id);
+                  toast.success(`Cliente ${deletingClient.name} excluído.`);
+                  setDeletingClient(null);
+                } catch (err: any) {
+                  const msg = err?.message ?? "";
+                  if (msg.startsWith("ACTIVE_TICKETS:")) {
+                    const count = msg.split(":")[1];
+                    toast.error(`Cliente possui ${count} card(s) ativo(s). Encerre-os antes de excluir.`);
+                  } else {
+                    toast.error("Erro ao excluir cliente.");
+                  }
+                }
+              }}
+            >
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
