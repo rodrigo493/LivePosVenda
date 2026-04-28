@@ -130,6 +130,21 @@ const PGDetailPage = () => {
     setNomusFields(prev => ({ ...prev, [field]: value }));
   };
 
+  const nomusGet = async (field: string, enc: string, ms = 4000): Promise<any[]> => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), ms);
+    try {
+      const r = await fetch(
+        `/api/nomus/rest/pessoas?query=${field}=like=%25${enc}%25`,
+        { headers: { Accept: "application/json" }, signal: ctrl.signal }
+      );
+      clearTimeout(timer);
+      if (!r.ok) return [];
+      const body = await r.json();
+      return Array.isArray(body) ? body : [];
+    } catch { clearTimeout(timer); return []; }
+  };
+
   const searchNomusClients = (query: string) => {
     updateNomusField("cliente", query);
     setNomusClientId(null);
@@ -137,31 +152,24 @@ const PGDetailPage = () => {
     if (nomusSearchTimer.current) clearTimeout(nomusSearchTimer.current);
     nomusSearchTimer.current = setTimeout(async () => {
       setNomusClientLoading(true);
-      try {
-        const enc = encodeURIComponent(query.trim());
-        const headers = { "Content-Type": "application/json", "Accept": "application/json" };
-        const fetches = ["nome", "razaoSocial", "nomeFantasia"].map(field =>
-          fetch(`/api/nomus/rest/pessoas?query=${field}=like=%25${enc}%25`, { headers })
-            .then(r => r.ok ? r.json() : [])
-            .catch(() => [])
-        );
-        const [r1, r2, r3] = await Promise.all(fetches);
-        const seen = new Set<number>();
-        const results: { id: number; nome: string }[] = [];
-        for (const p of [...(Array.isArray(r1) ? r1 : []), ...(Array.isArray(r2) ? r2 : []), ...(Array.isArray(r3) ? r3 : [])]) {
-          if (seen.has(p.id)) continue;
+      const enc = encodeURIComponent(query.trim());
+      // Busca sequencial: nome primeiro (rápido), depois razaoSocial e nomeFantasia
+      const seen = new Set<number>();
+      const results: { id: number; nome: string }[] = [];
+      for (const field of ["nome", "razaoSocial", "nomeFantasia"]) {
+        if (results.length >= 20) break;
+        const list = await nomusGet(field, enc);
+        for (const p of list) {
+          if (seen.has(p.id) || results.length >= 20) continue;
           seen.add(p.id);
           results.push({ id: p.id, nome: p.nomeFantasia || p.razaoSocial || p.nome || `ID ${p.id}` });
-          if (results.length >= 20) break;
         }
-        setNomusClientResults(results);
-        setNomusClientOpen(results.length > 0);
-      } catch (e: any) {
-        console.error("nomus-search error:", e);
-        setNomusClientResults([]);
+        if (results.length >= 5) break; // já tem resultados suficientes, não precisa ir adiante
       }
+      setNomusClientResults(results);
+      setNomusClientOpen(results.length > 0);
       setNomusClientLoading(false);
-    }, 600);
+    }, 500);
   };
 
   const selectNomusClient = (client: { id: number; nome: string }) => {
@@ -173,29 +181,18 @@ const PGDetailPage = () => {
   const resolveNomusClientId = async (name: string): Promise<number | null> => {
     const q = name.trim();
     if (!q) return null;
-    const headers = { "Content-Type": "application/json", "Accept": "application/json" };
     const words = q.split(/\s+/);
-    // Tenta: nome completo, primeiro sobrenome, primeiro nome — para cada campo
     const terms = [q, ...(words.length > 2 ? [words.slice(0, 2).join(" ")] : []), words[0]];
-    const fields = ["nome", "razaoSocial", "nomeFantasia"];
     for (const term of terms) {
       const enc = encodeURIComponent(term);
-      for (const field of fields) {
-        try {
-          const res = await fetch(
-            `/api/nomus/rest/pessoas?query=${field}=like=%25${enc}%25`,
-            { headers }
+      for (const field of ["nome", "razaoSocial", "nomeFantasia"]) {
+        const list = await nomusGet(field, enc);
+        if (list.length > 0) {
+          const exact = list.find((p: any) =>
+            [p.nome, p.razaoSocial, p.nomeFantasia].some((n: string) => n?.toLowerCase() === q.toLowerCase())
           );
-          if (!res.ok) continue;
-          const body = await res.json().catch(() => null);
-          const list: any[] = Array.isArray(body) ? body : [];
-          if (list.length > 0) {
-            const exact = list.find((p: any) =>
-              [p.nome, p.razaoSocial, p.nomeFantasia].some(n => n?.toLowerCase() === q.toLowerCase())
-            );
-            return (exact ?? list[0]).id as number;
-          }
-        } catch { /* try next */ }
+          return ((exact ?? list[0]) as any).id as number;
+        }
       }
     }
     return null;
