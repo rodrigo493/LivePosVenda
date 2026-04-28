@@ -16,6 +16,7 @@ export interface StageAutomation {
   action_config: Record<string, unknown>;
   position: number;
   is_active: boolean;
+  delay_minutes: number;
 }
 
 export function usePipelineAutomations(pipelineId: string | null | undefined) {
@@ -38,6 +39,7 @@ export function usePipelineAutomations(pipelineId: string | null | undefined) {
         action_config: row.action_config ?? {},
         position: row.position,
         is_active: row.is_active,
+        delay_minutes: row.delay_minutes ?? 0,
       }));
     },
   });
@@ -71,6 +73,7 @@ export function useSaveStageAutomations() {
               action_config: a.action_config,
               position: i,
               is_active: a.is_active,
+              delay_minutes: a.delay_minutes ?? 0,
             }))
           );
         if (error) throw error;
