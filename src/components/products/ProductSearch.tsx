@@ -18,7 +18,7 @@ interface ProductSearchProps {
 
 type StockEntry = { loading: boolean; qty: number | null };
 
-// Cache de módulo: carrega todos os produtos Nomus uma vez por sessão
+// Cache de módulo: carrega TODOS os produtos Nomus (paginado) uma vez por sessão
 const _nomusIdMap: Map<string, number> = new Map();
 let _nomusMapLoaded = false;
 let _nomusMapPromise: Promise<void> | null = null;
@@ -26,15 +26,27 @@ let _nomusMapPromise: Promise<void> | null = null;
 const ensureNomusMap = (): Promise<void> => {
   if (_nomusMapLoaded) return Promise.resolve();
   if (_nomusMapPromise) return _nomusMapPromise;
-  _nomusMapPromise = fetch("/api/nomus/rest/produtos", { headers: { Accept: "application/json" } })
-    .then(r => r.ok ? r.json() : [])
-    .then((list: any[]) => {
-      if (Array.isArray(list)) {
-        list.forEach(p => { if (p.codigo && p.id) _nomusIdMap.set(p.codigo, Number(p.id)); });
+  _nomusMapPromise = (async () => {
+    try {
+      let page = 1;
+      while (page <= 100) {
+        const url = page === 1
+          ? "/api/nomus/rest/produtos"
+          : `/api/nomus/rest/produtos?pagina=${page}`;
+        const r = await fetch(url, { headers: { Accept: "application/json" } });
+        if (!r.ok) break;
+        const list = await r.json();
+        if (!Array.isArray(list) || list.length === 0) break;
+        list.forEach((p: any) => {
+          if (p.codigo && p.id) _nomusIdMap.set(String(p.codigo).trim(), Number(p.id));
+        });
+        // Se veio menos que 50 itens provavelmente é a última página
+        if (list.length < 50) break;
+        page++;
       }
-      _nomusMapLoaded = true;
-    })
-    .catch(() => { _nomusMapLoaded = true; });
+    } catch { /* falha silenciosa */ }
+    _nomusMapLoaded = true;
+  })();
   return _nomusMapPromise;
 };
 
@@ -131,13 +143,15 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
         const r = await fetch(`/api/nomus/rest/saldosEstoqueProduto/${nomusId}`, { headers: { Accept: "application/json" } });
         if (!r.ok) throw new Error();
         const stockData = await r.json();
-        const total = Array.isArray(stockData)
-          ? stockData.reduce((sum: number, s: any) => {
-              const v = parseFloat((s.saldoTotal || "0").replace(",", "."));
-              return sum + (isNaN(v) ? 0 : v);
-            }, 0)
-          : 0;
-        setStockMap(prev => ({ ...prev, [code]: { loading: false, qty: total } }));
+        // Filtra pela empresa 2 (empresa operacional); soma todos os setores dela
+        const empresa2 = Array.isArray(stockData)
+          ? stockData.filter((s: any) => s.idEmpresa === 2)
+          : [];
+        const total = empresa2.reduce((sum: number, s: any) => {
+          const v = parseFloat((s.saldoTotal || "0").replace(",", "."));
+          return sum + (isNaN(v) ? 0 : v);
+        }, 0);
+        setStockMap(prev => ({ ...prev, [code]: { loading: false, qty: Math.max(0, total) } }));
       } catch {
         setStockMap(prev => ({ ...prev, [code]: { loading: false, qty: null } }));
       }
@@ -157,7 +171,7 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
         "text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap",
         s.qty > 0 ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400"
       )}>
-        {s.qty > 0 ? `${Math.round(s.qty)} em estoque` : "sem estoque"}
+        {Math.round(s.qty)} em estoque
       </span>
     );
   };
