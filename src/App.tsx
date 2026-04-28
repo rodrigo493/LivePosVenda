@@ -5,7 +5,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { CrmPermissionsProvider, useCrmPermissionsContext } from "@/contexts/CrmPermissionsContext";
+import { CrmPermissionsProvider } from "@/contexts/CrmPermissionsContext";
 import AuthPage from "./pages/AuthPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import { LaivinhaChat } from "@/components/laivinha/LaivinhaChat";
@@ -59,8 +59,9 @@ const queryClient = new QueryClient({
 });
 
 function AdminRoute({ children }: { children: React.ReactNode }) {
-  const { isAdmin } = useCrmPermissionsContext();
-  return isAdmin ? <>{children}</> : <Navigate to="/meu-painel" replace />;
+  const { rolesLoading, hasRole } = useAuth();
+  if (rolesLoading) return <PageLoader />;
+  return hasRole("admin") ? <>{children}</> : <Navigate to="/meu-painel" replace />;
 }
 
 function PageLoader() {
