@@ -1,9 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="5" fill="#1F2937"/>
-  <!-- V mark: arms in light gray -->
-  <path d="M4 6 L16 26 L28 6" stroke="#D1D5DB" stroke-width="8" fill="none"
+  <!-- Black rounded background -->
+  <rect width="32" height="32" rx="6" fill="#111111"/>
+
+  <!-- V mark: thick white arms -->
+  <path d="M5 5 L16 27 L27 5"
+        stroke="white" stroke-width="8" fill="none"
         stroke-linejoin="round" stroke-linecap="round"/>
-  <!-- Orange arc across the top opening of the V -->
-  <path d="M9 7.5 A8.5 6 0 0 0 23 7.5" stroke="#F97316" stroke-width="3"
-        fill="none" stroke-linecap="round"/>
+
+  <!-- Orange horseshoe: short vertical arms + upward arch -->
+  <path d="M11 9 L11 7 A5.5 5 0 0 0 21 7 L21 9"
+        stroke="#F97316" stroke-width="2.5" fill="none"
+        stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
