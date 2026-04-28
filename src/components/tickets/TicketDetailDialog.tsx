@@ -4,8 +4,15 @@ import {
   Clock, User, Tag, FileText, MessageSquare, Calendar, Package,
   AlertTriangle, Send, Pencil, Check, X, Wrench, Shield, ClipboardList,
   ExternalLink, Receipt, Settings2, ArrowLeft, Cpu, Plus, ChevronDown, History, CheckSquare, Brain,
-  BookOpen, Upload, Trash2,
+  BookOpen, Upload, Trash2, MoreVertical, Copy, PauseCircle, PlayCircle,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import ReactMarkdown from "react-markdown";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -30,6 +37,7 @@ import { useMarkConversationRead } from "@/hooks/useWhatsAppConversations";
 import { TaskCreateDialog } from "@/components/tasks/TaskCreateDialog";
 import { toast } from "sonner";
 import { useMovePipelineStage } from "@/hooks/usePipeline";
+import { useSoftDeleteTicket } from "@/hooks/useTickets";
 import { usePipelineStages } from "@/hooks/usePipelineStages";
 import { usePipelines } from "@/hooks/usePipelines";
 import { useAllUsers } from "@/hooks/useUserAccess";
@@ -309,7 +317,7 @@ function EditableField({ value, onSave, saving, placeholder, icon, label, border
 
 export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, hasRole } = useAuth();
   const qc = useQueryClient();
   const [ticketDescription, setTicketDescription] = useState("");
   const [ticketInternalNotes, setTicketInternalNotes] = useState("");
@@ -345,6 +353,12 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   const [psAprovada, setPsAprovada] = useState(false);
   const [showBlockingModal, setShowBlockingModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ── 3-dots admin menu state ───────────────────────────────────
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [unpauseOpen, setUnpauseOpen] = useState(false);
+  const [unpauseStage, setUnpauseStage] = useState("");
+  const softDelete = useSoftDeleteTicket();
 
   const toggleSel = (set: Set<string>, setFn: (s: Set<string>) => void, id: string) => {
     const next = new Set(set);
@@ -385,7 +399,6 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   const { data: clientHistory } = useClientServiceHistory(enabledClientId);
   const { data: ticketEntregaveis } = useTicketEntregaveis(enabledId);
   const { data: ticketMemoria } = useTicketMemoria(enabledId);
-  const { hasRole } = useAuth();
   const isAdmin = hasRole("admin" as any);
 
   const aprovarMemoria = useMutation({
@@ -1035,6 +1048,90 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                       )}
                     </div>
                   </button>
+                )}
+
+                {/* ── Menu 3 pontos — somente admin ── */}
+                {isAdmin && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-6 w-6 ml-1">
+                        <MoreVertical className="h-3.5 w-3.5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-44">
+                      {/* Duplicar */}
+                      <DropdownMenuItem
+                        className="cursor-pointer"
+                        onSelect={async () => {
+                          const { data: stages } = await (supabase as any)
+                            .from("pipeline_stages")
+                            .select("key, position")
+                            .eq("pipeline_id", localPipelineId)
+                            .order("position", { ascending: true })
+                            .limit(1);
+                          const firstStage = stages?.[0]?.key ?? "sem_atendimento";
+                          await (supabase as any).from("tickets").insert({
+                            title: ticket.title,
+                            client_id: ticket.client_id,
+                            ticket_type: ticket.ticket_type,
+                            priority: ticket.priority,
+                            assigned_to: user?.id,
+                            pipeline_id: localPipelineId,
+                            pipeline_stage: firstStage,
+                            pipeline_position: 9999,
+                            status: "aberto",
+                            ticket_number: "",
+                          });
+                          qc.invalidateQueries({ queryKey: ["pipeline-tickets"] });
+                          toast.success("Card duplicado na 1ª etapa.");
+                          onOpenChange(false);
+                        }}
+                      >
+                        <Copy className="h-3.5 w-3.5 mr-2" />
+                        Duplicar card
+                      </DropdownMenuItem>
+
+                      <DropdownMenuSeparator />
+
+                      {/* Pausar / Despausar */}
+                      {ticket.is_paused ? (
+                        <DropdownMenuItem
+                          className="cursor-pointer"
+                          onSelect={() => {
+                            setUnpauseStage(pipelineStages[0]?.key ?? "");
+                            setUnpauseOpen(true);
+                          }}
+                        >
+                          <PlayCircle className="h-3.5 w-3.5 mr-2" />
+                          Despausar card
+                        </DropdownMenuItem>
+                      ) : (
+                        <DropdownMenuItem
+                          className="cursor-pointer"
+                          onSelect={async () => {
+                            await (supabase as any).from("tickets").update({ is_paused: true }).eq("id", ticket.id);
+                            qc.invalidateQueries({ queryKey: ["pipeline-tickets"] });
+                            toast.success("Card pausado.");
+                            onOpenChange(false);
+                          }}
+                        >
+                          <PauseCircle className="h-3.5 w-3.5 mr-2" />
+                          Pausar card
+                        </DropdownMenuItem>
+                      )}
+
+                      <DropdownMenuSeparator />
+
+                      {/* Deletar */}
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive cursor-pointer"
+                        onSelect={() => setConfirmDelete(true)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5 mr-2" />
+                        Deletar card
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 )}
               </div>
               <DialogTitle className="text-lg">{ticket.title}</DialogTitle>
@@ -2186,6 +2283,77 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
         </div>
       </DialogContent>
     </Dialog>
+
+    {/* ── Confirm Delete Card ── */}
+    {confirmDelete && (
+      <div className="fixed inset-0 bg-black/40 z-[200] flex items-center justify-center">
+        <div className="bg-card rounded-xl border shadow-xl p-6 max-w-sm w-full mx-4">
+          <h3 className="font-semibold text-base mb-1">Deletar card</h3>
+          <p className="text-sm text-muted-foreground mb-4">
+            Tem certeza? Esta ação não pode ser desfeita facilmente.
+          </p>
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" size="sm" onClick={() => setConfirmDelete(false)}>
+              Cancelar
+            </Button>
+            <Button
+              size="sm"
+              variant="destructive"
+              disabled={softDelete.isPending}
+              onClick={async () => {
+                await softDelete.mutateAsync(ticket.id);
+                toast.success("Card deletado.");
+                setConfirmDelete(false);
+                onOpenChange(false);
+              }}
+            >
+              {softDelete.isPending ? "Deletando..." : "Deletar"}
+            </Button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* ── Unpause Dialog ── */}
+    {unpauseOpen && (
+      <div className="fixed inset-0 bg-black/40 z-[200] flex items-center justify-center">
+        <div className="bg-card rounded-xl border shadow-xl p-6 max-w-sm w-full mx-4">
+          <h3 className="font-semibold text-base mb-1">Despausar card</h3>
+          <p className="text-sm text-muted-foreground mb-3">
+            Selecione a etapa onde o card deve retornar:
+          </p>
+          <select
+            className="w-full text-sm border rounded px-2 py-1.5 bg-background mb-4"
+            value={unpauseStage}
+            onChange={(e) => setUnpauseStage(e.target.value)}
+          >
+            {(pipelineStages || []).map((s: any) => (
+              <option key={s.key} value={s.key}>{s.label}</option>
+            ))}
+          </select>
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" size="sm" onClick={() => setUnpauseOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              size="sm"
+              onClick={async () => {
+                await (supabase as any)
+                  .from("tickets")
+                  .update({ is_paused: false, pipeline_stage: unpauseStage })
+                  .eq("id", ticket.id);
+                qc.invalidateQueries({ queryKey: ["pipeline-tickets"] });
+                toast.success("Card despausado.");
+                setUnpauseOpen(false);
+                onOpenChange(false);
+              }}
+            >
+              Despausar
+            </Button>
+          </div>
+        </div>
+      </div>
+    )}
     </>
   );
 }
