@@ -1011,12 +1011,12 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                     title={clientTasks[0].title}
                   >
                     <div className="flex items-center gap-1">
-                      <CheckSquare className="h-3 w-3 text-green-400 flex-shrink-0" />
-                      <span className="text-[10px] font-semibold text-green-300 truncate max-w-[180px]">
+                      <CheckSquare className="h-3 w-3 text-white flex-shrink-0" />
+                      <span className="text-[10px] font-semibold text-white truncate max-w-[300px]">
                         {clientTasks[0].title}
                       </span>
                     </div>
-                    <div className="flex items-center gap-1.5 pl-4 text-[9px] text-green-400/80">
+                    <div className="flex items-center gap-1.5 pl-4 text-[9px] text-white/80">
                       {clientTasks[0].due_date && (
                         <span className="flex items-center gap-0.5">
                           <Calendar className="h-2.5 w-2.5" />
