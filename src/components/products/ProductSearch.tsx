@@ -100,31 +100,35 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
   useEffect(() => {
     if (!showNomusStock || !filtered.length) return;
 
-    const resolveNomusId = async (code: string, name?: string): Promise<number | null> => {
-      const codeVariants = [code, code.toUpperCase(), code.replace(/\./g, ""), code.replace(/\./g, "-")];
-      for (const v of codeVariants) {
-        const r = await fetch(`/api/nomus/rest/produtos?query=codigo==${encodeURIComponent(v)}`, { headers: { Accept: "application/json" } });
-        if (!r.ok) continue;
-        const prods = await r.json();
-        if (Array.isArray(prods) && prods.length > 0) return prods[0].id as number;
-      }
-      if (name) {
-        const firstWord = name.split(" ").slice(0, 3).join(" ");
-        const r = await fetch(`/api/nomus/rest/produtos?query=descricao=*${encodeURIComponent(firstWord.toUpperCase())}*`, { headers: { Accept: "application/json" } });
-        if (r.ok) {
+    const resolveNomusId = async (code: string): Promise<number | null> => {
+      // Tenta diferentes formatos de query FIQL que o Nomus aceita
+      const attempts = [
+        // Valor entre aspas duplas + query inteira encoded (mais seguro com pontos)
+        `/api/nomus/rest/produtos?query=${encodeURIComponent(`codigo=="${code}"`)}`,
+        // FIQL == com valor url-encoded direto
+        `/api/nomus/rest/produtos?query=codigo==${encodeURIComponent(code)}`,
+        // Mesmo padrão do client search (= simples + aspas)
+        `/api/nomus/rest/produtos?query=${encodeURIComponent(`codigo="${code}"`)}`,
+        // Wildcard no código para capturar variações
+        `/api/nomus/rest/produtos?query=${encodeURIComponent(`codigo="*${code}*"`)}`,
+      ];
+      for (const url of attempts) {
+        try {
+          const r = await fetch(url, { headers: { Accept: "application/json" } });
+          if (!r.ok) continue;
           const prods = await r.json();
           if (Array.isArray(prods) && prods.length > 0) return prods[0].id as number;
-        }
+        } catch { continue; }
       }
       return null;
     };
 
-    const fetchStock = async (code: string, name?: string) => {
+    const fetchStock = async (code: string) => {
       if (!code || fetchedRef.current.has(code)) return;
       fetchedRef.current.add(code);
       setStockMap(prev => ({ ...prev, [code]: { loading: true, qty: null } }));
       try {
-        const nomusId = await resolveNomusId(code, name);
+        const nomusId = await resolveNomusId(code);
         if (nomusId === null) throw new Error("not found");
         const r2 = await fetch(`/api/nomus/rest/saldosEstoqueProduto/${nomusId}`, { headers: { Accept: "application/json" } });
         if (!r2.ok) throw new Error();
@@ -141,7 +145,7 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
       }
     };
 
-    filtered.forEach(p => fetchStock(p.code, p.name));
+    filtered.forEach(p => fetchStock(p.code));
   }, [filtered, showNomusStock]);
 
   const renderStock = (code: string) => {
