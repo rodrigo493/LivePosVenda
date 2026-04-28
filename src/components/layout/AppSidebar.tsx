@@ -78,12 +78,12 @@ const managementNav = [
 ];
 
 const otherNav = [
-  { title: "Portal do Cliente", url: "/portal",        icon: UserCircle, moduleKey: "portal_cliente" },
-  { title: "Configurações",     url: "/configuracoes", icon: Settings,   moduleKey: null },
+  { title: "Portal do Cliente", url: "/portal", icon: UserCircle, moduleKey: "portal_cliente" },
 ];
 
 const adminNav = [
-  { title: "Permissões CRM", url: "/crm-permissions", icon: Shield, moduleKey: null },
+  { title: "Configurações",  url: "/configuracoes",  icon: Settings, moduleKey: null },
+  { title: "Permissões CRM", url: "/crm-permissions", icon: Shield,   moduleKey: null },
 ];
 
 export function AppSidebar() {

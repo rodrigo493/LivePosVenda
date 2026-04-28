@@ -251,21 +251,12 @@ function DashboardContent() {
     setSelectedUserIds([]);
   };
 
-  // Usuários com chamados no fluxo selecionado
+  // Todos os usuários do sistema (independente de terem chamados)
   const usersInPipeline = useMemo(() => {
-    const seen = new Set<string>();
-    const result: { id: string; name: string }[] = [];
-    (allTickets || [])
-      .filter((t) => selectedPipelineId === "all" || t.pipeline_id === selectedPipelineId)
-      .forEach((t) => {
-        if (t.assigned_to && !seen.has(t.assigned_to)) {
-          seen.add(t.assigned_to);
-          const profile = profiles?.find((p) => p.user_id === t.assigned_to);
-          result.push({ id: t.assigned_to, name: profile?.full_name || "Usuário" });
-        }
-      });
-    return result.sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
-  }, [allTickets, selectedPipelineId, profiles]);
+    return (profiles || [])
+      .map((p) => ({ id: p.user_id, name: p.full_name || "Usuário" }))
+      .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  }, [profiles]);
 
   // Tickets filtrados
   const filteredTickets = useMemo(

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Settings, Users, Bell, Database, Mail, Shield, DollarSign, FlaskConical, Save, Brain, UserPlus, Trash2, Pencil, KeyRound, Link, MessageSquare, ChevronDown, Briefcase } from "lucide-react";
+import { Settings, Users, Bell, Database, Mail, Shield, DollarSign, FlaskConical, Save, Brain, UserPlus, Trash2, Pencil, KeyRound, Link, MessageSquare, ChevronDown } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -370,7 +370,7 @@ function UserManagement() {
   const { user: me } = useAuth();
   const [form, setForm] = useState({ full_name: "", email: "", password: "", role: "atendimento", job_functions: [] as string[] });
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editMode, setEditMode] = useState<"role" | "password" | "info" | "functions">("role");
+  const [editMode, setEditMode] = useState<"role" | "password" | "info">("role");
   const [editRole, setEditRole] = useState("");
   const [editPassword, setEditPassword] = useState("");
   const [editName, setEditName] = useState("");
@@ -543,20 +543,21 @@ function UserManagement() {
                         />
                       </>
                     ) : editMode === "role" ? (
-                      <Select value={editRole} onValueChange={setEditRole}>
-                        <SelectTrigger className="h-7 w-44 text-xs">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {APP_ROLES.map((r) => (
-                            <SelectItem key={r.value} value={r.value} className="text-xs">{r.label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : editMode === "functions" ? (
-                      <div className="w-64">
-                        <JobFunctionsSelect selected={editFunctions} onChange={setEditFunctions} />
-                      </div>
+                      <>
+                        <Select value={editRole} onValueChange={setEditRole}>
+                          <SelectTrigger className="h-7 w-44 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {APP_ROLES.map((r) => (
+                              <SelectItem key={r.value} value={r.value} className="text-xs">{r.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <div className="w-56">
+                          <JobFunctionsSelect selected={editFunctions} onChange={setEditFunctions} />
+                        </div>
+                      </>
                     ) : (
                       <Input
                         type="password"
@@ -571,8 +572,7 @@ function UserManagement() {
                       className="h-7 text-xs"
                       onClick={() => {
                         if (editMode === "info") updateMut.mutate({ user_id: u.user_id, full_name: editName || undefined, email: editEmail || undefined });
-                        else if (editMode === "role") updateMut.mutate({ user_id: u.user_id, role: editRole });
-                        else if (editMode === "functions") updateMut.mutate({ user_id: u.user_id, job_functions: editFunctions } as any);
+                        else if (editMode === "role") updateMut.mutate({ user_id: u.user_id, role: editRole, job_functions: editFunctions } as any);
                         else updateMut.mutate({ user_id: u.user_id, password: editPassword });
                       }}
                       disabled={updateMut.isPending || (editMode === "password" && editPassword.length < 6)}
@@ -608,28 +608,19 @@ function UserManagement() {
                       size="sm"
                       variant="ghost"
                       className="h-7 w-7 p-0"
-                      title="Alterar perfil"
-                      onClick={() => { setEditingId(u.user_id); setEditMode("role"); setEditRole(u.roles[0] ?? "atendimento"); }}
+                      title="Alterar perfil e funções"
+                      onClick={() => { setEditingId(u.user_id); setEditMode("role"); setEditRole(u.roles[0] ?? "atendimento"); setEditFunctions(u.job_functions); }}
                     >
                       <Shield className="h-3.5 w-3.5" />
                     </Button>
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="h-7 w-7 p-0"
-                      title="Editar funções"
-                      onClick={() => { setEditingId(u.user_id); setEditMode("functions"); setEditFunctions(u.job_functions); }}
-                    >
-                      <Briefcase className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 w-7 p-0"
-                      title="Alterar senha"
+                      className="h-7 gap-1 px-2 text-xs"
                       onClick={() => { setEditingId(u.user_id); setEditMode("password"); setEditPassword(""); }}
                     >
                       <KeyRound className="h-3.5 w-3.5" />
+                      Mudar senha
                     </Button>
                     {u.user_id !== me?.id && (
                       <Button
