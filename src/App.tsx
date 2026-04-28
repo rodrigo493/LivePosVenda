@@ -42,6 +42,7 @@ const ManualPage = lazy(() => import("./pages/ManualPage"));
 const CrmPermissionsPage = lazy(() => import("./pages/CrmPermissionsPage"));
 const TasksAgendaPage = lazy(() => import("./pages/TasksAgendaPage"));
 const ProdutosNegociacaoPage = lazy(() => import("./pages/ProdutosNegociacaoPage"));
+const RdStationPage = lazy(() => import("./pages/RdStationPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient({
@@ -127,6 +128,7 @@ function AppRoutes() {
             <Route path="/crm-permissions" element={<CrmPermissionsPage />} />
             <Route path="/tarefas" element={<TasksAgendaPage />} />
             <Route path="/produtos-negociacao" element={<ProdutosNegociacaoPage />} />
+            <Route path="/integracoes/rd-station" element={<RdStationPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>

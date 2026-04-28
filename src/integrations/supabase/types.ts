@@ -76,6 +76,39 @@ export type Database = {
         }
         Relationships: []
       }
+      agentes_config: {
+        Row: {
+          ativo: boolean
+          created_at: string
+          emoji: string | null
+          id: string
+          nome: string
+          papel: string | null
+          soul_prompt: string
+          updated_at: string
+        }
+        Insert: {
+          ativo?: boolean
+          created_at?: string
+          emoji?: string | null
+          id?: string
+          nome: string
+          papel?: string | null
+          soul_prompt: string
+          updated_at?: string
+        }
+        Update: {
+          ativo?: boolean
+          created_at?: string
+          emoji?: string | null
+          id?: string
+          nome?: string
+          papel?: string | null
+          soul_prompt?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       ai_daily_reports: {
         Row: {
           created_at: string
@@ -246,6 +279,7 @@ export type Database = {
       clients: {
         Row: {
           address: string | null
+          assigned_to: string | null
           city: string | null
           client_code: string | null
           contact_person: string | null
@@ -258,6 +292,7 @@ export type Database = {
           name: string
           notes: string | null
           phone: string | null
+          rd_contact_id: string | null
           state: string | null
           status: string
           updated_at: string
@@ -268,6 +303,7 @@ export type Database = {
         }
         Insert: {
           address?: string | null
+          assigned_to?: string | null
           city?: string | null
           client_code?: string | null
           contact_person?: string | null
@@ -280,6 +316,7 @@ export type Database = {
           name: string
           notes?: string | null
           phone?: string | null
+          rd_contact_id?: string | null
           state?: string | null
           status?: string
           updated_at?: string
@@ -290,6 +327,7 @@ export type Database = {
         }
         Update: {
           address?: string | null
+          assigned_to?: string | null
           city?: string | null
           client_code?: string | null
           contact_person?: string | null
@@ -302,6 +340,7 @@ export type Database = {
           name?: string
           notes?: string | null
           phone?: string | null
+          rd_contact_id?: string | null
           state?: string | null
           status?: string
           updated_at?: string
@@ -309,6 +348,57 @@ export type Database = {
           whatsapp?: string | null
           whatsapp_last_read_at?: string | null
           zip_code?: string | null
+        }
+        Relationships: []
+      }
+      crm_module_permissions: {
+        Row: {
+          created_at: string
+          id: string
+          module_key: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          module_key: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          module_key?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      deal_catalog_products: {
+        Row: {
+          base_price: number
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          updated_at: string
+          visible: boolean
+        }
+        Insert: {
+          base_price?: number
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          updated_at?: string
+          visible?: boolean
+        }
+        Update: {
+          base_price?: number
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          updated_at?: string
+          visible?: boolean
         }
         Relationships: []
       }
@@ -350,6 +440,58 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      entregaveis_agente: {
+        Row: {
+          conteudo_md: string
+          created_at: string
+          evento_id: string | null
+          id: string
+          id_agente: string
+          ticket_id: string | null
+          tipo: string
+        }
+        Insert: {
+          conteudo_md: string
+          created_at?: string
+          evento_id?: string | null
+          id?: string
+          id_agente: string
+          ticket_id?: string | null
+          tipo: string
+        }
+        Update: {
+          conteudo_md?: string
+          created_at?: string
+          evento_id?: string | null
+          id?: string
+          id_agente?: string
+          ticket_id?: string | null
+          tipo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "entregaveis_agente_evento_id_fkey"
+            columns: ["evento_id"]
+            isOneToOne: false
+            referencedRelation: "eventos_autonomos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "entregaveis_agente_id_agente_fkey"
+            columns: ["id_agente"]
+            isOneToOne: false
+            referencedRelation: "agentes_config"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "entregaveis_agente_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "tickets"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       equipment_models: {
         Row: {
@@ -446,6 +588,73 @@ export type Database = {
             columns: ["model_id"]
             isOneToOne: false
             referencedRelation: "equipment_models"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      eventos_autonomos: {
+        Row: {
+          client_id: string | null
+          created_at: string
+          erro: string | null
+          id: string
+          id_agente: string | null
+          metadata: Json
+          prioridade: number
+          processed_at: string | null
+          resultado: Json | null
+          status: string
+          ticket_id: string | null
+          tipo: string
+        }
+        Insert: {
+          client_id?: string | null
+          created_at?: string
+          erro?: string | null
+          id?: string
+          id_agente?: string | null
+          metadata?: Json
+          prioridade?: number
+          processed_at?: string | null
+          resultado?: Json | null
+          status?: string
+          ticket_id?: string | null
+          tipo: string
+        }
+        Update: {
+          client_id?: string | null
+          created_at?: string
+          erro?: string | null
+          id?: string
+          id_agente?: string | null
+          metadata?: Json
+          prioridade?: number
+          processed_at?: string | null
+          resultado?: Json | null
+          status?: string
+          ticket_id?: string | null
+          tipo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "eventos_autonomos_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "eventos_autonomos_id_agente_fkey"
+            columns: ["id_agente"]
+            isOneToOne: false
+            referencedRelation: "agentes_config"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "eventos_autonomos_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "tickets"
             referencedColumns: ["id"]
           },
         ]
@@ -728,6 +937,65 @@ export type Database = {
           },
         ]
       }
+      memoria_problema_solucao: {
+        Row: {
+          aprovada: boolean
+          causa_raiz: string | null
+          created_at: string
+          criado_por: string | null
+          evidencias_urls: Json
+          id: string
+          modelo_aparelho: string
+          origem_ticket_id: string | null
+          pecas: Json
+          sintoma: string
+          solucao_md: string
+          tags: string[]
+          ts_search: unknown
+          updated_at: string
+        }
+        Insert: {
+          aprovada?: boolean
+          causa_raiz?: string | null
+          created_at?: string
+          criado_por?: string | null
+          evidencias_urls?: Json
+          id?: string
+          modelo_aparelho: string
+          origem_ticket_id?: string | null
+          pecas?: Json
+          sintoma: string
+          solucao_md: string
+          tags?: string[]
+          ts_search?: unknown
+          updated_at?: string
+        }
+        Update: {
+          aprovada?: boolean
+          causa_raiz?: string | null
+          created_at?: string
+          criado_por?: string | null
+          evidencias_urls?: Json
+          id?: string
+          modelo_aparelho?: string
+          origem_ticket_id?: string | null
+          pecas?: Json
+          sintoma?: string
+          solucao_md?: string
+          tags?: string[]
+          ts_search?: unknown
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "memoria_problema_solucao_origem_ticket_id_fkey"
+            columns: ["origem_ticket_id"]
+            isOneToOne: false
+            referencedRelation: "tickets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       model_maintenance_templates: {
         Row: {
           component: string
@@ -793,6 +1061,272 @@ export type Database = {
           id?: string
           nomus_id?: number
           updated_at?: string | null
+        }
+        Relationships: []
+      }
+      pipeline_automation_queue: {
+        Row: {
+          automation_id: string
+          created_at: string
+          error: string | null
+          execute_at: string
+          executed_at: string | null
+          id: string
+          stage_id: string
+          status: string
+          ticket_id: string
+        }
+        Insert: {
+          automation_id: string
+          created_at?: string
+          error?: string | null
+          execute_at: string
+          executed_at?: string | null
+          id?: string
+          stage_id: string
+          status?: string
+          ticket_id: string
+        }
+        Update: {
+          automation_id?: string
+          created_at?: string
+          error?: string | null
+          execute_at?: string
+          executed_at?: string | null
+          id?: string
+          stage_id?: string
+          status?: string
+          ticket_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pipeline_automation_queue_automation_id_fkey"
+            columns: ["automation_id"]
+            isOneToOne: false
+            referencedRelation: "pipeline_stage_automations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pipeline_automation_queue_stage_id_fkey"
+            columns: ["stage_id"]
+            isOneToOne: false
+            referencedRelation: "pipeline_stages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pipeline_automation_queue_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "tickets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pipeline_stage_automations: {
+        Row: {
+          action_config: Json
+          action_type: string
+          created_at: string
+          delay_minutes: number
+          id: string
+          is_active: boolean
+          position: number
+          stage_id: string
+          trigger_type: string
+        }
+        Insert: {
+          action_config?: Json
+          action_type: string
+          created_at?: string
+          delay_minutes?: number
+          id?: string
+          is_active?: boolean
+          position?: number
+          stage_id: string
+          trigger_type?: string
+        }
+        Update: {
+          action_config?: Json
+          action_type?: string
+          created_at?: string
+          delay_minutes?: number
+          id?: string
+          is_active?: boolean
+          position?: number
+          stage_id?: string
+          trigger_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pipeline_stage_automations_stage_id_fkey"
+            columns: ["stage_id"]
+            isOneToOne: false
+            referencedRelation: "pipeline_stages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pipeline_stage_user_access: {
+        Row: {
+          stage_id: string
+          user_id: string
+        }
+        Insert: {
+          stage_id: string
+          user_id: string
+        }
+        Update: {
+          stage_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pipeline_stage_user_access_stage_id_fkey"
+            columns: ["stage_id"]
+            isOneToOne: false
+            referencedRelation: "pipeline_stages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pipeline_stages: {
+        Row: {
+          color: string
+          created_at: string
+          delay_minutes: number
+          id: string
+          key: string
+          label: string
+          pipeline_id: string
+          position: number
+        }
+        Insert: {
+          color?: string
+          created_at?: string
+          delay_minutes?: number
+          id?: string
+          key: string
+          label: string
+          pipeline_id: string
+          position?: number
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          delay_minutes?: number
+          id?: string
+          key?: string
+          label?: string
+          pipeline_id?: string
+          position?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pipeline_stages_pipeline_id_fkey"
+            columns: ["pipeline_id"]
+            isOneToOne: false
+            referencedRelation: "pipelines"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pipeline_user_access: {
+        Row: {
+          pipeline_id: string
+          user_id: string
+        }
+        Insert: {
+          pipeline_id: string
+          user_id: string
+        }
+        Update: {
+          pipeline_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pipeline_user_access_pipeline_id_fkey"
+            columns: ["pipeline_id"]
+            isOneToOne: false
+            referencedRelation: "pipelines"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pipeline_whatsapp_instances: {
+        Row: {
+          active: boolean
+          base_url: string
+          created_at: string
+          distribution_pct: number
+          id: string
+          instance_name: string
+          instance_token: string
+          phone_number: string | null
+          pipeline_id: string
+          uazapi_instance_name: string
+        }
+        Insert: {
+          active?: boolean
+          base_url?: string
+          created_at?: string
+          distribution_pct?: number
+          id?: string
+          instance_name: string
+          instance_token: string
+          phone_number?: string | null
+          pipeline_id: string
+          uazapi_instance_name: string
+        }
+        Update: {
+          active?: boolean
+          base_url?: string
+          created_at?: string
+          distribution_pct?: number
+          id?: string
+          instance_name?: string
+          instance_token?: string
+          phone_number?: string | null
+          pipeline_id?: string
+          uazapi_instance_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pipeline_whatsapp_instances_pipeline_id_fkey"
+            columns: ["pipeline_id"]
+            isOneToOne: false
+            referencedRelation: "pipelines"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pipelines: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          is_active: boolean
+          name: string
+          position: number
+          slug: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          position?: number
+          slug: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          position?: number
+          slug?: string
         }
         Relationships: []
       }
@@ -961,6 +1495,7 @@ export type Database = {
           email: string | null
           full_name: string
           id: string
+          job_functions: string[]
           phone: string | null
           updated_at: string
           user_id: string
@@ -971,6 +1506,7 @@ export type Database = {
           email?: string | null
           full_name?: string
           id?: string
+          job_functions?: string[]
           phone?: string | null
           updated_at?: string
           user_id: string
@@ -981,6 +1517,7 @@ export type Database = {
           email?: string | null
           full_name?: string
           id?: string
+          job_functions?: string[]
           phone?: string | null
           updated_at?: string
           user_id?: string
@@ -1146,6 +1683,84 @@ export type Database = {
           },
         ]
       }
+      rd_integration_config: {
+        Row: {
+          api_token: string
+          created_at: string
+          id: string
+          import_stats: Json | null
+          is_active: boolean
+          last_import_at: string | null
+          last_webhook_at: string | null
+          pipeline_name: string
+          rd_pipeline_id: string | null
+          updated_at: string
+          webhook_secret: string
+        }
+        Insert: {
+          api_token: string
+          created_at?: string
+          id?: string
+          import_stats?: Json | null
+          is_active?: boolean
+          last_import_at?: string | null
+          last_webhook_at?: string | null
+          pipeline_name?: string
+          rd_pipeline_id?: string | null
+          updated_at?: string
+          webhook_secret?: string
+        }
+        Update: {
+          api_token?: string
+          created_at?: string
+          id?: string
+          import_stats?: Json | null
+          is_active?: boolean
+          last_import_at?: string | null
+          last_webhook_at?: string | null
+          pipeline_name?: string
+          rd_pipeline_id?: string | null
+          updated_at?: string
+          webhook_secret?: string
+        }
+        Relationships: []
+      }
+      rd_sync_log: {
+        Row: {
+          created_at: string
+          error_message: string | null
+          event_type: string | null
+          id: string
+          live_id: string | null
+          operation: string
+          payload: Json | null
+          rd_id: string | null
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          error_message?: string | null
+          event_type?: string | null
+          id?: string
+          live_id?: string | null
+          operation: string
+          payload?: Json | null
+          rd_id?: string | null
+          status: string
+        }
+        Update: {
+          created_at?: string
+          error_message?: string | null
+          event_type?: string | null
+          id?: string
+          live_id?: string | null
+          operation?: string
+          payload?: Json | null
+          rd_id?: string | null
+          status?: string
+        }
+        Relationships: []
+      }
       service_requests: {
         Row: {
           approved_by_client: boolean | null
@@ -1244,6 +1859,7 @@ export type Database = {
           created_by: string | null
           description: string | null
           due_date: string | null
+          due_time: string | null
           id: string
           priority: string
           status: string
@@ -1259,6 +1875,7 @@ export type Database = {
           created_by?: string | null
           description?: string | null
           due_date?: string | null
+          due_time?: string | null
           id?: string
           priority?: string
           status?: string
@@ -1274,6 +1891,7 @@ export type Database = {
           created_by?: string | null
           description?: string | null
           due_date?: string | null
+          due_time?: string | null
           id?: string
           priority?: string
           status?: string
@@ -1396,6 +2014,44 @@ export type Database = {
         }
         Relationships: []
       }
+      ticket_comments: {
+        Row: {
+          author_id: string | null
+          content: string
+          created_at: string
+          id: string
+          rd_activity_id: string | null
+          ticket_id: string
+          updated_at: string
+        }
+        Insert: {
+          author_id?: string | null
+          content: string
+          created_at?: string
+          id?: string
+          rd_activity_id?: string | null
+          ticket_id: string
+          updated_at?: string
+        }
+        Update: {
+          author_id?: string | null
+          content?: string
+          created_at?: string
+          id?: string
+          rd_activity_id?: string | null
+          ticket_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ticket_comments_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "tickets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tickets: {
         Row: {
           ai_triage: Json | null
@@ -1405,17 +2061,21 @@ export type Database = {
           closed_at: string | null
           created_at: string
           created_by: string | null
+          deleted_at: string | null
           description: string | null
           equipment_id: string | null
           estimated_value: number | null
           id: string
           internal_notes: string | null
+          is_paused: boolean
           last_interaction_at: string | null
           origin: string | null
+          pipeline_id: string
           pipeline_position: number | null
           pipeline_stage: string
           priority: string
           problem_category: string | null
+          rd_deal_id: string | null
           resolved_at: string | null
           status: Database["public"]["Enums"]["ticket_status"]
           ticket_number: string
@@ -1431,17 +2091,21 @@ export type Database = {
           closed_at?: string | null
           created_at?: string
           created_by?: string | null
+          deleted_at?: string | null
           description?: string | null
           equipment_id?: string | null
           estimated_value?: number | null
           id?: string
           internal_notes?: string | null
+          is_paused?: boolean
           last_interaction_at?: string | null
           origin?: string | null
+          pipeline_id: string
           pipeline_position?: number | null
           pipeline_stage?: string
           priority?: string
           problem_category?: string | null
+          rd_deal_id?: string | null
           resolved_at?: string | null
           status?: Database["public"]["Enums"]["ticket_status"]
           ticket_number: string
@@ -1457,17 +2121,21 @@ export type Database = {
           closed_at?: string | null
           created_at?: string
           created_by?: string | null
+          deleted_at?: string | null
           description?: string | null
           equipment_id?: string | null
           estimated_value?: number | null
           id?: string
           internal_notes?: string | null
+          is_paused?: boolean
           last_interaction_at?: string | null
           origin?: string | null
+          pipeline_id?: string
           pipeline_position?: number | null
           pipeline_stage?: string
           priority?: string
           problem_category?: string | null
+          rd_deal_id?: string | null
           resolved_at?: string | null
           status?: Database["public"]["Enums"]["ticket_status"]
           ticket_number?: string
@@ -1490,7 +2158,56 @@ export type Database = {
             referencedRelation: "equipments"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "tickets_pipeline_id_fkey"
+            columns: ["pipeline_id"]
+            isOneToOne: false
+            referencedRelation: "pipelines"
+            referencedColumns: ["id"]
+          },
         ]
+      }
+      user_admin_dashboard_layouts: {
+        Row: {
+          colors: Json
+          layout: Json
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          colors?: Json
+          layout?: Json
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          colors?: Json
+          layout?: Json
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_dashboard_layouts: {
+        Row: {
+          id: string
+          layout: Json
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          layout?: Json
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          id?: string
+          layout?: Json
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
       }
       user_roles: {
         Row: {
@@ -1652,8 +2369,10 @@ export type Database = {
           created_at: string
           direction: string
           id: string
+          instance_id: string | null
           manychat_message_id: string | null
           manychat_subscriber_id: string | null
+          media_debug: Json | null
           media_mime_type: string | null
           media_url: string | null
           message_text: string
@@ -1667,8 +2386,10 @@ export type Database = {
           created_at?: string
           direction: string
           id?: string
+          instance_id?: string | null
           manychat_message_id?: string | null
           manychat_subscriber_id?: string | null
+          media_debug?: Json | null
           media_mime_type?: string | null
           media_url?: string | null
           message_text: string
@@ -1682,8 +2403,10 @@ export type Database = {
           created_at?: string
           direction?: string
           id?: string
+          instance_id?: string | null
           manychat_message_id?: string | null
           manychat_subscriber_id?: string | null
+          media_debug?: Json | null
           media_mime_type?: string | null
           media_url?: string | null
           message_text?: string
@@ -1698,6 +2421,13 @@ export type Database = {
             columns: ["client_id"]
             isOneToOne: false
             referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_messages_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "pipeline_whatsapp_instances"
             referencedColumns: ["id"]
           },
           {
@@ -1847,6 +2577,15 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      claim_automation_queue: {
+        Args: { batch_size?: number }
+        Returns: {
+          automation_id: string
+          id: string
+          stage_id: string
+          ticket_id: string
+        }[]
+      }
       generate_pa_number: { Args: never; Returns: string }
       generate_pg_number: { Args: never; Returns: string }
       get_my_client_ids: { Args: never; Returns: string[] }
@@ -1862,6 +2601,10 @@ export type Database = {
         Returns: boolean
       }
       is_staff: { Args: { _user_id: string }; Returns: boolean }
+      mark_client_whatsapp_read: {
+        Args: { p_client_id: string }
+        Returns: undefined
+      }
       nomus_get_cached_id: {
         Args: { p_key: string; p_type: string }
         Returns: number
@@ -1925,6 +2668,8 @@ export type Database = {
         | "reprovado"
         | "resolvido"
         | "fechado"
+        | "cancelado"
+        | "pausado"
       ticket_type_enum:
         | "chamado_tecnico"
         | "garantia"
@@ -2126,6 +2871,8 @@ export const Constants = {
         "reprovado",
         "resolvido",
         "fechado",
+        "cancelado",
+        "pausado",
       ],
       ticket_type_enum: [
         "chamado_tecnico",
