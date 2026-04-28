@@ -18,10 +18,11 @@ interface ProductSearchProps {
 
 type StockEntry = { loading: boolean; qty: number | null };
 
-// Cache de módulo: carrega TODOS os produtos Nomus (paralelo) uma vez por sessão
+// Fila global: serializa todos os requests Nomus com 250ms entre eles
 const _nomusIdMap: Map<string, number> = new Map();
 let _nomusMapLoaded = false;
 let _nomusMapPromise: Promise<void> | null = null;
+let _nomusQueue: Promise<void> = Promise.resolve();
 
 const _addToMap = (list: any[]) => {
   list.forEach((p: any) => {
@@ -29,38 +30,44 @@ const _addToMap = (list: any[]) => {
   });
 };
 
+const _nomusGet = (url: string): Promise<Response> => {
+  let resolve!: (r: Response) => void;
+  let reject!: (e: unknown) => void;
+  const promise = new Promise<Response>((res, rej) => { resolve = res; reject = rej; });
+  _nomusQueue = _nomusQueue.then(
+    () => new Promise<void>(done =>
+      setTimeout(async () => {
+        try { resolve(await fetch(url, { headers: { Accept: "application/json" } })); } catch (e) { reject(e); }
+        done();
+      }, 250)
+    )
+  );
+  return promise;
+};
+
 const ensureNomusMap = (): Promise<void> => {
   if (_nomusMapLoaded) return Promise.resolve();
   if (_nomusMapPromise) return _nomusMapPromise;
   _nomusMapPromise = (async () => {
-    const hdr = { Accept: "application/json" };
     try {
-      // Página 1
-      const r1 = await fetch("/api/nomus/rest/produtos", { headers: hdr });
-      if (!r1.ok) { console.warn("[Nomus] produtos HTTP", r1.status); _nomusMapLoaded = true; return; }
+      const r1 = await _nomusGet("/api/nomus/rest/produtos");
+      if (!r1.ok) { _nomusMapLoaded = true; return; }
       const list1 = await r1.json();
       if (!Array.isArray(list1) || list1.length === 0) { _nomusMapLoaded = true; return; }
       _addToMap(list1);
-      console.log("[Nomus] pág 1:", list1.length, "produtos. Exemplos:", list1.slice(0, 3).map((p: any) => p.codigo));
       if (list1.length < 50) { _nomusMapLoaded = true; return; }
 
-      // Páginas 2..200 em lotes paralelos de 10
-      for (let start = 2; start <= 200; start += 10) {
-        const pages = Array.from({ length: 10 }, (_, i) => start + i);
-        const results = await Promise.all(
-          pages.map(pg =>
-            fetch(`/api/nomus/rest/produtos?pagina=${pg}`, { headers: hdr })
-              .then(r => r.ok ? r.json() : [])
-              .catch(() => [])
-          )
-        );
-        let anyData = false;
-        for (const list of results) {
-          if (Array.isArray(list) && list.length > 0) { _addToMap(list); anyData = true; }
-        }
-        if (!anyData) { console.log("[Nomus] mapa completo:", _nomusIdMap.size, "produtos (até pág", start + 9, ")"); break; }
+      for (let page = 2; page <= 200; page++) {
+        try {
+          const r = await _nomusGet(`/api/nomus/rest/produtos?pagina=${page}`);
+          if (!r.ok) break;
+          const list = await r.json();
+          if (!Array.isArray(list) || list.length === 0) break;
+          _addToMap(list);
+          if (list.length < 50) break;
+        } catch { break; }
       }
-    } catch (e) { console.error("[Nomus] erro:", e); }
+    } catch { /* silently fail */ }
     _nomusMapLoaded = true;
   })();
   return _nomusMapPromise;
@@ -155,9 +162,8 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
       try {
         await ensureNomusMap();
         const nomusId = _nomusIdMap.get(code);
-        console.log(`[Nomus] lookup "${code}" → id=${nomusId} (mapa: ${_nomusIdMap.size})`);
         if (!nomusId) throw new Error("not found");
-        const r = await fetch(`/api/nomus/rest/saldosEstoqueProduto/${nomusId}`, { headers: { Accept: "application/json" } });
+        const r = await _nomusGet(`/api/nomus/rest/saldosEstoqueProduto/${nomusId}`);
         if (!r.ok) throw new Error();
         const stockData = await r.json();
         // Soma saldo de TODAS as empresas/setores (= Saldo total disponível do Nomus)
