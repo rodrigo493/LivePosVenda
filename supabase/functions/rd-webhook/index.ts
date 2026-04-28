@@ -46,7 +46,10 @@ async function resolvePipelineAndStage(
     .limit(1)
     .single();
 
-  if (!pipeline) return { pipelineId: null, stageKey: null };
+  if (!pipeline) {
+    console.error("rd-webhook: pipeline 'Funil de Vendas' not found");
+    return { pipelineId: null, stageKey: null };
+  }
 
   if (stageName) {
     const { data: stage } = await admin
@@ -232,6 +235,8 @@ Deno.serve(async (req) => {
       if (rdDealId) {
         await admin.from("tickets").update({ status: "cancelado" }).eq("rd_deal_id", rdDealId);
         await logSync(admin, "webhook", eventName, rdDealId, null, "success", null, null);
+      } else {
+        await logSync(admin, "webhook", eventName, null, null, "error", "no_rd_deal_id_in_delete_event", body);
       }
     } else {
       await logSync(admin, "webhook", eventName, null, null, "skipped", `unknown_event: ${eventName}`, body);
