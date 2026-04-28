@@ -337,6 +337,54 @@ function DashboardContent() {
         )}
       </div>
 
+      {/* Resumo por funil — visível quando "todos os fluxos" e há mais de 1 funil */}
+      {selectedPipelineId === "all" && (pipelines || []).length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 mb-6">
+          {(pipelines || []).map((p) => {
+            const pTickets = (allTickets || []).filter(
+              (t) =>
+                t.pipeline_id === p.id &&
+                (selectedUserIds.length === 0 || selectedUserIds.includes(t.assigned_to || ""))
+            );
+            const pOpen = pTickets.filter((t) => t.status === "aberto").length;
+            const pInProgress = pTickets.filter((t) =>
+              ["em_atendimento", "em_analise", "agendado"].includes(t.status)
+            ).length;
+            const pResolved = pTickets.filter((t) =>
+              ["resolvido", "fechado"].includes(t.status)
+            ).length;
+            return (
+              <button
+                key={p.id}
+                onClick={() => handlePipelineChange(p.id)}
+                className="bg-card border rounded-xl p-4 shadow-sm hover:border-primary/50 hover:shadow-md transition-all text-left group"
+              >
+                <p className="text-[11px] font-semibold text-muted-foreground mb-3 truncate group-hover:text-primary transition-colors">
+                  {p.name}
+                </p>
+                <div className="flex gap-4">
+                  <div>
+                    <p className="text-2xl font-bold text-primary leading-none">{pOpen}</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Abertos</p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-amber-500 leading-none">{pInProgress}</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Em andamento</p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-emerald-600 leading-none">{pResolved}</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Resolvidos</p>
+                  </div>
+                </div>
+                <p className="text-[10px] text-muted-foreground mt-2.5 border-t pt-2">
+                  {pTickets.length} chamado{pTickets.length !== 1 ? "s" : ""} no total
+                </p>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       <AdminTeamOverview />
       <OperationalAlerts />
 
