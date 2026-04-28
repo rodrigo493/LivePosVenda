@@ -2,9 +2,13 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
-export function usePipelineTickets(pipelineId: string | null | undefined, userId?: string) {
+export function usePipelineTickets(
+  pipelineId: string | null | undefined,
+  userId?: string,
+  isAdmin?: boolean,
+) {
   return useQuery({
-    queryKey: ["pipeline-tickets", pipelineId, userId],
+    queryKey: ["pipeline-tickets", pipelineId, userId, isAdmin],
     enabled: !!pipelineId,
     staleTime: 0,
     refetchOnMount: "always",
@@ -14,8 +18,13 @@ export function usePipelineTickets(pipelineId: string | null | undefined, userId
         .select("*, clients(name), equipments(serial_number, equipment_models(name)), quotes(id, quote_number, status, service_request_id, warranty_claim_id, updated_at)")
         .eq("pipeline_id", pipelineId)
         .not("status", "eq", "fechado")
+        .is("deleted_at", null)
         .order("pipeline_position", { ascending: true })
         .order("last_interaction_at", { ascending: true });
+
+      if (!isAdmin) {
+        q = q.eq("is_paused", false);
+      }
       if (userId) q = q.eq("assigned_to", userId);
       const { data, error } = await q;
       if (error) throw error;
