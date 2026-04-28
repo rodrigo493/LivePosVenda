@@ -133,6 +133,23 @@ export function useMovePipelineStage() {
           reference_id: id,
         });
       }
+
+      // Fire-and-forget: agendar automações da etapa de destino
+      // Need stage UUID — look up from pipeline_stages by pipeline_id + key
+      const { data: stageRow } = await (supabase as any)
+        .from("pipeline_stages")
+        .select("id")
+        .eq("pipeline_id", pipelineId)
+        .eq("key", stage)
+        .maybeSingle();
+
+      if (stageRow?.id) {
+        (supabase as any).functions
+          .invoke("trigger-automations", {
+            body: { ticket_id: id, stage_id: stageRow.id },
+          })
+          .catch((e: unknown) => console.warn("[automations]", e));
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["pipeline-tickets"] });
