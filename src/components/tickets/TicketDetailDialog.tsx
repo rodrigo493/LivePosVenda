@@ -1007,16 +1007,17 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                 {clientTasks && clientTasks.length > 0 && (
                   <button
                     onClick={() => setActiveTab("client-tasks")}
-                    className="inline-flex flex-col items-start gap-0.5 rounded-md border border-[#25D366]/70 px-2.5 py-1 bg-[#25D366]/25 hover:bg-[#25D366]/35 transition-colors cursor-pointer"
+                    className="inline-flex flex-col items-start gap-0.5 rounded-md border px-2.5 py-1 transition-colors cursor-pointer"
+                    style={{ backgroundColor: "rgba(37,211,102,0.25)", borderColor: "rgba(37,211,102,0.7)" }}
                     title={clientTasks[0].title}
                   >
                     <div className="flex items-center gap-1">
-                      <CheckSquare className="h-3 w-3 text-white flex-shrink-0" />
-                      <span className="text-[10px] font-semibold text-white truncate max-w-[600px]">
+                      <CheckSquare className="h-3 w-3 flex-shrink-0" style={{ color: "#000" }} />
+                      <span className="text-[10px] font-semibold truncate max-w-[600px]" style={{ color: "#000" }}>
                         {clientTasks[0].title}
                       </span>
                     </div>
-                    <div className="flex items-center gap-1.5 pl-4 text-[9px] text-white/80">
+                    <div className="flex items-center gap-1.5 pl-4 text-[9px]" style={{ color: "rgba(0,0,0,0.7)" }}>
                       {clientTasks[0].due_date && (
                         <span className="flex items-center gap-0.5">
                           <Calendar className="h-2.5 w-2.5" />
