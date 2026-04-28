@@ -367,9 +367,6 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
 
   // Ticket-level data
   const { data: ticketTasks } = useTicketTasks(enabledId);
-  const lastCompletedTask = ticketTasks
-    ?.filter((t) => t.status === "concluida" && t.completed_at)
-    .sort((a, b) => new Date(b.completed_at!).getTime() - new Date(a.completed_at!).getTime())[0] ?? null;
   const { data: activities } = useTicketActivities(enabledId);
   const { data: ticketQuotes } = useTicketQuotes(enabledId);
   const { data: ticketWorkOrders } = useTicketWorkOrders(enabledId);
@@ -1005,6 +1002,25 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                     ))}
                   </PopoverContent>
                 </Popover>
+
+                {/* ── Última tarefa criada ── */}
+                {clientTasks && clientTasks.length > 0 && (
+                  <button
+                    onClick={() => setActiveTab("client-tasks")}
+                    className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-medium bg-muted hover:bg-muted/80 transition-colors cursor-pointer max-w-[200px]"
+                    title={clientTasks[0].title}
+                  >
+                    <CheckSquare className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                    <span className="truncate">{clientTasks[0].title}</span>
+                    <span className={`ml-0.5 flex-shrink-0 rounded px-1 text-[9px] font-semibold ${
+                      clientTasks[0].status === "concluida"
+                        ? "bg-green-500/20 text-green-400"
+                        : "bg-orange-500/20 text-orange-400"
+                    }`}>
+                      {clientTasks[0].status === "concluida" ? "✓" : "●"}
+                    </span>
+                  </button>
+                )}
               </div>
               <DialogTitle className="text-lg">{ticket.title}</DialogTitle>
               <DialogDescription className="flex items-center gap-4 text-sm">
@@ -1110,13 +1126,6 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                         ? `${fmtDate(ticket.last_interaction_at)} (${days}d atrás)` : "—"
                     } />
                     <InfoRow icon={Calendar} label="Criado em" value={fmtDate(ticket.created_at)} />
-                    {lastCompletedTask && (
-                      <InfoRow
-                        icon={CheckSquare}
-                        label="Última tarefa concluída"
-                        value={`${lastCompletedTask.title} — ${fmtDate(lastCompletedTask.completed_at!)}`}
-                      />
-                    )}
                     {ticket.equipments && (
                       <InfoRow icon={Package} label="Equipamento" value={
                         `${ticket.equipments.equipment_models?.name || ""} - ${ticket.equipments.serial_number}`
