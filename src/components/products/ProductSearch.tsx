@@ -37,10 +37,11 @@ const ensureNomusMap = (): Promise<void> => {
     try {
       // Página 1
       const r1 = await fetch("/api/nomus/rest/produtos", { headers: hdr });
-      if (!r1.ok) { _nomusMapLoaded = true; return; }
+      if (!r1.ok) { console.warn("[Nomus] produtos HTTP", r1.status); _nomusMapLoaded = true; return; }
       const list1 = await r1.json();
       if (!Array.isArray(list1) || list1.length === 0) { _nomusMapLoaded = true; return; }
       _addToMap(list1);
+      console.log("[Nomus] pág 1:", list1.length, "produtos. Exemplos:", list1.slice(0, 3).map((p: any) => p.codigo));
       if (list1.length < 50) { _nomusMapLoaded = true; return; }
 
       // Páginas 2..200 em lotes paralelos de 10
@@ -57,9 +58,9 @@ const ensureNomusMap = (): Promise<void> => {
         for (const list of results) {
           if (Array.isArray(list) && list.length > 0) { _addToMap(list); anyData = true; }
         }
-        if (!anyData) break;
+        if (!anyData) { console.log("[Nomus] mapa completo:", _nomusIdMap.size, "produtos (até pág", start + 9, ")"); break; }
       }
-    } catch { /* silencioso */ }
+    } catch (e) { console.error("[Nomus] erro:", e); }
     _nomusMapLoaded = true;
   })();
   return _nomusMapPromise;
@@ -154,6 +155,7 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
       try {
         await ensureNomusMap();
         const nomusId = _nomusIdMap.get(code);
+        console.log(`[Nomus] lookup "${code}" → id=${nomusId} (mapa: ${_nomusIdMap.size})`);
         if (!nomusId) throw new Error("not found");
         const r = await fetch(`/api/nomus/rest/saldosEstoqueProduto/${nomusId}`, { headers: { Accept: "application/json" } });
         if (!r.ok) throw new Error();
