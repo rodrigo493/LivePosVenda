@@ -144,6 +144,12 @@ const PADetailPage = () => {
       pedido: prev.pedido || requestNumber,
       cliente: prev.cliente || clientName,
     }));
+    if (clientName) {
+      void resolveNomusClientId(clientName).then(id => {
+        if (id) setNomusClientId(id);
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sr]);
 
   const updateNomusField = (field: string, value: string) => {
@@ -159,17 +165,24 @@ const PADetailPage = () => {
       setNomusClientLoading(true);
       try {
         const q = query.trim();
+        const enc = encodeURIComponent(q);
+        // FIQL OR: busca em nome, razaoSocial e nomeFantasia
+        const fiql = `nome=like=%25${enc}%25,razaoSocial=like=%25${enc}%25,nomeFantasia=like=%25${enc}%25`;
         const res = await fetch(
-          `/api/nomus/rest/pessoas?query=nome=like=%25${encodeURIComponent(q)}%25`,
+          `/api/nomus/rest/pessoas?query=${fiql}`,
           { headers: { "Content-Type": "application/json", "Accept": "application/json" } }
         );
         if (!res.ok) throw new Error(`Erro ${res.status}`);
         const body = await res.json();
         const list: any[] = Array.isArray(body) ? body : [];
-        const results: { id: number; nome: string }[] = list.slice(0, 20).map((p: any) => ({
-          id: p.id,
-          nome: p.nomeFantasia || p.razaoSocial || p.nome || `ID ${p.id}`,
-        }));
+        const seen = new Set<number>();
+        const results: { id: number; nome: string }[] = [];
+        for (const p of list) {
+          if (seen.has(p.id)) continue;
+          seen.add(p.id);
+          results.push({ id: p.id, nome: p.nomeFantasia || p.razaoSocial || p.nome || `ID ${p.id}` });
+          if (results.length >= 20) break;
+        }
         setNomusClientResults(results);
         setNomusClientOpen(results.length > 0);
       } catch (e: any) {
@@ -185,6 +198,28 @@ const PADetailPage = () => {
     setNomusClientId(client.id);
     updateNomusField("cliente", client.nome);
     setNomusClientOpen(false);
+  };
+
+  const resolveNomusClientId = async (name: string): Promise<number | null> => {
+    const q = name.trim();
+    if (!q) return null;
+    const encoded = encodeURIComponent(q);
+    const fields = ["nome", "razaoSocial", "nomeFantasia"];
+    for (const field of fields) {
+      try {
+        const res = await fetch(
+          `/api/nomus/rest/pessoas?query=${field}=like=%25${encoded}%25`,
+          { headers: { "Content-Type": "application/json", "Accept": "application/json" } }
+        );
+        if (!res.ok) continue;
+        const body = await res.json();
+        const list: any[] = Array.isArray(body) ? body : [];
+        if (list.length > 0) return list[0].id as number;
+      } catch {
+        // try next field
+      }
+    }
+    return null;
   };
 
   const items = linkedQuote?.quote_items || [];
@@ -482,16 +517,7 @@ const PADetailPage = () => {
       // Resolve client ID via nginx proxy
       let idPessoaCliente = nomusClientId;
       if (!idPessoaCliente) {
-        const q = nomusFields.cliente.trim();
-        const cRes = await fetch(
-          `/api/nomus/rest/pessoas?query=nome=like=%25${encodeURIComponent(q)}%25`,
-          { headers: { "Content-Type": "application/json", "Accept": "application/json" } }
-        );
-        if (cRes.ok) {
-          const cBody = await cRes.json();
-          const cList = Array.isArray(cBody) ? cBody : [];
-          if (cList.length > 0) idPessoaCliente = cList[0].id;
-        }
+        idPessoaCliente = await resolveNomusClientId(nomusFields.cliente);
       }
       if (!idPessoaCliente) {
         toast.error(`Cliente "${nomusFields.cliente}" não encontrado no ERP Nomus.`);

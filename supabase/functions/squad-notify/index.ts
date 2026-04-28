@@ -69,8 +69,13 @@ Deno.serve(async (req) => {
       });
       status = res.status;
       if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        errorText = `Squad [${res.status}]: ${text.slice(0, 500)}`;
+        // 409 = instância já existe no Squad → já foi notificado, tratar como sucesso
+        if (res.status === 409) {
+          status = 409;
+        } else {
+          const text = await res.text().catch(() => '');
+          errorText = `Squad [${res.status}]: ${text.slice(0, 500)}`;
+        }
       }
     } catch (e) {
       errorText = e instanceof Error ? e.message : 'Falha de rede ao chamar Squad';
