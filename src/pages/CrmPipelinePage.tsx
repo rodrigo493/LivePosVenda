@@ -89,7 +89,7 @@ const CrmPipelinePage = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const isAdmin = roles.includes("admin");
-  const [filterBy, setFilterBy] = useState<"all" | "mine" | string>("all");
+  const [filterBy, setFilterBy] = useState<"all" | "mine" | string>(isAdmin ? "all" : "mine");
   const { data: allUsers = [] } = useAllUsers();
 
   const { data: pipelines = [] } = usePipelines();
@@ -558,11 +558,7 @@ const CrmPipelinePage = () => {
                   )}
                 </SelectContent>
               </Select>
-            ) : (
-              <Button variant={filterBy === "all" ? "default" : "outline"} size="sm" onClick={() => setFilterBy(filterBy === "all" ? "mine" : "all")}>
-                {filterBy === "all" ? "Todos" : "Meus"}
-              </Button>
-            )}
+            ) : null}
           </div>
         }
       />
