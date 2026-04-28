@@ -10,6 +10,7 @@ import { WeeklyCalendar } from "@/components/tasks/WeeklyCalendar";
 import { TaskCreateDialog } from "@/components/tasks/TaskCreateDialog";
 import { useTasks } from "@/hooks/useTasks";
 import type { TaskRow } from "@/hooks/useTasks";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
 type ViewMode = "semana" | "dia";
@@ -26,6 +27,7 @@ export default function TasksAgendaPage() {
   const [createDefaultDate, setCreateDefaultDate] = useState<string | undefined>();
   const [createDefaultTime, setCreateDefaultTime] = useState<string | undefined>();
 
+  const navigate = useNavigate();
   const { data: tasks = [] } = useTasks();
 
   const weekDays = useMemo(
@@ -153,9 +155,13 @@ export default function TasksAgendaPage() {
         days={days}
         tasks={tasks}
         onTaskClick={(task: TaskRow) => {
-          toast.info(`${task.title}${task.due_time ? ` — ${task.due_time.slice(0, 5)}` : ""}`, {
-            description: task.clients?.name ?? task.description ?? undefined,
-          });
+          if (task.ticket_id) {
+            navigate(`/crm?open_ticket=${task.ticket_id}`);
+          } else {
+            toast.info(`${task.title}${task.due_time ? ` — ${task.due_time.slice(0, 5)}` : ""}`, {
+              description: task.clients?.name ?? task.description ?? undefined,
+            });
+          }
         }}
         onSlotClick={handleSlotClick}
       />
