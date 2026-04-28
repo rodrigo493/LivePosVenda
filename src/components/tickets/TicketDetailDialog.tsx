@@ -2317,10 +2317,15 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
               variant="destructive"
               disabled={softDelete.isPending}
               onClick={async () => {
-                await softDelete.mutateAsync(ticket.id);
-                toast.success("Card deletado.");
-                setConfirmDelete(false);
-                onOpenChange(false);
+                try {
+                  await softDelete.mutateAsync(ticket.id);
+                  toast.success("Card deletado.");
+                  setConfirmDelete(false);
+                  onOpenChange(false);
+                } catch {
+                  toast.error("Erro ao deletar card. Tente novamente.");
+                  setConfirmDelete(false);
+                }
               }}
             >
               {softDelete.isPending ? "Deletando..." : "Deletar"}
