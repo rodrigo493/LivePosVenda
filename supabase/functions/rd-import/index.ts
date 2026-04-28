@@ -41,19 +41,18 @@ async function rdGet(
   url.searchParams.set("token", token);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
 
-  const res = await fetch(url.toString(), {
-    headers: { "Accept": "application/json" },
-  });
-
-  if (!res.ok) {
-    if (res.status === 429) {
-      await new Promise((r) => setTimeout(r, 1000));
-      return rdGet(path, token, params);
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const res = await fetch(url.toString(), { headers: { "Accept": "application/json" } });
+    if (!res.ok) {
+      if (res.status === 429 && attempt < 4) {
+        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+        continue;
+      }
+      throw new Error(`RD API ${path} → HTTP ${res.status}`);
     }
-    throw new Error(`RD API ${path} → HTTP ${res.status}`);
+    return res.json();
   }
-
-  return res.json();
+  throw new Error(`RD API ${path} → 5 tentativas excedidas (429)`);
 }
 
 async function importContacts(token: string): Promise<number> {
@@ -71,25 +70,30 @@ async function importContacts(token: string): Promise<number> {
     };
 
     for (const contact of resp.contacts ?? []) {
-      const emails = (contact.emails as { email: string }[] | undefined) ?? [];
-      const phones = (contact.phones as { phone: string; whatsapp_url_web?: string }[] | undefined) ?? [];
-      const email = emails[0]?.email ?? null;
-      const rawPhone = phones[0]?.phone ?? null;
-      const phone = rawPhone ? rawPhone.replace(/\D/g, "") : null;
-      const whatsapp = phones.find((p) => p.whatsapp_url_web)?.phone ?? null;
+      if (!contact.id) continue;
+      try {
+        const emails = (contact.emails as { email: string }[] | undefined) ?? [];
+        const phones = (contact.phones as { phone: string; whatsapp_url_web?: string }[] | undefined) ?? [];
+        const email = emails[0]?.email ?? null;
+        const rawPhone = phones[0]?.phone ?? null;
+        const phone = rawPhone ? rawPhone.replace(/\D/g, "") : null;
+        const whatsapp = phones.find((p) => p.whatsapp_url_web)?.phone ?? null;
 
-      await admin.from("clients").upsert(
-        {
-          rd_contact_id: contact.id as string,
-          name: (contact.name as string) || "Contato RD Station",
-          email: email ?? null,
-          phone: phone ?? null,
-          whatsapp: whatsapp ?? null,
-          status: "ativo",
-        },
-        { onConflict: "rd_contact_id" },
-      );
-      count++;
+        await admin.from("clients").upsert(
+          {
+            rd_contact_id: contact.id as string,
+            name: (contact.name as string) || "Contato RD Station",
+            email: email ?? null,
+            phone: phone ?? null,
+            whatsapp: whatsapp ?? null,
+            status: "ativo",
+          },
+          { onConflict: "rd_contact_id" },
+        );
+        count++;
+      } catch (e) {
+        console.error(`import contact ${contact.id} failed:`, e);
+      }
     }
 
     await new Promise((r) => setTimeout(r, 500));
@@ -255,20 +259,24 @@ async function importActivities(token: string, rdDealId: string): Promise<number
   const activities = resp.activities ?? resp.deal_activities ?? [];
 
   for (const activity of activities) {
-    const text = (activity.text as string) || (activity.description as string) || null;
-    if (!text) continue;
+    try {
+      const text = (activity.text as string) || (activity.description as string) || null;
+      if (!text) continue;
 
-    await admin.from("ticket_comments").upsert(
-      {
-        rd_activity_id: activity.id as string,
-        ticket_id: ticket.id,
-        content: text,
-        author_id: null,
-        created_at: (activity.date as string) || new Date().toISOString(),
-      },
-      { onConflict: "rd_activity_id" },
-    );
-    count++;
+      await admin.from("ticket_comments").upsert(
+        {
+          rd_activity_id: activity.id as string,
+          ticket_id: ticket.id,
+          content: text,
+          author_id: null,
+          created_at: (activity.date as string) || new Date().toISOString(),
+        },
+        { onConflict: "rd_activity_id" },
+      );
+      count++;
+    } catch (e) {
+      console.error(`import activity ${activity.id} for deal ${rdDealId} failed:`, e);
+    }
   }
 
   return count;
