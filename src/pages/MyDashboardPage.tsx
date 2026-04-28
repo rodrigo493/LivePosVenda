@@ -1,9 +1,16 @@
 import { DASHBOARD_QUERY_LIMIT, DELAYED_LIST_LIMIT, COMPACT_LIST_LIMIT, CARD_LIST_LIMIT } from "@/constants/limits";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useCallback } from "react";
+import GridLayout, { WidthProvider } from "react-grid-layout/legacy";
+import { toast } from "sonner";
+import { useDashboardLayout } from "@/hooks/useDashboardLayout";
+import { DEFAULT_LAYOUT, LayoutItem } from "@/constants/dashboardLayout";
+
+const AutoWidthGridLayout = WidthProvider(GridLayout);
 import { useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, AlertTriangle, CheckCircle, Clock, ListTodo, Package,
-  PhoneCall, TrendingUp, Receipt, Wrench, Shield, ClipboardList, Ticket, X, DollarSign,
+  PhoneCall, TrendingUp, Receipt, Wrench, Shield, ClipboardList, Ticket,
+  X, DollarSign, Edit2, Save, RotateCcw,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { KpiCard } from "@/components/dashboard/KpiCard";
@@ -149,6 +156,48 @@ const MyDashboardPage = () => {
 
   const [drillDown, setDrillDown] = useState<DrillDownKey>(null);
   const [selectedTicket, setSelectedTicket] = useState<any>(null);
+
+  // ── Layout editor ──────────────────────────────────────────────
+  const { currentLayout, saveLayout, resetLayout, isSaving, isResetting } =
+    useDashboardLayout();
+  const [isEditing, setIsEditing] = useState(false);
+  const [draftLayout, setDraftLayout] = useState<LayoutItem[]>([]);
+  const [preEditLayout, setPreEditLayout] = useState<LayoutItem[]>([]);
+
+  const enterEdit = useCallback(() => {
+    setPreEditLayout(currentLayout);
+    setDraftLayout(currentLayout);
+    setIsEditing(true);
+  }, [currentLayout]);
+
+  const cancelEdit = useCallback(() => {
+    setDraftLayout(preEditLayout);
+    setIsEditing(false);
+  }, [preEditLayout]);
+
+  const handleSave = useCallback(async () => {
+    try {
+      await saveLayout(draftLayout);
+      toast.success("Layout salvo com sucesso");
+    } catch {
+      toast.error("Erro ao salvar layout");
+    }
+    setIsEditing(false);
+  }, [draftLayout, saveLayout]);
+
+  const handleReset = useCallback(async () => {
+    try {
+      await resetLayout();
+      setDraftLayout(DEFAULT_LAYOUT);
+      toast.success("Layout resetado para o padrão");
+    } catch {
+      toast.error("Erro ao resetar layout");
+    }
+    setIsEditing(false);
+  }, [resetLayout]);
+
+  const activeLayout = isEditing ? draftLayout : currentLayout;
+  // ────────────────────────────────────────────────────────────────
 
   const findTicket = (id: string) => (tickets || []).find((t: any) => t.id === id) || null;
   const openTicket = (id: string | null) => { if (id) setSelectedTicket(findTicket(id)); };
@@ -307,48 +356,171 @@ const MyDashboardPage = () => {
 
       <DailyPriorities tickets={stats.all} tasks={tasks || []} today={today} userName={userName} />
 
-      {/* KPIs Row 1 - Tickets */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-4">
-        <div className={`cursor-pointer rounded-xl ring-2 transition-all ${drillDown === "active" ? "ring-primary" : "ring-transparent"}`} onClick={() => toggleDrill("active")}>
-          <KpiCard title="Tickets Ativos" value={stats.active.length} icon={Ticket} variant="primary" />
-        </div>
-        <div className={`cursor-pointer rounded-xl ring-2 transition-all ${drillDown === "concluded" ? "ring-primary" : "ring-transparent"}`} onClick={() => toggleDrill("concluded")}>
-          <KpiCard title="Concluídos" value={stats.concluded.length} icon={CheckCircle} variant="success" />
-        </div>
-        <div className={`cursor-pointer rounded-xl ring-2 transition-all ${drillDown === "delayed" ? "ring-primary" : "ring-transparent"}`} onClick={() => toggleDrill("delayed")}>
-          <KpiCard title="Atrasados" value={stats.delayed.length} icon={AlertTriangle} variant="warning" />
-        </div>
-        <div className={`cursor-pointer rounded-xl ring-2 transition-all ${drillDown === null ? "ring-transparent" : "ring-transparent"}`}>
-          <KpiCard title="Média s/ interação" value={`${stats.avgDays}d`} icon={TrendingUp} />
-        </div>
-        <div className={`cursor-pointer rounded-xl ring-2 transition-all ${drillDown === "noContact" ? "ring-primary" : "ring-transparent"}`} onClick={() => toggleDrill("noContact")}>
-          <KpiCard title="Sem atendimento" value={stats.noContact.length} icon={PhoneCall} variant="warning" />
-        </div>
-        <div className={`cursor-pointer rounded-xl ring-2 transition-all ${drillDown === "awaitingParts" ? "ring-primary" : "ring-transparent"}`} onClick={() => toggleDrill("awaitingParts")}>
-          <KpiCard title="Aguardando peça" value={stats.awaitingParts.length} icon={Package} />
-        </div>
+      {/* ── Botões do modo de edição ── */}
+      <div className="flex items-center justify-end gap-2 mb-3">
+        {isEditing ? (
+          <>
+            <span className="text-xs text-muted-foreground mr-auto flex items-center gap-1.5 bg-primary/10 border border-primary/30 rounded-lg px-3 py-1.5">
+              <Edit2 className="h-3 w-3 text-primary" />
+              Arraste para reposicionar · Puxe o canto ↘ para redimensionar
+            </span>
+            <button
+              onClick={handleReset}
+              disabled={isResetting}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-border bg-card hover:bg-muted text-muted-foreground transition-colors"
+            >
+              <RotateCcw className="h-3 w-3" />
+              Resetar padrão
+            </button>
+            <button
+              onClick={cancelEdit}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-border bg-card hover:bg-muted transition-colors"
+            >
+              <X className="h-3 w-3" />
+              Cancelar
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={isSaving}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+            >
+              <Save className="h-3 w-3" />
+              {isSaving ? "Salvando…" : "Salvar"}
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={enterEdit}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-border bg-card hover:bg-muted text-muted-foreground transition-colors"
+          >
+            <Edit2 className="h-3 w-3" />
+            Editar layout
+          </button>
+        )}
       </div>
 
-      {/* KPIs Row 2 */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
-        <div className={`cursor-pointer rounded-xl ring-2 transition-all ${drillDown === "pendingQuotes" ? "ring-primary" : "ring-transparent"}`} onClick={() => toggleDrill("pendingQuotes")}>
-          <KpiCard title="Orçamentos pendentes" value={stats.pendingQuotes.length} icon={Receipt} />
-        </div>
-        <div className={`cursor-pointer rounded-xl ring-2 transition-all ${drillDown === "openWOs" ? "ring-primary" : "ring-transparent"}`} onClick={() => toggleDrill("openWOs")}>
-          <KpiCard title="OS Abertas" value={stats.openWOs.length} icon={Wrench} variant="primary" />
-        </div>
-        <div className={`cursor-pointer rounded-xl ring-2 transition-all ${drillDown === "completedWOs" ? "ring-primary" : "ring-transparent"}`} onClick={() => toggleDrill("completedWOs")}>
-          <KpiCard title="OS Concluídas" value={stats.completedWOs.length} icon={CheckCircle} variant="success" />
-        </div>
-        <div className={`cursor-pointer rounded-xl ring-2 transition-all ${drillDown === "pendingWarranties" ? "ring-primary" : "ring-transparent"}`} onClick={() => toggleDrill("pendingWarranties")}>
-          <KpiCard title="Garantias em análise" value={stats.pendingWarranties.length} icon={Shield} variant="warning" />
-        </div>
-        <div className={`cursor-pointer rounded-xl ring-2 transition-all ${drillDown === "openSR" ? "ring-primary" : "ring-transparent"}`} onClick={() => toggleDrill("openSR")}>
-          <KpiCard title="Assistências abertas" value={stats.openSR.length} icon={ClipboardList} />
-        </div>
-        <div className={`cursor-pointer rounded-xl ring-2 transition-all ${drillDown === "warrantyCost" ? "ring-destructive" : "ring-transparent"}`} onClick={() => toggleDrill("warrantyCost")}>
-          <KpiCard title="Custo Garantia" value={fmtCurrency(warrantyCosts.total)} icon={DollarSign} variant="warning" />
-        </div>
+      {/* ── KPI Grid (react-grid-layout) ── */}
+      <div className="mb-4">
+        <AutoWidthGridLayout
+          layout={activeLayout}
+          cols={12}
+          rowHeight={88}
+          isDraggable={isEditing}
+          isResizable={isEditing}
+          draggableHandle=".drag-handle"
+          onLayoutChange={(layout) => {
+            if (isEditing) setDraftLayout(layout as LayoutItem[]);
+          }}
+          margin={[12, 12]}
+          containerPadding={[0, 0]}
+        >
+          {/* tickets-ativos */}
+          <div key="tickets-ativos" className={isEditing ? "rgl-edit-item" : ""} style={{ position: "relative" }}>
+            {isEditing && <span className="drag-handle">⠿⠿</span>}
+            <div className={`kpi-click-layer h-full cursor-pointer rounded-xl ring-2 transition-all ${drillDown === "active" ? "ring-primary" : "ring-transparent"}`}
+              onClick={() => !isEditing && toggleDrill("active")}>
+              <KpiCard title="Tickets Ativos" value={stats.active.length} icon={Ticket} variant="primary" />
+            </div>
+          </div>
+
+          {/* concluidos */}
+          <div key="concluidos" className={isEditing ? "rgl-edit-item" : ""} style={{ position: "relative" }}>
+            {isEditing && <span className="drag-handle">⠿⠿</span>}
+            <div className={`kpi-click-layer h-full cursor-pointer rounded-xl ring-2 transition-all ${drillDown === "concluded" ? "ring-primary" : "ring-transparent"}`}
+              onClick={() => !isEditing && toggleDrill("concluded")}>
+              <KpiCard title="Concluídos" value={stats.concluded.length} icon={CheckCircle} variant="success" />
+            </div>
+          </div>
+
+          {/* atrasados */}
+          <div key="atrasados" className={isEditing ? "rgl-edit-item" : ""} style={{ position: "relative" }}>
+            {isEditing && <span className="drag-handle">⠿⠿</span>}
+            <div className={`kpi-click-layer h-full cursor-pointer rounded-xl ring-2 transition-all ${drillDown === "delayed" ? "ring-primary" : "ring-transparent"}`}
+              onClick={() => !isEditing && toggleDrill("delayed")}>
+              <KpiCard title="Atrasados" value={stats.delayed.length} icon={AlertTriangle} variant="warning" />
+            </div>
+          </div>
+
+          {/* media-interacao */}
+          <div key="media-interacao" className={isEditing ? "rgl-edit-item" : ""} style={{ position: "relative" }}>
+            {isEditing && <span className="drag-handle">⠿⠿</span>}
+            <div className="kpi-click-layer h-full rounded-xl">
+              <KpiCard title="Média s/ interação" value={`${stats.avgDays}d`} icon={TrendingUp} />
+            </div>
+          </div>
+
+          {/* sem-atendimento */}
+          <div key="sem-atendimento" className={isEditing ? "rgl-edit-item" : ""} style={{ position: "relative" }}>
+            {isEditing && <span className="drag-handle">⠿⠿</span>}
+            <div className={`kpi-click-layer h-full cursor-pointer rounded-xl ring-2 transition-all ${drillDown === "noContact" ? "ring-primary" : "ring-transparent"}`}
+              onClick={() => !isEditing && toggleDrill("noContact")}>
+              <KpiCard title="Sem atendimento" value={stats.noContact.length} icon={PhoneCall} variant="warning" />
+            </div>
+          </div>
+
+          {/* aguardando-peca */}
+          <div key="aguardando-peca" className={isEditing ? "rgl-edit-item" : ""} style={{ position: "relative" }}>
+            {isEditing && <span className="drag-handle">⠿⠿</span>}
+            <div className={`kpi-click-layer h-full cursor-pointer rounded-xl ring-2 transition-all ${drillDown === "awaitingParts" ? "ring-primary" : "ring-transparent"}`}
+              onClick={() => !isEditing && toggleDrill("awaitingParts")}>
+              <KpiCard title="Aguardando peça" value={stats.awaitingParts.length} icon={Package} />
+            </div>
+          </div>
+
+          {/* orcamentos-pendentes */}
+          <div key="orcamentos-pendentes" className={isEditing ? "rgl-edit-item" : ""} style={{ position: "relative" }}>
+            {isEditing && <span className="drag-handle">⠿⠿</span>}
+            <div className={`kpi-click-layer h-full cursor-pointer rounded-xl ring-2 transition-all ${drillDown === "pendingQuotes" ? "ring-primary" : "ring-transparent"}`}
+              onClick={() => !isEditing && toggleDrill("pendingQuotes")}>
+              <KpiCard title="Orçamentos pendentes" value={stats.pendingQuotes.length} icon={Receipt} />
+            </div>
+          </div>
+
+          {/* os-abertas */}
+          <div key="os-abertas" className={isEditing ? "rgl-edit-item" : ""} style={{ position: "relative" }}>
+            {isEditing && <span className="drag-handle">⠿⠿</span>}
+            <div className={`kpi-click-layer h-full cursor-pointer rounded-xl ring-2 transition-all ${drillDown === "openWOs" ? "ring-primary" : "ring-transparent"}`}
+              onClick={() => !isEditing && toggleDrill("openWOs")}>
+              <KpiCard title="OS Abertas" value={stats.openWOs.length} icon={Wrench} variant="primary" />
+            </div>
+          </div>
+
+          {/* os-concluidas */}
+          <div key="os-concluidas" className={isEditing ? "rgl-edit-item" : ""} style={{ position: "relative" }}>
+            {isEditing && <span className="drag-handle">⠿⠿</span>}
+            <div className={`kpi-click-layer h-full cursor-pointer rounded-xl ring-2 transition-all ${drillDown === "completedWOs" ? "ring-primary" : "ring-transparent"}`}
+              onClick={() => !isEditing && toggleDrill("completedWOs")}>
+              <KpiCard title="OS Concluídas" value={stats.completedWOs.length} icon={CheckCircle} variant="success" />
+            </div>
+          </div>
+
+          {/* garantias-analise */}
+          <div key="garantias-analise" className={isEditing ? "rgl-edit-item" : ""} style={{ position: "relative" }}>
+            {isEditing && <span className="drag-handle">⠿⠿</span>}
+            <div className={`kpi-click-layer h-full cursor-pointer rounded-xl ring-2 transition-all ${drillDown === "pendingWarranties" ? "ring-primary" : "ring-transparent"}`}
+              onClick={() => !isEditing && toggleDrill("pendingWarranties")}>
+              <KpiCard title="Garantias em análise" value={stats.pendingWarranties.length} icon={Shield} variant="warning" />
+            </div>
+          </div>
+
+          {/* assistencias-abertas */}
+          <div key="assistencias-abertas" className={isEditing ? "rgl-edit-item" : ""} style={{ position: "relative" }}>
+            {isEditing && <span className="drag-handle">⠿⠿</span>}
+            <div className={`kpi-click-layer h-full cursor-pointer rounded-xl ring-2 transition-all ${drillDown === "openSR" ? "ring-primary" : "ring-transparent"}`}
+              onClick={() => !isEditing && toggleDrill("openSR")}>
+              <KpiCard title="Assistências abertas" value={stats.openSR.length} icon={ClipboardList} />
+            </div>
+          </div>
+
+          {/* custo-garantia */}
+          <div key="custo-garantia" className={isEditing ? "rgl-edit-item" : ""} style={{ position: "relative" }}>
+            {isEditing && <span className="drag-handle">⠿⠿</span>}
+            <div className={`kpi-click-layer h-full cursor-pointer rounded-xl ring-2 transition-all ${drillDown === "warrantyCost" ? "ring-destructive" : "ring-transparent"}`}
+              onClick={() => !isEditing && toggleDrill("warrantyCost")}>
+              <KpiCard title="Custo Garantia" value={fmtCurrency(warrantyCosts.total)} icon={DollarSign} variant="warning" />
+            </div>
+          </div>
+        </AutoWidthGridLayout>
       </div>
 
       {/* Drill-down panel */}
