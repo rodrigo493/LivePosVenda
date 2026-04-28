@@ -533,8 +533,7 @@ function DashboardContent() {
 const Dashboard = () => {
   const { roles, rolesLoading, hasRole } = useAuth();
 
-  // Aguarda roles carregarem (loading state ou array ainda vazio)
-  if (rolesLoading || roles.length === 0) {
+  if (rolesLoading) {
     return (
       <div className="flex items-center justify-center py-20">
         <div className="h-8 w-8 rounded-lg bg-primary/20 flex items-center justify-center animate-pulse">
