@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Send, MessageSquare, Paperclip, X, Mic, Download, CornerUpLeft, ChevronDown, Copy } from "lucide-react";
+import { Send, MessageSquare, Paperclip, X, Mic, Download, CornerUpLeft, ChevronDown, Copy, Forward } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -7,6 +7,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { CHAT_HISTORY_LIMIT } from "@/constants/limits";
+import { useWhatsAppConversations } from "@/hooks/useWhatsAppConversations";
 
 interface WhatsAppChatProps {
   clientId: string;
@@ -238,6 +239,124 @@ function AudioPlayer({ src, outbound }: { src: string; outbound: boolean }) {
   );
 }
 
+function ForwardModal({ msg, onClose }: { msg: any; onClose: () => void }) {
+  const [search, setSearch] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [forwarding, setForwarding] = useState(false);
+  const { data: conversations } = useWhatsAppConversations();
+
+  const filtered = (conversations || []).filter((c) =>
+    c.client_name.toLowerCase().includes(search.toLowerCase()) ||
+    (c.client_phone || "").includes(search)
+  );
+
+  const selected = (conversations || []).find((c) => c.client_id === selectedId);
+
+  const handleForward = async () => {
+    if (!selected) return;
+    setForwarding(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+
+      let body: Record<string, any> = { client_id: selected.client_id, phone: selected.client_phone };
+
+      if (msg.media_url) {
+        const res = await fetch(msg.media_url);
+        const blob = await res.blob();
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+        const filename = msg.media_url.split("/").pop()?.split("?")[0] || "arquivo";
+        body = { ...body, media_base64: base64, media_mime_type: blob.type || "application/octet-stream", media_filename: filename };
+      } else {
+        body.message = msg.message_text;
+      }
+
+      const res2 = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-whatsapp`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify(body),
+        }
+      );
+
+      if (!res2.ok) {
+        const err = await res2.json();
+        throw new Error(err.error || "Erro ao encaminhar");
+      }
+
+      toast.success(`Mensagem encaminhada para ${selected.client_name}`);
+      onClose();
+    } catch (e: any) {
+      toast.error(e.message || "Erro ao encaminhar mensagem");
+    } finally {
+      setForwarding(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="fixed inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative bg-popover border rounded-2xl shadow-2xl w-[340px] max-h-[500px] flex flex-col z-10">
+        <div className="flex items-center justify-between px-4 pt-4 pb-2">
+          <h3 className="font-semibold text-sm">Encaminhar mensagem</h3>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="px-4 pb-3">
+          <input
+            autoFocus
+            placeholder="Buscar contato..."
+            className="w-full text-sm rounded-lg border px-3 py-1.5 bg-background focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-0.5 min-h-0">
+          {filtered.length === 0 && (
+            <p className="text-center text-xs text-muted-foreground py-6">Nenhum contato encontrado</p>
+          )}
+          {filtered.map((conv) => (
+            <button
+              key={conv.client_id}
+              onClick={() => setSelectedId(conv.client_id === selectedId ? null : conv.client_id)}
+              className={`w-full flex items-center gap-3 px-2 py-2 rounded-lg text-left transition-colors ${selectedId === conv.client_id ? "bg-emerald-50 dark:bg-emerald-950/30 ring-1 ring-emerald-400" : "hover:bg-muted"}`}
+            >
+              <div className="h-8 w-8 rounded-full bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center shrink-0 text-emerald-700 dark:text-emerald-300 text-xs font-semibold">
+                {conv.client_name.charAt(0).toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">{conv.client_name}</p>
+                <p className="text-[11px] text-muted-foreground truncate">{conv.client_phone || ""}</p>
+              </div>
+              {selectedId === conv.client_id && (
+                <svg className="h-4 w-4 text-emerald-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              )}
+            </button>
+          ))}
+        </div>
+        <div className="px-4 pb-4 pt-2 border-t">
+          <Button
+            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
+            disabled={!selectedId || forwarding}
+            onClick={handleForward}
+          >
+            {forwarding ? "Encaminhando..." : "Encaminhar"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hideHeader, className }: WhatsAppChatProps) {
   const qc = useQueryClient();
   const { data: messages, isLoading } = useWhatsAppMessages(clientId);
@@ -248,6 +367,7 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [replyTo, setReplyTo] = useState<{ id: string; preview: string; direction: string } | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [forwardMsg, setForwardMsg] = useState<any | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -530,6 +650,12 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
                             >
                               <CornerUpLeft className="h-3.5 w-3.5 text-muted-foreground" /> Responder
                             </button>
+                            <button
+                              onClick={() => { setForwardMsg(msg); setOpenMenuId(null); }}
+                              className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-muted text-left"
+                            >
+                              <Forward className="h-3.5 w-3.5 text-muted-foreground" /> Encaminhar
+                            </button>
                             {isTextMsg && (
                               <button
                                 onClick={() => { navigator.clipboard.writeText(msg.message_text || ""); toast.success("Texto copiado"); setOpenMenuId(null); }}
@@ -611,6 +737,9 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
       {openMenuId && (
         <div className="fixed inset-0 z-20" onClick={() => setOpenMenuId(null)} />
       )}
+
+      {/* Forward modal */}
+      {forwardMsg && <ForwardModal msg={forwardMsg} onClose={() => setForwardMsg(null)} />}
 
       {/* Input area */}
       <div className="border-t pt-3 mt-2 pr-24">
