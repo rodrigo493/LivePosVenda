@@ -67,15 +67,14 @@ export function useDeleteClient() {
   return useMutation({
     mutationFn: async (clientId: string) => {
       // Verifica se há tickets ativos (sem deleted_at)
-      const { data: activeTickets, error: checkErr } = await (supabase as any)
+      const { count, error: checkErr } = await supabase
         .from("tickets")
-        .select("id")
+        .select("id", { count: "exact", head: true })
         .eq("client_id", clientId)
-        .is("deleted_at", null)
-        .limit(1);
+        .is("deleted_at", null);
       if (checkErr) throw checkErr;
-      if (activeTickets && activeTickets.length > 0) {
-        throw new Error(`ACTIVE_TICKETS:${activeTickets.length}`);
+      if (count && count > 0) {
+        throw new Error(`ACTIVE_TICKETS:${count}`);
       }
       const { error } = await supabase.from("clients").delete().eq("id", clientId);
       if (error) throw error;

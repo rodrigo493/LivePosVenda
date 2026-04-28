@@ -92,6 +92,7 @@ export function useSoftDeleteTicket() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["tickets"] });
       qc.invalidateQueries({ queryKey: ["pipeline-tickets"] });
+      qc.invalidateQueries({ queryKey: ["client-tickets"] });
     },
   });
 }
