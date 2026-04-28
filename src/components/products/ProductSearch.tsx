@@ -123,10 +123,17 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
       fetchedRef.current.add(code);
       setStockMap(prev => ({ ...prev, [code]: { loading: true, qty: null } }));
       try {
-        const encoded = encodeURIComponent(code);
-        const r = await _nomusGet(`/api/nomus/rest/saldosEstoqueProduto?query=produto.codigo==${encoded}`);
-        if (!r.ok) throw new Error();
-        const stockData = await r.json();
+        // 1. Busca o ID Nomus do produto pelo código (FIQL no endpoint de produtos)
+        const pr = await _nomusGet(`/api/nomus/rest/produtos?query=codigo==${encodeURIComponent(code)}`);
+        if (!pr.ok) throw new Error();
+        const prData = await pr.json();
+        const nomusId = Array.isArray(prData) && prData.length > 0 ? Number(prData[0].id) : null;
+        if (!nomusId) throw new Error("not found");
+
+        // 2. Busca saldo de estoque pelo ID Nomus
+        const sr = await _nomusGet(`/api/nomus/rest/saldosEstoqueProduto/${nomusId}`);
+        if (!sr.ok) throw new Error();
+        const stockData = await sr.json();
         const total = Array.isArray(stockData)
           ? stockData.reduce((sum: number, s: any) => {
               const v = parseFloat((s.saldoTotal || "0").replace(",", "."));
