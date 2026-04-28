@@ -274,6 +274,7 @@ const QuoteDetailPage = () => {
             modelFilter={modelName}
             onSelect={handleProductSelect}
             itemTypes={searchMode === "peca" ? partTypes : serviceTypes}
+            showNomusStock={searchMode === "peca"}
           />
 
           {/* Inline new service creation */}

@@ -690,6 +690,7 @@ const PGDetailPage = () => {
             modelFilter={modelName}
             onSelect={handleProductSelect}
             itemTypes={searchMode === "peca" ? partTypes : serviceTypes}
+            showNomusStock={searchMode === "peca"}
           />
           {searchMode === "servico" && (
             <div className="space-y-3">

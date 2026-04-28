@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useProducts } from "@/hooks/useProducts";
 import { useAllCompatibility } from "@/hooks/useProductCompatibility";
 import { SEARCH_RESULTS_LIMIT } from "@/constants/limits";
+import { cn } from "@/lib/utils";
 
 interface ProductSearchProps {
   modelFilter?: string;
@@ -12,7 +13,10 @@ interface ProductSearchProps {
   onSelect: (product: any, itemType: string) => void;
   itemTypes?: { value: string; label: string }[];
   productTypeFilter?: "peca" | "servico";
+  showNomusStock?: boolean;
 }
+
+type StockEntry = { loading: boolean; qty: number | null };
 
 const defaultItemTypes = [
   { value: "peca_cobrada", label: "Peça (Cobrada)" },
@@ -23,12 +27,14 @@ const defaultItemTypes = [
   { value: "desconto", label: "Desconto" },
 ];
 
-export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defaultItemTypes, productTypeFilter }: ProductSearchProps) {
+export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defaultItemTypes, productTypeFilter, showNomusStock }: ProductSearchProps) {
   const { data: products } = useProducts();
   const { data: compatMap } = useAllCompatibility();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const [stockMap, setStockMap] = useState<Record<string, StockEntry>>({});
+  const fetchedRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -90,6 +96,37 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
       })
       .slice(0, SEARCH_RESULTS_LIMIT);
   }, [products, query, modelFilter, compatMap]);
+
+  useEffect(() => {
+    if (!showNomusStock || !filtered.length) return;
+
+    const fetchStock = async (code: string) => {
+      if (!code || fetchedRef.current.has(code)) return;
+      fetchedRef.current.add(code);
+      setStockMap(prev => ({ ...prev, [code]: { loading: true, qty: null } }));
+      try {
+        const r1 = await fetch(`/api/nomus/rest/produtos?query=codigo==${encodeURIComponent(code)}`, { headers: { Accept: "application/json" } });
+        if (!r1.ok) throw new Error();
+        const prods = await r1.json();
+        if (!Array.isArray(prods) || !prods.length) throw new Error();
+        const nomusId = prods[0].id;
+        const r2 = await fetch(`/api/nomus/rest/saldosEstoqueProduto/${nomusId}`, { headers: { Accept: "application/json" } });
+        if (!r2.ok) throw new Error();
+        const stockData = await r2.json();
+        const total = Array.isArray(stockData)
+          ? stockData.reduce((sum: number, s: any) => {
+              const v = parseFloat((s.saldoTotal || "0").replace(",", "."));
+              return sum + (isNaN(v) ? 0 : v);
+            }, 0)
+          : 0;
+        setStockMap(prev => ({ ...prev, [code]: { loading: false, qty: total } }));
+      } catch {
+        setStockMap(prev => ({ ...prev, [code]: { loading: false, qty: null } }));
+      }
+    };
+
+    filtered.forEach(p => fetchStock(p.code));
+  }, [filtered, showNomusStock]);
 
   const getCompatLabel = (productId: string) => {
     if (!compatMap || !modelFilter) return null;
@@ -165,6 +202,26 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
                     <p className="text-xs font-mono font-medium">R$ {Number(p.base_cost).toFixed(2)}</p>
                     <p className="text-[10px] text-muted-foreground">{p.unit || "un"}</p>
                   </div>
+                  {showNomusStock && (() => {
+                    const s = stockMap[p.code];
+                    if (!s) return <div className="shrink-0 self-center w-16" />;
+                    if (s.loading) return (
+                      <div className="shrink-0 self-center">
+                        <span className="text-[10px] text-muted-foreground animate-pulse">estoque…</span>
+                      </div>
+                    );
+                    if (s.qty === null) return <div className="shrink-0 self-center w-16" />;
+                    return (
+                      <div className="shrink-0 self-center text-center">
+                        <span className={cn(
+                          "text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap",
+                          s.qty > 0 ? "bg-success/10 text-success" : "bg-orange-100 text-orange-600"
+                        )}>
+                          {s.qty > 0 ? `${Math.round(s.qty)} em estoque` : "sem estoque"}
+                        </span>
+                      </div>
+                    );
+                  })()}
                   <div className="flex gap-1 shrink-0 flex-wrap max-w-[220px]">
                     {itemTypes.slice(0, 4).map((t) => (
                       <Button
