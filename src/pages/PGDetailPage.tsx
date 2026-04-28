@@ -130,12 +130,14 @@ const PGDetailPage = () => {
     setNomusFields(prev => ({ ...prev, [field]: value }));
   };
 
-  const nomusGet = async (field: string, enc: string, ms = 4000): Promise<any[]> => {
+  // Nomus usa query=campo%3D"*termo*" (não FIQL like com %)
+  const nomusGet = async (field: string, term: string, ms = 5000): Promise<any[]> => {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), ms);
     try {
+      const q = encodeURIComponent(`${field}="*${term.toUpperCase()}*"`);
       const r = await fetch(
-        `/api/nomus/rest/pessoas?query=${field}=like=%25${enc}%25`,
+        `/api/nomus/rest/clientes?query=${q}`,
         { headers: { Accept: "application/json" }, signal: ctrl.signal }
       );
       clearTimeout(timer);
@@ -152,19 +154,17 @@ const PGDetailPage = () => {
     if (nomusSearchTimer.current) clearTimeout(nomusSearchTimer.current);
     nomusSearchTimer.current = setTimeout(async () => {
       setNomusClientLoading(true);
-      const enc = encodeURIComponent(query.trim().toUpperCase());
-      // Busca sequencial: nome primeiro (rápido), depois razaoSocial e nomeFantasia
+      const term = query.trim();
       const seen = new Set<number>();
       const results: { id: number; nome: string }[] = [];
-      for (const field of ["nome", "razaoSocial", "nomeFantasia"]) {
-        if (results.length >= 20) break;
-        const list = await nomusGet(field, enc);
+      for (const field of ["nome", "razaoSocial"]) {
+        if (results.length > 0) break;
+        const list = await nomusGet(field, term);
         for (const p of list) {
           if (seen.has(p.id) || results.length >= 20) continue;
           seen.add(p.id);
-          results.push({ id: p.id, nome: p.nomeFantasia || p.razaoSocial || p.nome || `ID ${p.id}` });
+          results.push({ id: p.id, nome: p.razaoSocial || p.nome || `ID ${p.id}` });
         }
-        if (results.length >= 5) break; // já tem resultados suficientes, não precisa ir adiante
       }
       setNomusClientResults(results);
       setNomusClientOpen(results.length > 0);
@@ -181,16 +181,15 @@ const PGDetailPage = () => {
   const resolveNomusClientId = async (name: string): Promise<number | null> => {
     const q = name.trim();
     if (!q) return null;
-    const words = q.toUpperCase().split(/\s+/);
-    const uq = q.toUpperCase();
-    const terms = [uq, ...(words.length > 2 ? [words.slice(0, 2).join(" ")] : []), words[0]];
+    const words = q.split(/\s+/);
+    // Tenta nome completo, depois primeiras 2 palavras, depois só a primeira
+    const terms = [q, ...(words.length > 2 ? [words.slice(0, 2).join(" ")] : []), words[0]];
     for (const term of terms) {
-      const enc = encodeURIComponent(term);
-      for (const field of ["nome", "razaoSocial", "nomeFantasia"]) {
-        const list = await nomusGet(field, enc);
+      for (const field of ["nome", "razaoSocial"]) {
+        const list = await nomusGet(field, term);
         if (list.length > 0) {
           const exact = list.find((p: any) =>
-            [p.nome, p.razaoSocial, p.nomeFantasia].some((n: string) => n?.toLowerCase() === q.toLowerCase())
+            [p.nome, p.razaoSocial].some((n: string) => n?.toUpperCase() === q.toUpperCase())
           );
           return ((exact ?? list[0]) as any).id as number;
         }
