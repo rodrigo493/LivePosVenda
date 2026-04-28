@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, AlertTriangle, CheckCircle, Clock, ListTodo, Package,
-  PhoneCall, TrendingUp, Receipt, Wrench, Shield, ClipboardList, Ticket, X,
+  PhoneCall, TrendingUp, Receipt, Wrench, Shield, ClipboardList, Ticket, X, DollarSign,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { KpiCard } from "@/components/dashboard/KpiCard";
@@ -88,6 +88,20 @@ function useAllServiceRequests() {
   });
 }
 
+function useWarrantyCostOrders() {
+  return useQuery({
+    queryKey: ["warranty-cost-orders-dashboard"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("work_orders")
+        .select("id, order_number, ticket_id, clients(name), work_order_items(item_type, quantity, unit_cost)")
+        .eq("order_type", "garantia");
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
 function useAllTasks() {
   return useQuery({
     queryKey: ["all-tasks-dashboard"],
@@ -105,6 +119,7 @@ function useAllTasks() {
 type DrillDownKey =
   | "active" | "concluded" | "delayed" | "noContact" | "awaitingParts"
   | "pendingQuotes" | "openWOs" | "completedWOs" | "pendingWarranties" | "openSR"
+  | "warrantyCost"
   | null;
 
 const DRILL_LABELS: Record<string, string> = {
@@ -118,6 +133,7 @@ const DRILL_LABELS: Record<string, string> = {
   completedWOs: "OS Concluídas",
   pendingWarranties: "Garantias em análise",
   openSR: "Assistências abertas",
+  warrantyCost: "Custo de Garantias — detalhamento por OS",
 };
 
 const MyDashboardPage = () => {
@@ -129,6 +145,7 @@ const MyDashboardPage = () => {
   const { data: workOrders } = useAllWorkOrders();
   const { data: warrantyClaims } = useAllWarrantyClaims();
   const { data: serviceRequests } = useAllServiceRequests();
+  const { data: warrantyCostOrders } = useWarrantyCostOrders();
 
   const [drillDown, setDrillDown] = useState<DrillDownKey>(null);
   const [selectedTicket, setSelectedTicket] = useState<any>(null);
@@ -180,6 +197,20 @@ const MyDashboardPage = () => {
       allSR, openSR,
     };
   }, [tickets, tasks, today, quotes, workOrders, warrantyClaims, serviceRequests]);
+
+  const warrantyCosts = useMemo(() => {
+    const wos = warrantyCostOrders || [];
+    let pecas = 0, maoObra = 0, frete = 0;
+    wos.forEach((wo: any) => {
+      (wo.work_order_items || []).forEach((item: any) => {
+        const v = Number(item.quantity) * Number(item.unit_cost);
+        if (item.item_type === "peca_garantia" || item.item_type === "peca_cobrada") pecas += v;
+        else if (item.item_type === "servico_garantia" || item.item_type === "servico_cobrado") maoObra += v;
+        else if (item.item_type === "frete") frete += v;
+      });
+    });
+    return { pecas, maoObra, frete, total: pecas + maoObra + frete };
+  }, [warrantyCostOrders]);
 
   const toggleDrill = (key: DrillDownKey) => setDrillDown(prev => prev === key ? null : key);
 
@@ -247,8 +278,28 @@ const MyDashboardPage = () => {
       }));
     }
 
+    if (drillDown === "warrantyCost") {
+      const wos = warrantyCostOrders || [];
+      return wos
+        .map((wo: any) => {
+          const items = wo.work_order_items || [];
+          const total = items.reduce((s: number, i: any) => s + Number(i.quantity) * Number(i.unit_cost), 0);
+          return {
+            id: wo.id,
+            ticketId: wo.ticket_id,
+            clientName: wo.clients?.name || "—",
+            title: wo.order_number,
+            subtitle: fmtCurrency(total),
+            status: "garantia",
+            _cost: total,
+          };
+        })
+        .filter((wo: any) => wo._cost > 0)
+        .sort((a: any, b: any) => b._cost - a._cost);
+    }
+
     return [];
-  }, [drillDown, stats]);
+  }, [drillDown, stats, warrantyCostOrders]);
 
   return (
     <div>
@@ -279,7 +330,7 @@ const MyDashboardPage = () => {
       </div>
 
       {/* KPIs Row 2 */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 mb-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
         <div className={`cursor-pointer rounded-xl ring-2 transition-all ${drillDown === "pendingQuotes" ? "ring-primary" : "ring-transparent"}`} onClick={() => toggleDrill("pendingQuotes")}>
           <KpiCard title="Orçamentos pendentes" value={stats.pendingQuotes.length} icon={Receipt} />
         </div>
@@ -294,6 +345,9 @@ const MyDashboardPage = () => {
         </div>
         <div className={`cursor-pointer rounded-xl ring-2 transition-all ${drillDown === "openSR" ? "ring-primary" : "ring-transparent"}`} onClick={() => toggleDrill("openSR")}>
           <KpiCard title="Assistências abertas" value={stats.openSR.length} icon={ClipboardList} />
+        </div>
+        <div className={`cursor-pointer rounded-xl ring-2 transition-all ${drillDown === "warrantyCost" ? "ring-destructive" : "ring-transparent"}`} onClick={() => toggleDrill("warrantyCost")}>
+          <KpiCard title="Custo Garantia" value={fmtCurrency(warrantyCosts.total)} icon={DollarSign} variant="warning" />
         </div>
       </div>
 
@@ -317,6 +371,27 @@ const MyDashboardPage = () => {
                   <X className="h-4 w-4 text-muted-foreground" />
                 </button>
               </div>
+
+              {drillDown === "warrantyCost" && (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 p-3 rounded-lg bg-muted/40 border">
+                  <div className="text-center">
+                    <p className="text-[10px] text-muted-foreground mb-0.5">Peças</p>
+                    <p className="text-sm font-semibold text-orange-500">{fmtCurrency(warrantyCosts.pecas)}</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-[10px] text-muted-foreground mb-0.5">Mão de obra</p>
+                    <p className="text-sm font-semibold text-blue-500">{fmtCurrency(warrantyCosts.maoObra)}</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-[10px] text-muted-foreground mb-0.5">Frete</p>
+                    <p className="text-sm font-semibold text-purple-500">{fmtCurrency(warrantyCosts.frete)}</p>
+                  </div>
+                  <div className="text-center border-l">
+                    <p className="text-[10px] text-muted-foreground mb-0.5">Total geral</p>
+                    <p className="text-sm font-bold">{fmtCurrency(warrantyCosts.total)}</p>
+                  </div>
+                </div>
+              )}
 
               {drillItems.length === 0 ? (
                 <p className="text-xs text-muted-foreground text-center py-6">Nenhum item nesta categoria</p>
