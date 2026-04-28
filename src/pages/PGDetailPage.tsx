@@ -138,20 +138,17 @@ const PGDetailPage = () => {
     nomusSearchTimer.current = setTimeout(async () => {
       setNomusClientLoading(true);
       try {
-        const q = query.trim();
-        const enc = encodeURIComponent(q);
-        // FIQL OR: busca em nome, razaoSocial e nomeFantasia
-        const fiql = `nome=like=%25${enc}%25,razaoSocial=like=%25${enc}%25,nomeFantasia=like=%25${enc}%25`;
-        const res = await fetch(
-          `/api/nomus/rest/pessoas?query=${fiql}`,
-          { headers: { "Content-Type": "application/json", "Accept": "application/json" } }
+        const enc = encodeURIComponent(query.trim());
+        const headers = { "Content-Type": "application/json", "Accept": "application/json" };
+        const fetches = ["nome", "razaoSocial", "nomeFantasia"].map(field =>
+          fetch(`/api/nomus/rest/pessoas?query=${field}=like=%25${enc}%25`, { headers })
+            .then(r => r.ok ? r.json() : [])
+            .catch(() => [])
         );
-        if (!res.ok) throw new Error(`Erro ${res.status}`);
-        const body = await res.json();
-        const list: any[] = Array.isArray(body) ? body : [];
+        const [r1, r2, r3] = await Promise.all(fetches);
         const seen = new Set<number>();
         const results: { id: number; nome: string }[] = [];
-        for (const p of list) {
+        for (const p of [...(Array.isArray(r1) ? r1 : []), ...(Array.isArray(r2) ? r2 : []), ...(Array.isArray(r3) ? r3 : [])]) {
           if (seen.has(p.id)) continue;
           seen.add(p.id);
           results.push({ id: p.id, nome: p.nomeFantasia || p.razaoSocial || p.nome || `ID ${p.id}` });
@@ -161,7 +158,6 @@ const PGDetailPage = () => {
         setNomusClientOpen(results.length > 0);
       } catch (e: any) {
         console.error("nomus-search error:", e);
-        toast.error(`Busca Nomus: ${e.message || "Erro desconhecido"}`);
         setNomusClientResults([]);
       }
       setNomusClientLoading(false);
@@ -177,20 +173,29 @@ const PGDetailPage = () => {
   const resolveNomusClientId = async (name: string): Promise<number | null> => {
     const q = name.trim();
     if (!q) return null;
-    const encoded = encodeURIComponent(q);
+    const headers = { "Content-Type": "application/json", "Accept": "application/json" };
+    const words = q.split(/\s+/);
+    // Tenta: nome completo, primeiro sobrenome, primeiro nome — para cada campo
+    const terms = [q, ...(words.length > 2 ? [words.slice(0, 2).join(" ")] : []), words[0]];
     const fields = ["nome", "razaoSocial", "nomeFantasia"];
-    for (const field of fields) {
-      try {
-        const res = await fetch(
-          `/api/nomus/rest/pessoas?query=${field}=like=%25${encoded}%25`,
-          { headers: { "Content-Type": "application/json", "Accept": "application/json" } }
-        );
-        if (!res.ok) continue;
-        const body = await res.json();
-        const list: any[] = Array.isArray(body) ? body : [];
-        if (list.length > 0) return list[0].id as number;
-      } catch {
-        // try next field
+    for (const term of terms) {
+      const enc = encodeURIComponent(term);
+      for (const field of fields) {
+        try {
+          const res = await fetch(
+            `/api/nomus/rest/pessoas?query=${field}=like=%25${enc}%25`,
+            { headers }
+          );
+          if (!res.ok) continue;
+          const body = await res.json().catch(() => null);
+          const list: any[] = Array.isArray(body) ? body : [];
+          if (list.length > 0) {
+            const exact = list.find((p: any) =>
+              [p.nome, p.razaoSocial, p.nomeFantasia].some(n => n?.toLowerCase() === q.toLowerCase())
+            );
+            return (exact ?? list[0]).id as number;
+          }
+        } catch { /* try next */ }
       }
     }
     return null;
