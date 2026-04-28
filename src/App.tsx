@@ -1,6 +1,6 @@
 import React, { lazy, Suspense } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
@@ -58,12 +58,6 @@ const queryClient = new QueryClient({
   },
 });
 
-function AdminRoute({ children }: { children: React.ReactNode }) {
-  const { rolesLoading, hasRole } = useAuth();
-  if (rolesLoading) return <PageLoader />;
-  return hasRole("admin") ? <>{children}</> : <Navigate to="/meu-painel" replace />;
-}
-
 function PageLoader() {
   return (
     <div className="flex items-center justify-center py-20">
@@ -102,7 +96,7 @@ function AppRoutes() {
       <AppLayout>
         <Suspense fallback={<PageLoader />}>
           <Routes>
-            <Route path="/" element={<AdminRoute><Dashboard /></AdminRoute>} />
+            <Route path="/" element={<Dashboard />} />
             <Route path="/clientes" element={<ClientsPage />} />
             <Route path="/equipamentos" element={<EquipmentPage />} />
             <Route path="/chamados" element={<TicketsPage />} />

@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from "react";
+import { Navigate } from "react-router-dom";
 import {
   LayoutDashboard,
   HeadphonesIcon,
@@ -21,6 +22,7 @@ import { AiOperationalSummary } from "@/components/dashboard/AiOperationalSummar
 import { AdminTeamOverview } from "@/components/dashboard/AdminTeamOverview";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { motion } from "framer-motion";
+import { useAuth } from "@/hooks/useAuth";
 import { useWorkOrders } from "@/hooks/useWorkOrders";
 import { useWarrantyClaims } from "@/hooks/useWarrantyAndService";
 import { useEquipments } from "@/hooks/useEquipments";
@@ -104,9 +106,9 @@ function UserMultiSelect({
   );
 }
 
-// ─── Dashboard ────────────────────────────────────────────────────────────────
+// ─── Dashboard Content (todos os hooks de dados aqui) ────────────────────────
 
-const Dashboard = () => {
+function DashboardContent() {
   const { data: allTickets } = useAdminTickets();
   const { data: pipelines } = usePipelines();
   const { data: orders } = useWorkOrders();
@@ -136,7 +138,7 @@ const Dashboard = () => {
     setSelectedUserIds([]);
   };
 
-  // Users with tickets in the selected pipeline
+  // Usuários com chamados no fluxo selecionado
   const usersInPipeline = useMemo(() => {
     const seen = new Set<string>();
     const result: { id: string; name: string }[] = [];
@@ -152,7 +154,7 @@ const Dashboard = () => {
     return result.sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
   }, [allTickets, selectedPipelineId, profiles]);
 
-  // Filtered tickets
+  // Tickets filtrados
   const filteredTickets = useMemo(
     () =>
       (allTickets || [])
@@ -171,13 +173,11 @@ const Dashboard = () => {
     [filteredTickets]
   );
 
-  // Filtered warranty claims (ticket_id is NOT nullable in schema)
   const filteredClaims = useMemo(
     () => (claims || []).filter((c) => !hasFilter || filteredTicketIds.has(c.ticket_id)),
     [claims, filteredTicketIds, hasFilter]
   );
 
-  // Filtered work orders (ticket_id nullable; standalone orders hidden when filter active)
   const filteredOrders = useMemo(
     () =>
       (orders || []).filter(
@@ -186,7 +186,6 @@ const Dashboard = () => {
     [orders, filteredTicketIds, hasFilter]
   );
 
-  // Filtered equipments in warranty
   const equipInWarrantyList = useMemo(
     () =>
       (equipments || []).filter(
@@ -197,7 +196,7 @@ const Dashboard = () => {
     [equipments, filteredEquipmentIds, hasFilter]
   );
 
-  // ── Ticket KPIs ────────────────────────────────────────────────────────────
+  // KPIs de chamados
   const openTicketsList = filteredTickets.filter((t) => t.status === "aberto");
   const inProgressList = filteredTickets.filter((t) =>
     ["em_atendimento", "em_analise", "agendado"].includes(t.status)
@@ -206,7 +205,7 @@ const Dashboard = () => {
     ["resolvido", "fechado"].includes(t.status)
   );
 
-  // ── Warranty KPIs ──────────────────────────────────────────────────────────
+  // KPIs de garantia
   const warrantyInAnalysisList = filteredClaims.filter((c) => c.warranty_status === "em_analise");
   const approvedClaimsList = filteredClaims.filter((c) => c.warranty_status === "aprovada");
   const rejectedClaimsList = filteredClaims.filter((c) => c.warranty_status === "reprovada");
@@ -215,7 +214,6 @@ const Dashboard = () => {
     0
   );
 
-  // ── Pie chart ──────────────────────────────────────────────────────────────
   const hasPieData =
     warrantyInAnalysisList.length > 0 ||
     approvedClaimsList.length > 0 ||
@@ -227,7 +225,6 @@ const Dashboard = () => {
     { name: "Reprovadas", value: rejectedClaimsList.length },
   ].filter((d) => d.value > 0);
 
-  // ── Drilldown helpers ──────────────────────────────────────────────────────
   const openDrilldown = (title: string, items: DrilldownItem[]) =>
     setDrilldown({ title, items });
 
@@ -271,7 +268,7 @@ const Dashboard = () => {
 
   return (
     <div>
-      {/* ── Header ── */}
+      {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <PageHeader
           title="Dashboard"
@@ -284,9 +281,8 @@ const Dashboard = () => {
         />
       </div>
 
-      {/* ── Filtros: Fluxo + Usuário ── */}
+      {/* Filtros: Fluxo + Usuário */}
       <div className="flex flex-wrap items-center gap-2 mb-6 p-3 bg-muted/40 rounded-xl border">
-        {/* Pipeline pills */}
         <div className="flex flex-wrap gap-1.5 flex-1">
           <button
             onClick={() => handlePipelineChange("all")}
@@ -313,19 +309,16 @@ const Dashboard = () => {
           ))}
         </div>
 
-        {/* User multi-select */}
         <UserMultiSelect
           users={usersInPipeline}
           selectedIds={selectedUserIds}
           onChange={setSelectedUserIds}
         />
 
-        {/* Active user filter badges */}
         {selectedUserIds.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {selectedUserIds.map((uid) => {
-              const name =
-                profiles?.find((p) => p.user_id === uid)?.full_name || "Usuário";
+              const name = profiles?.find((p) => p.user_id === uid)?.full_name || "Usuário";
               return (
                 <Badge
                   key={uid}
@@ -347,7 +340,7 @@ const Dashboard = () => {
       <AdminTeamOverview />
       <OperationalAlerts />
 
-      {/* ── KPI Row 1 ── */}
+      {/* KPI Row 1 */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
         <KpiCard
           title="Chamados Abertos"
@@ -389,7 +382,7 @@ const Dashboard = () => {
         />
       </div>
 
-      {/* ── KPI Row 2 ── */}
+      {/* KPI Row 2 */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <KpiCard
           title="Total Chamados"
@@ -433,9 +426,8 @@ const Dashboard = () => {
         />
       </div>
 
-      {/* ── Gráficos ── */}
+      {/* Gráficos */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-        {/* Warranty Pie */}
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
@@ -459,9 +451,7 @@ const Dashboard = () => {
                       <Cell
                         key={i}
                         fill={
-                          COLORS[
-                            entry.name === "Em análise" ? 0 : entry.name === "Aprovadas" ? 1 : 2
-                          ]
+                          COLORS[entry.name === "Em análise" ? 0 : entry.name === "Aprovadas" ? 1 : 2]
                         }
                       />
                     ))}
@@ -496,9 +486,7 @@ const Dashboard = () => {
                       className="h-2 w-2 rounded-full"
                       style={{
                         backgroundColor:
-                          COLORS[
-                            entry.name === "Em análise" ? 0 : entry.name === "Aprovadas" ? 1 : 2
-                          ],
+                          COLORS[entry.name === "Em análise" ? 0 : entry.name === "Aprovadas" ? 1 : 2],
                       }}
                     />
                     {entry.name} ({entry.value})
@@ -515,16 +503,15 @@ const Dashboard = () => {
           )}
         </motion.div>
 
-        {/* Problem Ranking – categorizado por tipo de problema */}
         <ProblemRanking />
       </div>
 
-      {/* ── Device Frequency – histórico global ── */}
+      {/* Device Frequency */}
       <div className="mb-6">
         <DeviceFrequencyRanking history={serviceHistory || []} />
       </div>
 
-      {/* ── IA ── */}
+      {/* IA */}
       <div className="mb-6">
         <AiOperationalSummary />
       </div>
@@ -539,6 +526,28 @@ const Dashboard = () => {
       />
     </div>
   );
+}
+
+// ─── Dashboard (guard de acesso) ─────────────────────────────────────────────
+
+const Dashboard = () => {
+  const { rolesLoading, hasRole } = useAuth();
+
+  if (rolesLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="h-8 w-8 rounded-lg bg-primary/20 flex items-center justify-center animate-pulse">
+          <span className="text-primary font-bold text-sm">L</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!hasRole("admin")) {
+    return <Navigate to="/meu-painel" replace />;
+  }
+
+  return <DashboardContent />;
 };
 
 export default Dashboard;
