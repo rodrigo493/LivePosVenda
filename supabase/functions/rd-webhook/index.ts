@@ -3,6 +3,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
+const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
 async function logSync(
   admin: ReturnType<typeof createClient>,
   operation: string,
@@ -146,7 +148,7 @@ async function upsertDeal(
       .single();
     assignedTo = profile?.id ?? null;
     if (!assignedTo) {
-      await logSync(admin, "webhook", eventName, rdDealId, null, "skipped", `user_not_found: ${userEmail}`, null);
+      await logSync(admin, "webhook", eventName, rdDealId, null, "success", `warning: user_not_found: ${userEmail}`, null);
     }
   }
 
@@ -165,7 +167,7 @@ async function upsertDeal(
         pipeline_stage: stageKey,
         assigned_to: assignedTo,
         client_id: clientId,
-        ticket_number: `RD-${rdDealId.slice(-6)}`,
+        ticket_number: `RD-${rdDealId}`,
         origin: "rd_station",
         channel: "rd_station",
       },
@@ -192,8 +194,6 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return okResponse();
 
   try {
-    const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-
     let body: Record<string, unknown> = {};
     try {
       body = await req.json();
