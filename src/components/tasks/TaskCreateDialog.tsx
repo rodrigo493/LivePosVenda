@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useCreateTask } from "@/hooks/useTasks";
+import { localDateStr } from "@/components/tasks/CalendarTaskBlock";
 import { useAllUsers } from "@/hooks/useUserAccess";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
@@ -31,14 +32,14 @@ export function TaskCreateDialog({ open, onOpenChange, defaultDate, defaultTime,
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [dueDate, setDueDate] = useState(defaultDate ?? new Date().toISOString().slice(0, 10));
+  const [dueDate, setDueDate] = useState(defaultDate ?? localDateStr(new Date()));
   const [dueTime, setDueTime] = useState(defaultTime ?? "09:00");
   const [priority, setPriority] = useState("media");
   const [assignedTo, setAssignedTo] = useState(user?.id ?? "");
 
   useEffect(() => {
     if (open) {
-      const todayStr = new Date().toISOString().slice(0, 10);
+      const todayStr = localDateStr(new Date());
       setTitle("");
       setDescription("");
       setDueDate(defaultDate ?? todayStr);

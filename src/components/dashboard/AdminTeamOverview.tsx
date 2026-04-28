@@ -2,6 +2,7 @@ import { COMPACT_LIST_LIMIT } from "@/constants/limits";
 import { useMemo } from "react";
 import { useTickets } from "@/hooks/useTickets";
 import { useTasks } from "@/hooks/useTasks";
+import { localDateStr } from "@/components/tasks/CalendarTaskBlock";
 import { AlertTriangle, PhoneOff, CalendarClock, Clock, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { motion } from "framer-motion";
@@ -16,7 +17,7 @@ function daysSince(dateStr: string | null) {
 export function AdminTeamOverview() {
   const { data: tickets } = useTickets();
   const { data: tasks } = useTasks();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateStr(new Date());
 
   const { data: profiles } = useQuery({
     queryKey: ["profiles-all"],

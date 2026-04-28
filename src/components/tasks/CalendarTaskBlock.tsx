@@ -15,11 +15,16 @@ export function calcTaskTop(dueTime: string): number {
   return Math.max(0, raw);
 }
 
+export function localDateStr(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 export function isTaskOverdue(task: TaskRow): boolean {
   if (task.status === "concluida") return false;
   if (!task.due_date) return false;
   const now = new Date();
-  const todayStr = now.toISOString().slice(0, 10);
+  const todayStr = localDateStr(now);
   if (task.due_date < todayStr) return true;
   if (task.due_date === todayStr && task.due_time) {
     const nowMinutes = now.getHours() * 60 + now.getMinutes();
