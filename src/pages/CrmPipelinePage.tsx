@@ -493,6 +493,7 @@ const CrmPipelinePage = () => {
             autos.map((a, pos) => ({
               stage_id: realId, trigger_type: a.trigger_type, action_type: a.action_type,
               action_config: a.action_config, position: pos, is_active: a.is_active,
+              delay_minutes: a.delay_minutes ?? 0,
             }))
           );
           if (error) throw error;
