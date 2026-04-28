@@ -18,33 +18,48 @@ interface ProductSearchProps {
 
 type StockEntry = { loading: boolean; qty: number | null };
 
-// Cache de módulo: carrega TODOS os produtos Nomus (paginado) uma vez por sessão
+// Cache de módulo: carrega TODOS os produtos Nomus (paralelo) uma vez por sessão
 const _nomusIdMap: Map<string, number> = new Map();
 let _nomusMapLoaded = false;
 let _nomusMapPromise: Promise<void> | null = null;
+
+const _addToMap = (list: any[]) => {
+  list.forEach((p: any) => {
+    if (p.codigo && p.id) _nomusIdMap.set(String(p.codigo).trim(), Number(p.id));
+  });
+};
 
 const ensureNomusMap = (): Promise<void> => {
   if (_nomusMapLoaded) return Promise.resolve();
   if (_nomusMapPromise) return _nomusMapPromise;
   _nomusMapPromise = (async () => {
+    const hdr = { Accept: "application/json" };
     try {
-      let page = 1;
-      while (page <= 100) {
-        const url = page === 1
-          ? "/api/nomus/rest/produtos"
-          : `/api/nomus/rest/produtos?pagina=${page}`;
-        const r = await fetch(url, { headers: { Accept: "application/json" } });
-        if (!r.ok) break;
-        const list = await r.json();
-        if (!Array.isArray(list) || list.length === 0) break;
-        list.forEach((p: any) => {
-          if (p.codigo && p.id) _nomusIdMap.set(String(p.codigo).trim(), Number(p.id));
-        });
-        // Se veio menos que 50 itens provavelmente é a última página
-        if (list.length < 50) break;
-        page++;
+      // Página 1
+      const r1 = await fetch("/api/nomus/rest/produtos", { headers: hdr });
+      if (!r1.ok) { _nomusMapLoaded = true; return; }
+      const list1 = await r1.json();
+      if (!Array.isArray(list1) || list1.length === 0) { _nomusMapLoaded = true; return; }
+      _addToMap(list1);
+      if (list1.length < 50) { _nomusMapLoaded = true; return; }
+
+      // Páginas 2..200 em lotes paralelos de 10
+      for (let start = 2; start <= 200; start += 10) {
+        const pages = Array.from({ length: 10 }, (_, i) => start + i);
+        const results = await Promise.all(
+          pages.map(pg =>
+            fetch(`/api/nomus/rest/produtos?pagina=${pg}`, { headers: hdr })
+              .then(r => r.ok ? r.json() : [])
+              .catch(() => [])
+          )
+        );
+        let anyData = false;
+        for (const list of results) {
+          if (Array.isArray(list) && list.length > 0) { _addToMap(list); anyData = true; }
+        }
+        if (!anyData) break;
       }
-    } catch { /* falha silenciosa */ }
+    } catch { /* silencioso */ }
     _nomusMapLoaded = true;
   })();
   return _nomusMapPromise;
@@ -143,14 +158,13 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
         const r = await fetch(`/api/nomus/rest/saldosEstoqueProduto/${nomusId}`, { headers: { Accept: "application/json" } });
         if (!r.ok) throw new Error();
         const stockData = await r.json();
-        // Filtra pela empresa 2 (empresa operacional); soma todos os setores dela
-        const empresa2 = Array.isArray(stockData)
-          ? stockData.filter((s: any) => s.idEmpresa === 2)
-          : [];
-        const total = empresa2.reduce((sum: number, s: any) => {
-          const v = parseFloat((s.saldoTotal || "0").replace(",", "."));
-          return sum + (isNaN(v) ? 0 : v);
-        }, 0);
+        // Soma saldo de TODAS as empresas/setores (= Saldo total disponível do Nomus)
+        const total = Array.isArray(stockData)
+          ? stockData.reduce((sum: number, s: any) => {
+              const v = parseFloat((s.saldoTotal || "0").replace(",", "."));
+              return sum + (isNaN(v) ? 0 : v);
+            }, 0)
+          : 0;
         setStockMap(prev => ({ ...prev, [code]: { loading: false, qty: Math.max(0, total) } }));
       } catch {
         setStockMap(prev => ({ ...prev, [code]: { loading: false, qty: null } }));
