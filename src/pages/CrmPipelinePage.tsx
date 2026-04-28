@@ -124,7 +124,7 @@ const CrmPipelinePage = () => {
   }, [stages]);
 
   const ticketFilterUserId = filterBy === "all" ? undefined : filterBy === "mine" ? user?.id : filterBy;
-  const { data: tickets, isLoading } = usePipelineTickets(currentPipeline?.id, ticketFilterUserId);
+  const { data: tickets, isLoading } = usePipelineTickets(currentPipeline?.id, ticketFilterUserId, isAdmin);
   const { data: conversations } = useWhatsAppConversations();
   const whatsappUnread = useMemo(() => {
     const map = new Map<string, number>();
@@ -667,6 +667,7 @@ const CrmPipelinePage = () => {
                   totalValue={totalValue}
                   onQuickTask={handleQuickTask}
                   onClickTicket={setDetailTicket}
+                  isAdmin={isAdmin}
                 />
               );
             })}
@@ -675,7 +676,7 @@ const CrmPipelinePage = () => {
           <DragOverlay dropAnimation={null}>
             {activeTicket ? (
               <div className="w-[260px] rotate-2 shadow-lg">
-                <PipelineCard ticket={activeTicket} onQuickTask={() => {}} onClick={() => {}} />
+                <PipelineCard ticket={activeTicket} onQuickTask={() => {}} onClick={() => {}} isAdmin={isAdmin} />
               </div>
             ) : null}
           </DragOverlay>
@@ -845,12 +846,14 @@ function StageColumn({
   totalValue,
   onQuickTask,
   onClickTicket,
+  isAdmin,
 }: {
   stage: { key: string; label: string; color: string };
   items: any[];
   totalValue: number;
   onQuickTask: (ticketId: string, clientId: string) => void;
   onClickTicket: (ticket: any) => void;
+  isAdmin: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.key });
 
@@ -886,6 +889,7 @@ function StageColumn({
               ticket={ticket}
               onQuickTask={() => onQuickTask(ticket.id, ticket.client_id)}
               onClick={() => onClickTicket(ticket)}
+              isAdmin={isAdmin}
             />
           ))}
         </SortableContext>
@@ -897,7 +901,7 @@ function StageColumn({
   );
 }
 
-function SortableCard({ ticket, onQuickTask, onClick }: { ticket: any; onQuickTask: () => void; onClick: () => void }) {
+function SortableCard({ ticket, onQuickTask, onClick, isAdmin }: { ticket: any; onQuickTask: () => void; onClick: () => void; isAdmin: boolean }) {
   const {
     attributes,
     listeners,
@@ -915,7 +919,7 @@ function SortableCard({ ticket, onQuickTask, onClick }: { ticket: any; onQuickTa
 
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <PipelineCard ticket={ticket} onQuickTask={onQuickTask} onClick={onClick} />
+      <PipelineCard ticket={ticket} onQuickTask={onQuickTask} onClick={onClick} isAdmin={isAdmin} />
     </div>
   );
 }
@@ -936,7 +940,7 @@ function getLastOrderTag(quotes: any[]): "ORÇ" | "PA" | "PG" | null {
   return "ORÇ";
 }
 
-function PipelineCard({ ticket, onQuickTask, onClick }: { ticket: any; onQuickTask: () => void; onClick: () => void }) {
+function PipelineCard({ ticket, onQuickTask, onClick, isAdmin }: { ticket: any; onQuickTask: () => void; onClick: () => void; isAdmin: boolean }) {
   const typeInfo = TICKET_TYPE_LABELS[ticket.ticket_type] || { label: ticket.ticket_type, color: "bg-muted text-muted-foreground" };
   const unreadWpp = ticket._unreadWhatsapp || 0;
   const lastOrderTag = getLastOrderTag(ticket.quotes || []);
@@ -950,6 +954,11 @@ function PipelineCard({ ticket, onQuickTask, onClick }: { ticket: any; onQuickTa
           : "bg-background"
       }`}
     >
+      {isAdmin && ticket.is_paused && (
+        <div className="bg-muted text-muted-foreground text-[9px] font-bold px-2 py-0.5 rounded-b-md uppercase tracking-wide inline-block">
+          Pausado
+        </div>
+      )}
       {unreadWpp > 0 && (
         <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-[#c2410c]/30">
           <span className="h-1.5 w-1.5 rounded-full bg-[#c2410c] animate-dot-pulse" />
