@@ -1,11 +1,11 @@
-import { lazy, Suspense } from "react";
+import React, { lazy, Suspense } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { CrmPermissionsProvider } from "@/contexts/CrmPermissionsContext";
+import { CrmPermissionsProvider, useCrmPermissionsContext } from "@/contexts/CrmPermissionsContext";
 import AuthPage from "./pages/AuthPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import { LaivinhaChat } from "@/components/laivinha/LaivinhaChat";
@@ -58,6 +58,11 @@ const queryClient = new QueryClient({
   },
 });
 
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const { isAdmin } = useCrmPermissionsContext();
+  return isAdmin ? <>{children}</> : <Navigate to="/meu-painel" replace />;
+}
+
 function PageLoader() {
   return (
     <div className="flex items-center justify-center py-20">
@@ -96,7 +101,7 @@ function AppRoutes() {
       <AppLayout>
         <Suspense fallback={<PageLoader />}>
           <Routes>
-            <Route path="/" element={<Dashboard />} />
+            <Route path="/" element={<AdminRoute><Dashboard /></AdminRoute>} />
             <Route path="/clientes" element={<ClientsPage />} />
             <Route path="/equipamentos" element={<EquipmentPage />} />
             <Route path="/chamados" element={<TicketsPage />} />

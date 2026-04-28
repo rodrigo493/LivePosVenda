@@ -47,7 +47,6 @@ import {
 import { useCrmPermissionsContext } from "@/contexts/CrmPermissionsContext";
 
 const mainNav = [
-  { title: "Dashboard",      url: "/",             icon: LayoutDashboard, moduleKey: null },
   { title: "Meu Painel",     url: "/meu-painel",   icon: User,            moduleKey: null },
   { title: "CRM Pipeline",   url: "/crm",          icon: Kanban,          moduleKey: "crm_pipeline" },
   { title: "Chat WhatsApp",  url: "/chat",         icon: MessageSquare,   moduleKey: "chat_whatsapp" },
@@ -81,7 +80,8 @@ const otherNav = [
 ];
 
 const adminNav = [
-  { title: "Permissões CRM", url: "/crm-permissions", icon: Shield, moduleKey: null },
+  { title: "Dashboard",      url: "/",               icon: LayoutDashboard, moduleKey: null },
+  { title: "Permissões CRM", url: "/crm-permissions", icon: Shield,          moduleKey: null },
 ];
 
 export function AppSidebar() {
