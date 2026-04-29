@@ -49,7 +49,28 @@ export function useWhatsAppConversations() {
         }
       }
 
-      return Array.from(map.values()).sort(
+      // Deduplica por telefone (últimos 8 dígitos) para evitar duplicatas
+      // causadas por clientes registrados duas vezes com o mesmo número
+      const byPhone = new Map<string, Conversation>();
+      for (const conv of map.values()) {
+        const phoneKey = conv.client_phone
+          ? conv.client_phone.replace(/\D/g, "").slice(-8)
+          : conv.client_id;
+        const existing = byPhone.get(phoneKey);
+        if (!existing) {
+          byPhone.set(phoneKey, { ...conv });
+        } else {
+          // Mantém o mais recente como representante; soma os não lidos
+          existing.unread_count += conv.unread_count;
+          if (new Date(conv.last_message_at) > new Date(existing.last_message_at)) {
+            existing.client_id = conv.client_id;
+            existing.last_message = conv.last_message;
+            existing.last_message_at = conv.last_message_at;
+          }
+        }
+      }
+
+      return Array.from(byPhone.values()).sort(
         (a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime()
       );
     },
