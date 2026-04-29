@@ -10,6 +10,7 @@ import {
   FileSpreadsheet,
   Pencil,
   BarChart3,
+  Play,
 } from "lucide-react";
 import {
   DndContext,
@@ -1088,10 +1089,22 @@ function getLastOrderTag(quotes: any[]): "ORÇ" | "PA" | "PG" | null {
   return "ORÇ";
 }
 
+function getLastOrderRoute(quotes: any[]): string | null {
+  if (!quotes || quotes.length === 0) return null;
+  const last = [...quotes].sort(
+    (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+  )[0];
+  if (last.warranty_claim_id) return `/pedidos-garantia/${last.warranty_claim_id}`;
+  if (last.service_request_id) return `/pedidos-acessorios/${last.service_request_id}`;
+  return null;
+}
+
 function PipelineCard({ ticket, onQuickTask, onClick, isAdmin }: { ticket: any; onQuickTask: () => void; onClick: () => void; isAdmin: boolean }) {
+  const navigate = useNavigate();
   const typeInfo = TICKET_TYPE_LABELS[ticket.ticket_type] || { label: ticket.ticket_type, color: "bg-zinc-700 text-zinc-300" };
   const unreadWpp = ticket._unreadWhatsapp || 0;
   const lastOrderTag = getLastOrderTag(ticket.quotes || []);
+  const lastOrderRoute = getLastOrderRoute(ticket.quotes || []);
   const isDelayed = ticket._isDelayed;
   const days = ticket._daysSinceInteraction ?? 0;
   const stageColor: string = ticket._stageColor ?? "#6366f1";
@@ -1127,6 +1140,16 @@ function PipelineCard({ ticket, onQuickTask, onClick, isAdmin }: { ticket: any; 
             <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-900/60 text-blue-300 border border-blue-700/50">
               {lastOrderTag}
             </span>
+          )}
+          {lastOrderRoute && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); navigate(lastOrderRoute); }}
+              className="flex items-center justify-center h-4 w-4 rounded text-blue-400 hover:text-blue-200 hover:bg-blue-900/40 transition-colors animate-pulse"
+              title={`Abrir ${lastOrderTag}`}
+            >
+              <Play className="h-2.5 w-2.5 fill-current" />
+            </button>
           )}
           {isDelayed ? (
             <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-amber-900/60 text-amber-300 border border-amber-700/50 flex items-center gap-0.5">
