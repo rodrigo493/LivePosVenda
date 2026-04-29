@@ -528,14 +528,14 @@ const CrmPipelinePage = () => {
 
   return (
     <div>
-      {/* ── Barra superior: título + ações ── */}
-      <div className="flex items-center justify-between gap-2 pb-3 border-b">
-        <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg bg-primary/10">
-            <Kanban className="h-4 w-4 text-primary" />
-          </div>
-          <span className="text-sm font-bold">CRM Pipeline</span>
-        </div>
+      {/* ── Header preto com logo ── */}
+      <div className="-mx-6 -mt-6 mb-0 bg-black flex items-center justify-between px-6 py-3">
+        <img
+          src="/crm-pipeline-logo.png"
+          alt="Live CRM Pipeline"
+          className="h-10 lg:h-12 w-auto object-contain select-none"
+          draggable={false}
+        />
         <div className="flex items-center gap-1.5 flex-wrap justify-end">
           <Button size="sm" className="gap-1.5 h-8" onClick={() => setClientDialog(true)}>
             <UserPlus className="h-3.5 w-3.5" /> Novo Cliente
