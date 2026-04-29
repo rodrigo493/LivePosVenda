@@ -18,19 +18,35 @@ interface WhatsAppChatProps {
   className?: string;
 }
 
-function useWhatsAppMessages(clientId: string | undefined) {
+function useWhatsAppMessages(clientId: string | undefined, ticketId?: string) {
   return useQuery({
-    queryKey: ["whatsapp-messages", clientId],
+    queryKey: ["whatsapp-messages", clientId, ticketId],
     enabled: !!clientId,
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from("whatsapp_messages")
         .select("*")
-        .eq("client_id", clientId!)
         .order("created_at", { ascending: true })
         .limit(CHAT_HISTORY_LIMIT);
+
+      if (ticketId) {
+        // Inclui mensagens pelo client_id OU pelo ticket_id para capturar
+        // mensagens salvas com cliente duplicado ou sem client_id correto
+        query = query.or(`client_id.eq.${clientId},ticket_id.eq.${ticketId}`);
+      } else {
+        query = query.eq("client_id", clientId!);
+      }
+
+      const { data, error } = await query;
       if (error) throw error;
-      return data;
+
+      // Deduplica por id caso o OR traga duplicatas
+      const seen = new Set<string>();
+      return (data ?? []).filter((m) => {
+        if (seen.has(m.id)) return false;
+        seen.add(m.id);
+        return true;
+      });
     },
   });
 }
@@ -359,7 +375,7 @@ function ForwardModal({ msg, onClose }: { msg: any; onClose: () => void }) {
 
 export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hideHeader, className }: WhatsAppChatProps) {
   const qc = useQueryClient();
-  const { data: messages, isLoading } = useWhatsAppMessages(clientId);
+  const { data: messages, isLoading } = useWhatsAppMessages(clientId, ticketId);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [mediaFile, setMediaFile] = useState<{ base64: string; mime: string; name: string } | null>(null);
@@ -382,17 +398,25 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
   const shouldSendRef = useRef(false);
   const isSendingRef = useRef(false);
 
-  // Realtime subscription
+  // Realtime subscription — ouve por client_id e, quando disponível, por ticket_id
   useEffect(() => {
     if (!clientId) return;
-    const invalidate = () => qc.invalidateQueries({ queryKey: ["whatsapp-messages", clientId] });
+    const invalidate = () => qc.invalidateQueries({ queryKey: ["whatsapp-messages", clientId, ticketId] });
+
     const channel = supabase
-      .channel(`whatsapp-${clientId}`)
+      .channel(`whatsapp-${clientId}-${ticketId ?? ""}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "whatsapp_messages", filter: `client_id=eq.${clientId}` }, invalidate)
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "whatsapp_messages", filter: `client_id=eq.${clientId}` }, invalidate)
-      .subscribe();
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "whatsapp_messages", filter: `client_id=eq.${clientId}` }, invalidate);
+
+    if (ticketId) {
+      channel
+        .on("postgres_changes", { event: "INSERT", schema: "public", table: "whatsapp_messages", filter: `ticket_id=eq.${ticketId}` }, invalidate)
+        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "whatsapp_messages", filter: `ticket_id=eq.${ticketId}` }, invalidate);
+    }
+
+    channel.subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [clientId, qc]);
+  }, [clientId, ticketId, qc]);
 
   // Auto-scroll on new messages
   useEffect(() => {
@@ -411,7 +435,7 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
   const deleteMessage = async (msgId: string) => {
     const { error } = await supabase.from("whatsapp_messages").delete().eq("id", msgId);
     if (error) { toast.error("Erro ao apagar mensagem"); return; }
-    qc.invalidateQueries({ queryKey: ["whatsapp-messages", clientId] });
+    qc.invalidateQueries({ queryKey: ["whatsapp-messages", clientId, ticketId] });
     toast.success("Mensagem apagada");
   };
 
@@ -477,7 +501,7 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
       );
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || "Erro ao enviar");
-      qc.invalidateQueries({ queryKey: ["whatsapp-messages", clientId] });
+      qc.invalidateQueries({ queryKey: ["whatsapp-messages", clientId, ticketId] });
     } catch (err: any) {
       toast.error(err.message || "Erro ao enviar áudio");
     } finally {
@@ -564,7 +588,7 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
       setDraft("");
       setMediaFile(null);
       setReplyTo(null);
-      qc.invalidateQueries({ queryKey: ["whatsapp-messages", clientId] });
+      qc.invalidateQueries({ queryKey: ["whatsapp-messages", clientId, ticketId] });
     } catch (err: any) {
       toast.error(err.message || "Erro ao enviar mensagem");
     } finally {
