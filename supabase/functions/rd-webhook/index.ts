@@ -166,6 +166,102 @@ async function resolveOrCreateClient(
   return null;
 }
 
+// Processa evento OPPORTUNITY do RD Station Marketing
+// Payload: { event_type: "OPPORTUNITY", leads: [...], payload: {...} }
+async function handleMarketingOpportunity(
+  body: Record<string, unknown>,
+): Promise<void> {
+  const payloadData = (body.payload as Record<string, unknown>) ?? {};
+  const leads = (body.leads as Record<string, unknown>[]) ?? [];
+
+  // Usa o primeiro lead do array ou os dados do payload como fallback
+  const leadData = leads[0] ?? payloadData;
+
+  const rdLeadId = (leadData.id as string) ?? (leadData.uuid as string) ?? null;
+  const name = (leadData.name as string) ?? (payloadData.name as string) ?? "Lead RD Station";
+  const email = (leadData.email as string) ?? (payloadData.email as string) ?? null;
+  const rawPhone = (
+    (leadData.mobile_phone as string) ??
+    (leadData.personal_phone as string) ??
+    (payloadData.mobile_phone as string) ??
+    (payloadData.personal_phone as string) ??
+    null
+  );
+  const phone = rawPhone?.replace(/\D/g, "") ?? null;
+
+  console.log(`rd-webhook OPPORTUNITY: lead=${rdLeadId}, name=${name}, email=${email}`);
+
+  // Localizar ou criar cliente
+  let clientId: string | null = null;
+
+  if (email) {
+    const { data } = await admin.from("clients").select("id").eq("email", email).limit(1).maybeSingle();
+    if (data) clientId = data.id;
+  }
+  if (!clientId && phone && phone.length >= 8) {
+    const { data } = await admin.from("clients").select("id").ilike("phone", `%${phone.slice(-8)}`).limit(1).maybeSingle();
+    if (data) clientId = data.id;
+  }
+  if (!clientId) {
+    const { data: newClient } = await admin.from("clients").upsert(
+      {
+        name,
+        email: email ?? null,
+        phone: phone ?? null,
+        rd_contact_id: rdLeadId ?? null,
+        status: "ativo",
+      },
+      { onConflict: rdLeadId ? "rd_contact_id" : "email" },
+    ).select("id").maybeSingle();
+    if (newClient) clientId = newClient.id;
+  }
+
+  const { pipelineId, stageKey } = await resolvePipelineAndStage(null);
+  if (!pipelineId) {
+    await logSync("webhook", "OPPORTUNITY", rdLeadId, null, "error", "no_pipeline", body);
+    return;
+  }
+
+  // Usa prefixo "mkt-" para distinguir leads de marketing de deals do CRM
+  const rdDealId = `mkt-${rdLeadId ?? email?.replace(/\W/g, "") ?? Date.now()}`;
+  const shortId = rdLeadId?.slice(-6).toUpperCase() ?? Date.now().toString(36).toUpperCase();
+
+  const upsertPayload: Record<string, unknown> = {
+    rd_deal_id: rdDealId,
+    title: name,
+    ticket_type: "negociacao",
+    status: "aberto",
+    pipeline_id: pipelineId,
+    pipeline_stage: stageKey,
+    origin: "rd_station",
+    channel: "rd_station",
+    ticket_number: `RD-${shortId}`,
+  };
+
+  if (clientId) upsertPayload.client_id = clientId;
+
+  let { data: ticket, error } = await admin.from("tickets")
+    .upsert(upsertPayload, { onConflict: "rd_deal_id" })
+    .select("id")
+    .maybeSingle();
+
+  if (error?.message?.includes("assigned_to_fkey")) {
+    const r = await admin.from("tickets")
+      .upsert({ ...upsertPayload, assigned_to: null }, { onConflict: "rd_deal_id" })
+      .select("id").maybeSingle();
+    ticket = r.data;
+    error = r.error ?? null;
+  }
+
+  if (error) {
+    await logSync("webhook", "OPPORTUNITY", rdLeadId, null, "error", error.message, body);
+    console.error("rd-webhook OPPORTUNITY upsert failed:", error.message);
+  } else {
+    await logSync("webhook", "OPPORTUNITY", rdLeadId, ticket?.id ?? null, "success", null, null);
+    console.log(`rd-webhook: opportunity ${rdLeadId} → ticket ${ticket?.id}`);
+  }
+}
+
 async function upsertDeal(
   deal: Record<string, unknown>,
   eventName: string,
@@ -297,18 +393,30 @@ Deno.serve(async (req) => {
       null
     ) as Record<string, unknown> | null;
 
-    const evtLower = eventName.toLowerCase();
-    const isDealCreated = evtLower === "crm_deal_created" || evtLower === "dealcreated";
-    const isDealUpdated = evtLower === "crm_deal_updated" || evtLower === "dealupdated";
-    const isDealDeleted = evtLower === "crm_deal_deleted" || evtLower === "dealdeleted";
+    // RD Station Marketing envia event_type: "OPPORTUNITY"
+    const evtUpper = eventName.toUpperCase();
+    if (evtUpper === "OPPORTUNITY" || evtUpper.includes("OPPORTUNIT")) {
+      await handleMarketingOpportunity(body);
+      return okResponse();
+    }
 
-    if (isDealCreated || isDealUpdated) {
+    const evtLower = eventName.toLowerCase().replace(/[._-]/g, "");
+    const isDealCreated = evtLower.includes("deal") && evtLower.includes("creat");
+    const isDealUpdated = evtLower.includes("deal") && evtLower.includes("updat");
+    const isDealDeleted = evtLower.includes("deal") && evtLower.includes("delet");
+
+    // Se o payload contém dados de deal mas evento não foi identificado,
+    // tratar como criação/atualização (fallback seguro)
+    const hasDealData = !!(deal?._id || deal?.id);
+    const shouldProcess = isDealCreated || isDealUpdated || (!isDealDeleted && hasDealData && !!deal);
+
+    if (shouldProcess) {
       if (!deal) {
         console.error("rd-webhook: deal não encontrado no payload. Keys recebidas:", bodyKeys);
-        await logSync("webhook", eventName, null, null, "error", `no_deal_in_payload. body_keys: ${bodyKeys.join(",")}`, body);
+        await logSync("webhook", eventName || "unknown", null, null, "error", `no_deal_in_payload. body_keys: ${bodyKeys.join(",")}`, body);
         return okResponse();
       }
-      await upsertDeal(deal, eventName, body);
+      await upsertDeal(deal, eventName || "webhook", body);
     } else if (isDealDeleted) {
       const rdDealId = (
         (deal as Record<string, unknown> | null)?._id ??
