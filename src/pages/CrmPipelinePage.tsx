@@ -8,7 +8,6 @@ import {
   UserPlus,
   Search,
   FileSpreadsheet,
-  MessageSquare,
   Pencil,
 } from "lucide-react";
 import {
@@ -37,7 +36,6 @@ import { CrmSyncImportDialog } from "@/components/crm/CrmSyncImportDialog";
 import { CrmBatchSyncDialog } from "@/components/crm/CrmBatchSyncDialog";
 import { PipelineExcelImportDialog } from "@/components/crm/PipelineExcelImportDialog";
 import { TicketDetailDialog } from "@/components/tickets/TicketDetailDialog";
-import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -518,52 +516,32 @@ const CrmPipelinePage = () => {
 
   return (
     <div>
-      <PageHeader
-        title="CRM Pipeline"
-        description="Gestão visual dos atendimentos da assistência técnica"
-        icon={Kanban}
-        action={
-          <div className="flex gap-2">
-            <Button size="sm" className="gap-1.5" onClick={() => setClientDialog(true)}>
-              <UserPlus className="h-4 w-4" /> Novo Cliente
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setBatchOpen(true)}>
-              <ClipboardPaste className="h-4 w-4 mr-1" /> Sincronizar em lote
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setExcelImportOpen(true)}>
-              <FileSpreadsheet className="h-4 w-4 mr-1" /> Importar Excel
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setSyncOpen(true)}>
-              <Upload className="h-4 w-4 mr-1" /> Importar CSV
-            </Button>
-            {isAdmin ? (
-              <Select value={filterBy} onValueChange={setFilterBy}>
-                <SelectTrigger className="h-8 w-44 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos os cards</SelectItem>
-                  <SelectItem value="mine">Meus cards</SelectItem>
-                  {allUsers.length > 0 && (
-                    <>
-                      <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide border-t mt-1 pt-2">
-                        Por usuário
-                      </div>
-                      {allUsers.map((u) => (
-                        <SelectItem key={u.user_id} value={u.user_id}>
-                          {u.full_name || u.email}
-                        </SelectItem>
-                      ))}
-                    </>
-                  )}
-                </SelectContent>
-              </Select>
-            ) : null}
+      {/* ── Barra superior: título + ações ── */}
+      <div className="flex items-center justify-between gap-2 pb-3 border-b">
+        <div className="flex items-center gap-2">
+          <div className="p-1.5 rounded-lg bg-primary/10">
+            <Kanban className="h-4 w-4 text-primary" />
           </div>
-        }
-      />
+          <span className="text-sm font-bold">CRM Pipeline</span>
+        </div>
+        <div className="flex items-center gap-1.5 flex-wrap justify-end">
+          <Button size="sm" className="gap-1.5 h-8" onClick={() => setClientDialog(true)}>
+            <UserPlus className="h-3.5 w-3.5" /> Novo Cliente
+          </Button>
+          <Button variant="outline" size="sm" className="h-8" onClick={() => setBatchOpen(true)}>
+            <ClipboardPaste className="h-3.5 w-3.5 mr-1" /> Sincronizar
+          </Button>
+          <Button variant="outline" size="sm" className="h-8" onClick={() => setExcelImportOpen(true)}>
+            <FileSpreadsheet className="h-3.5 w-3.5 mr-1" /> Excel
+          </Button>
+          <Button variant="outline" size="sm" className="h-8" onClick={() => setSyncOpen(true)}>
+            <Upload className="h-3.5 w-3.5 mr-1" /> CSV
+          </Button>
+        </div>
+      </div>
 
-      <div className="flex items-center gap-2 mb-3">
+      {/* ── Barra de funil + filtros ── */}
+      <div className="flex items-center gap-2 py-2 border-b mb-3 flex-wrap">
         <span className="font-semibold text-sm">{currentPipeline?.name ?? "Pipeline CRM"}</span>
         {!isEditing && (
           <FunnelSwitcher
@@ -573,7 +551,7 @@ const CrmPipelinePage = () => {
         )}
         {isAdmin && !isEditing && (
           <>
-            <div className="w-px h-5 bg-border mx-1" />
+            <div className="w-px h-5 bg-border mx-0.5" />
             <Button
               variant="outline"
               size="sm"
@@ -590,6 +568,40 @@ const CrmPipelinePage = () => {
             />
           </>
         )}
+        <div className="flex-1" />
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <input
+            type="text"
+            placeholder="Buscar cliente, nº ou título..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-8 pr-3 py-1.5 text-sm rounded-lg border border-input bg-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring h-8 w-56"
+          />
+        </div>
+        {isAdmin ? (
+          <Select value={filterBy} onValueChange={setFilterBy}>
+            <SelectTrigger className="h-8 w-40 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos os cards</SelectItem>
+              <SelectItem value="mine">Meus cards</SelectItem>
+              {allUsers.length > 0 && (
+                <>
+                  <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide border-t mt-1 pt-2">
+                    Por usuário
+                  </div>
+                  {allUsers.map((u) => (
+                    <SelectItem key={u.user_id} value={u.user_id}>
+                      {u.full_name || u.email}
+                    </SelectItem>
+                  ))}
+                </>
+              )}
+            </SelectContent>
+          </Select>
+        ) : null}
       </div>
 
       {isEditing && currentPipeline ? (
@@ -609,17 +621,6 @@ const CrmPipelinePage = () => {
         />
       ) : (
         <>
-      <div className="relative mb-4 max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <input
-          type="text"
-          placeholder="Buscar cliente, nº ou título..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-input bg-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-        />
-      </div>
-
       {!currentPipeline && !isLoading && pipelines.length === 0 ? (
         <div className="p-12 text-center text-muted-foreground text-sm">Sem acesso ao CRM. Solicite acesso ao administrador.</div>
       ) : isLoading ? (
@@ -635,7 +636,7 @@ const CrmPipelinePage = () => {
           <div
             ref={scrollRef}
             className={`flex gap-3 overflow-x-auto pb-4 select-none ${isGrabbing ? "cursor-grabbing" : "cursor-grab"}`}
-            style={{ minHeight: "calc(100vh - 200px)" }}
+            style={{ minHeight: "calc(100vh - 165px)" }}
             onMouseDown={(e) => {
               if (activeId) return;
               if (!scrollRef.current) return;
@@ -857,28 +858,26 @@ function StageColumn({
   return (
     <div
       ref={setNodeRef}
-      className={`flex-shrink-0 w-[280px] rounded-xl border bg-card flex flex-col transition-all ${
+      className={`flex-1 min-w-[230px] rounded-xl border bg-card flex flex-col transition-all ${
         isOver ? "ring-2 ring-primary/50" : ""
       }`}
+      style={{ borderTop: `3px solid ${stage.color}` }}
     >
-      <div className="p-3 border-b">
-        <div className="flex items-center justify-between mb-1">
-          <div className="flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: stage.color }} />
-            <span className="text-xs font-semibold">{stage.label}</span>
-          </div>
-          <Badge variant="secondary" className="text-[10px] h-5">
+      <div className="px-3 pt-2.5 pb-2 border-b">
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs font-semibold flex-1 truncate">{stage.label}</span>
+          <Badge variant="secondary" className="text-[10px] h-5 shrink-0">
             {items.length}
           </Badge>
+          {totalValue > 0 && (
+            <span className="text-[10px] font-semibold text-primary shrink-0">
+              R$ {totalValue.toLocaleString("pt-BR", { minimumFractionDigits: 0 })}
+            </span>
+          )}
         </div>
-        {totalValue > 0 && (
-          <span className="text-[10px] text-muted-foreground">
-            R$ {totalValue.toLocaleString("pt-BR", { minimumFractionDigits: 0 })}
-          </span>
-        )}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-2 space-y-1 min-h-[60px]">
+      <div className="flex-1 overflow-y-auto p-2 space-y-1.5 min-h-[60px]">
         <SortableContext items={items.map((t: any) => t.id)} strategy={verticalListSortingStrategy}>
           {items.map((ticket: any) => (
             <SortableCard
@@ -948,7 +947,7 @@ function PipelineCard({ ticket, onQuickTask, onClick, isAdmin }: { ticket: any; 
       className={`rounded-lg border cursor-pointer hover:shadow-md transition-shadow overflow-hidden ${
         unreadWpp > 0
           ? "bg-[#f97316]/[0.06] border-[#c2410c] animate-unread-pulse"
-          : "bg-background"
+          : "bg-card"
       }`}
     >
       {isAdmin && ticket.is_paused && (
