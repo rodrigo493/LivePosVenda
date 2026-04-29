@@ -194,7 +194,10 @@ export default function RdStationPage() {
         body: {},
         headers: { Authorization: `Bearer ${session?.access_token}` },
       });
-      if (res.error) throw new Error(res.error.message);
+      if (res.error) {
+        const detail = (res.data as { error?: string } | null)?.error;
+        throw new Error(detail || res.error.message);
+      }
       const stats = res.data as {
         total_deals: number;
         total_contacts: number;

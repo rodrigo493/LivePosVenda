@@ -106,22 +106,23 @@ async function importContacts(token: string): Promise<number> {
 async function importDeals(
   token: string,
   rdPipelineId: string,
-  pipelineName: string,
 ): Promise<{ dealIds: string[]; count: number }> {
   const dealIds: string[] = [];
 
+  // Use the first available local pipeline
   const { data: pipeline } = await admin
     .from("pipelines")
     .select("id")
-    .eq("name", pipelineName)
     .limit(1)
-    .single();
+    .maybeSingle();
 
-  const { data: stages } = await admin
-    .from("pipeline_stages")
-    .select("key, label, position")
-    .eq("pipeline_id", pipeline?.id ?? "")
-    .order("position", { ascending: true });
+  const { data: stages } = pipeline?.id
+    ? await admin
+        .from("pipeline_stages")
+        .select("key, label, position")
+        .eq("pipeline_id", pipeline.id)
+        .order("position", { ascending: true })
+    : { data: [] };
 
   const stageMap = new Map((stages ?? []).map((s) => [s.label.toLowerCase(), s.key]));
   const firstStageKey = stages?.[0]?.key ?? null;
@@ -399,7 +400,7 @@ Deno.serve(async (req) => {
     const totalContacts = await importContacts(token);
     console.log(`rd-import: ${totalContacts} contacts imported`);
 
-    const { dealIds, count: totalDeals } = await importDeals(token, rdPipelineId, config.pipeline_name as string || "Funil de Vendas");
+    const { dealIds, count: totalDeals } = await importDeals(token, rdPipelineId);
     console.log(`rd-import: ${totalDeals} deals imported`);
 
     let totalComments = 0;
