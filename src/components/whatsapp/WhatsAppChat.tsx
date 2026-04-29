@@ -572,11 +572,34 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
     if (!clientPhone) return;
     isSendingRef.current = true;
     setSending(true);
+
+    const quotedPrefix = replyTo ? `↩ _${replyTo.preview}_\n\n` : "";
+    const messageText = (quotedPrefix + (draft.trim() || "")).trim() || undefined;
+    const tempId = `temp-${Date.now()}`;
+
+    // Optimistic update: adiciona a mensagem instantaneamente no chat
+    const tempMsg = {
+      id: tempId,
+      client_id: clientId,
+      ticket_id: ticketId ?? null,
+      direction: "outbound",
+      message_text: messageText ?? (mediaFile ? `📎 ${mediaFile.name}` : ""),
+      media_url: null,
+      media_mime_type: mediaFile?.mime ?? null,
+      status: "sending",
+      created_at: new Date().toISOString(),
+    };
+    const qkey = ["whatsapp-messages", clientId, ticketId];
+    qc.setQueryData(qkey, (old: any[]) => [...(old ?? []), tempMsg]);
+
+    // Limpa o input imediatamente
+    setDraft("");
+    setMediaFile(null);
+    setReplyTo(null);
+
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token;
-      const quotedPrefix = replyTo ? `↩ _${replyTo.preview}_\n\n` : "";
-      const messageText = (quotedPrefix + (draft.trim() || "")).trim() || undefined;
       const body: Record<string, any> = { client_id: clientId, ticket_id: ticketId, phone: clientPhone, message: messageText };
       if (mediaFile) { body.media_base64 = mediaFile.base64; body.media_mime_type = mediaFile.mime; body.media_filename = mediaFile.name; }
       const res = await fetch(
@@ -585,11 +608,11 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
       );
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || "Erro ao enviar");
-      setDraft("");
-      setMediaFile(null);
-      setReplyTo(null);
-      qc.invalidateQueries({ queryKey: ["whatsapp-messages", clientId, ticketId] });
+      // Remove a mensagem temporária e busca a versão real do servidor
+      qc.invalidateQueries({ queryKey: qkey });
     } catch (err: any) {
+      // Reverte o optimistic update em caso de erro
+      qc.setQueryData(qkey, (old: any[]) => (old ?? []).filter((m: any) => m.id !== tempId));
       toast.error(err.message || "Erro ao enviar mensagem");
     } finally {
       isSendingRef.current = false;
