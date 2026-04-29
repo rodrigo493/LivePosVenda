@@ -7,6 +7,7 @@ export interface UserSummary {
   user_id: string;
   full_name: string;
   email: string;
+  isAdmin?: boolean;
 }
 
 export interface UserAccessData {
@@ -30,7 +31,7 @@ export function useAllUsers() {
         .eq("role", "admin");
       const adminIds = new Set((adminRoles || []).map((r: any) => r.user_id as string));
 
-      return (profiles as UserSummary[]).filter((u) => !adminIds.has(u.user_id));
+      return (profiles as UserSummary[]).map((u) => ({ ...u, isAdmin: adminIds.has(u.user_id) }));
     },
     staleTime: 60_000,
   });

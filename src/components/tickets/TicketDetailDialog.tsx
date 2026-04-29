@@ -332,6 +332,11 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   const [ticketInternalNotes, setTicketInternalNotes] = useState("");
   const [ticketObjecao, setTicketObjecao] = useState("");
   const [ticketType, setTicketType] = useState(ticket?.ticket_type || "");
+  const [ticketOrigin, setTicketOrigin] = useState("");
+  const [ticketChannel, setTicketChannel] = useState("");
+  const [ticketCampanha, setTicketCampanha] = useState("");
+  const [isEditingInfo, setIsEditingInfo] = useState(false);
+  const [editClient, setEditClient] = useState<Record<string, string>>({});
   const [newNote, setNewNote] = useState("");
   const [activeTab, setActiveTab] = useState("info");
   const [newEquipmentOpen, setNewEquipmentOpen] = useState(false);
@@ -547,6 +552,10 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
     setTicketInternalNotes(ticket.internal_notes || "");
     setTicketObjecao(ticket.objecao || "");
     setTicketType(ticket.ticket_type || "");
+    setTicketOrigin(ticket.origin || "");
+    setTicketChannel(ticket.channel || "");
+    setTicketCampanha(ticket.campanha || "");
+    setIsEditingInfo(false);
     setLocalPipelineId(ticket.pipeline_id ?? null);
     setLocalAssignedTo(ticket.assigned_to ?? null);
     // Reset PS form on new ticket open
@@ -559,7 +568,23 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
     setPsEvidencias([]);
     setPsMemoriaId(null);
     setPsAprovada(false);
-  }, [open, ticket?.id, ticket?.description, ticket?.internal_notes, ticket?.objecao, ticket?.ticket_type]);
+  }, [open, ticket?.id, ticket?.description, ticket?.internal_notes, ticket?.objecao, ticket?.ticket_type, ticket?.origin, ticket?.channel, ticket?.campanha]);
+
+  // Sync editClient when clientProfile loads/changes
+  useEffect(() => {
+    if (!clientProfile) return;
+    setEditClient({
+      phone: clientProfile.phone || "",
+      whatsapp: clientProfile.whatsapp || "",
+      email: clientProfile.email || "",
+      contact_person: clientProfile.contact_person || "",
+      city: clientProfile.city || "",
+      state: clientProfile.state || "",
+      address: clientProfile.address || "",
+      document: clientProfile.document || "",
+      document_type: clientProfile.document_type || "",
+    });
+  }, [clientProfile?.id]);
 
   // Pre-fill PS form from existing memoria record
   useEffect(() => {
@@ -625,8 +650,21 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
     },
   });
 
+  const updateClientProfile = useMutation({
+    mutationFn: async (updates: Record<string, string>) => {
+      if (!clientId) return;
+      const { error } = await supabase.from("clients").update({ ...updates, updated_at: new Date().toISOString() }).eq("id", clientId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["client-profile", clientId] });
+      toast.success("Dados do cliente atualizados!");
+    },
+    onError: () => toast.error("Erro ao atualizar dados do cliente."),
+  });
+
   const updateTicketField = useMutation({
-    mutationFn: async ({ field, value }: { field: "description" | "internal_notes" | "objecao" | "ticket_type"; value: string }) => {
+    mutationFn: async ({ field, value }: { field: "description" | "internal_notes" | "objecao" | "ticket_type" | "origin" | "channel" | "campanha"; value: string }) => {
       const { error } = await supabase.from("tickets").update({ [field]: value, updated_at: new Date().toISOString() }).eq("id", ticketId!);
       if (error) throw error;
 
@@ -897,6 +935,18 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   const handleSaveObjecao = (value: string) => {
     setTicketObjecao(value);
     updateTicketField.mutate({ field: "objecao", value });
+  };
+
+  const handleSaveInfo = () => {
+    if (ticketOrigin !== (ticket.origin || "")) updateTicketField.mutate({ field: "origin", value: ticketOrigin });
+    if (ticketChannel !== (ticket.channel || "")) updateTicketField.mutate({ field: "channel", value: ticketChannel });
+    if (ticketCampanha !== (ticket.campanha || "")) updateTicketField.mutate({ field: "campanha", value: ticketCampanha });
+    const clientChanges: Record<string, string> = {};
+    const orig = clientProfile as any;
+    const fields = ["phone", "whatsapp", "email", "contact_person", "city", "state", "address", "document", "document_type"] as const;
+    fields.forEach((f) => { if ((editClient[f] ?? "") !== (orig?.[f] || "")) clientChanges[f] = editClient[f] ?? ""; });
+    if (Object.keys(clientChanges).length > 0) updateClientProfile.mutate(clientChanges);
+    setIsEditingInfo(false);
   };
 
   // Check if we're in a sub-tab (client-level view)
@@ -1259,40 +1309,60 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                 {/* ── Tab: Detalhes (Client Dashboard) ──── */}
                 <TabsContent value="info" className="mt-0 space-y-5">
                   {/* Ticket info */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <InfoRow icon={User} label="Cliente" value={ticket.clients?.name} />
-                    <div className="flex flex-col gap-1">
-                      <div className="flex items-center gap-1.5 text-muted-foreground">
-                        <Tag className="h-3.5 w-3.5" />
-                        <span className="text-[11px]">Tipo</span>
-                      </div>
-                      <select
-                        className="text-sm font-medium bg-transparent border border-input rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-ring"
-                        value={ticketType}
-                        onChange={(e) => { setTicketType(e.target.value); updateTicketField.mutate({ field: "ticket_type" as any, value: e.target.value }); }}
-                      >
-                        <option value="chamado_tecnico">Chamado Técnico</option>
-                        <option value="garantia">Garantia</option>
-                        <option value="assistencia">Assistência</option>
-                        <option value="pos_venda">Pós Venda</option>
-                        <option value="comprar_acessorios">Comprar Acessórios</option>
-                      </select>
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Dados do Card</p>
+                      {!isEditingInfo ? (
+                        <Button variant="outline" size="sm" className="h-7 px-2.5 text-xs gap-1.5" onClick={() => setIsEditingInfo(true)}>
+                          <Pencil className="h-3 w-3" /> Editar
+                        </Button>
+                      ) : (
+                        <div className="flex gap-1.5">
+                          <Button variant="ghost" size="sm" className="h-7 px-2.5 text-xs" onClick={() => { setIsEditingInfo(false); setTicketOrigin(ticket.origin || ""); setTicketChannel(ticket.channel || ""); setTicketCampanha(ticket.campanha || ""); if (clientProfile) setEditClient({ phone: clientProfile.phone || "", whatsapp: clientProfile.whatsapp || "", email: clientProfile.email || "", contact_person: clientProfile.contact_person || "", city: clientProfile.city || "", state: clientProfile.state || "", address: clientProfile.address || "", document: clientProfile.document || "", document_type: clientProfile.document_type || "" }); }}>
+                            <X className="h-3 w-3" />
+                          </Button>
+                          <Button size="sm" className="h-7 px-2.5 text-xs gap-1.5" onClick={handleSaveInfo} disabled={updateTicketField.isPending || updateClientProfile.isPending}>
+                            <Check className="h-3 w-3" /> Salvar
+                          </Button>
+                        </div>
+                      )}
                     </div>
-                    <InfoRow icon={Clock} label="Último contato" value={
-                      ticket.last_interaction_at
-                        ? `${fmtDate(ticket.last_interaction_at)} (${days}d atrás)` : "—"
-                    } />
-                    <InfoRow icon={Calendar} label="Criado em" value={fmtDate(ticket.created_at)} />
-                    {ticket.equipments && (
-                      <InfoRow icon={Package} label="Equipamento" value={
-                        `${ticket.equipments.equipment_models?.name || ""} - ${ticket.equipments.serial_number}`
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <InfoRow icon={User} label="Cliente" value={ticket.clients?.name} />
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-1.5 text-muted-foreground">
+                          <Tag className="h-3.5 w-3.5" />
+                          <span className="text-[11px]">Tipo</span>
+                        </div>
+                        <select
+                          className="text-sm font-medium bg-transparent border border-input rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-ring"
+                          value={ticketType}
+                          onChange={(e) => { setTicketType(e.target.value); updateTicketField.mutate({ field: "ticket_type" as any, value: e.target.value }); }}
+                        >
+                          <option value="chamado_tecnico">Chamado Técnico</option>
+                          <option value="garantia">Garantia</option>
+                          <option value="assistencia">Assistência</option>
+                          <option value="pos_venda">Pós Venda</option>
+                          <option value="comprar_acessorios">Comprar Acessórios</option>
+                        </select>
+                      </div>
+                      <InfoRow icon={Clock} label="Último contato" value={
+                        ticket.last_interaction_at
+                          ? `${fmtDate(ticket.last_interaction_at)} (${days}d atrás)` : "—"
                       } />
-                    )}
-                    {ticket.estimated_value > 0 && (
-                      <InfoRow icon={FileText} label="Valor estimado" value={fmtCurrency(ticket.estimated_value)} />
-                    )}
-                    {ticket.channel && <InfoRow icon={MessageSquare} label="Canal" value={ticket.channel} />}
-                    {ticket.origin && <InfoRow icon={Settings2} label="Origem" value={ticket.origin} />}
+                      <InfoRow icon={Calendar} label="Criado em" value={fmtDate(ticket.created_at)} />
+                      {ticket.equipments && (
+                        <InfoRow icon={Package} label="Equipamento" value={
+                          `${ticket.equipments.equipment_models?.name || ""} - ${ticket.equipments.serial_number}`
+                        } />
+                      )}
+                      {ticket.estimated_value > 0 && (
+                        <InfoRow icon={FileText} label="Valor estimado" value={fmtCurrency(ticket.estimated_value)} />
+                      )}
+                      <EditableInfoRow icon={MessageSquare} label="Canal" value={ticketChannel} onChange={setTicketChannel} editing={isEditingInfo} />
+                      <EditableInfoRow icon={Settings2} label="Origem" value={ticketOrigin} onChange={setTicketOrigin} editing={isEditingInfo} />
+                      <EditableInfoRow icon={Tag} label="Campanha" value={ticketCampanha} onChange={setTicketCampanha} editing={isEditingInfo} highlight />
+                    </div>
                   </div>
 
                   {/* Client profile info */}
@@ -1303,13 +1373,13 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Dados do Cliente</p>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                           <InfoRow icon={User} label="Código" value={clientProfile.client_code} />
-                          <InfoRow icon={FileText} label="Documento" value={clientProfile.document ? `${clientProfile.document_type?.toUpperCase()}: ${clientProfile.document}` : null} />
-                          <InfoRow icon={MessageSquare} label="Telefone" value={clientProfile.phone} />
-                          <InfoRow icon={MessageSquare} label="WhatsApp" value={clientProfile.whatsapp} />
-                          <InfoRow icon={FileText} label="Email" value={clientProfile.email} />
-                          <InfoRow icon={User} label="Contato" value={clientProfile.contact_person} />
-                          <InfoRow icon={Package} label="Cidade" value={clientProfile.city ? `${clientProfile.city}${clientProfile.state ? ` - ${clientProfile.state}` : ""}` : null} />
-                          <InfoRow icon={FileText} label="Endereço" value={clientProfile.address} />
+                          <EditableInfoRow icon={FileText} label="Documento" value={editClient.document || ""} onChange={(v) => setEditClient((p) => ({ ...p, document: v }))} editing={isEditingInfo} />
+                          <EditableInfoRow icon={MessageSquare} label="Telefone" value={editClient.phone || ""} onChange={(v) => setEditClient((p) => ({ ...p, phone: v }))} editing={isEditingInfo} />
+                          <EditableInfoRow icon={MessageSquare} label="WhatsApp" value={editClient.whatsapp || ""} onChange={(v) => setEditClient((p) => ({ ...p, whatsapp: v }))} editing={isEditingInfo} />
+                          <EditableInfoRow icon={FileText} label="Email" value={editClient.email || ""} onChange={(v) => setEditClient((p) => ({ ...p, email: v }))} editing={isEditingInfo} />
+                          <EditableInfoRow icon={User} label="Contato" value={editClient.contact_person || ""} onChange={(v) => setEditClient((p) => ({ ...p, contact_person: v }))} editing={isEditingInfo} />
+                          <EditableInfoRow icon={Package} label="Cidade" value={editClient.city || ""} onChange={(v) => setEditClient((p) => ({ ...p, city: v }))} editing={isEditingInfo} />
+                          <EditableInfoRow icon={FileText} label="Endereço" value={editClient.address || ""} onChange={(v) => setEditClient((p) => ({ ...p, address: v }))} editing={isEditingInfo} />
                         </div>
                         {clientProfile.notes && (
                           <p className="mt-2 text-xs text-muted-foreground border-l-2 border-muted pl-3">{clientProfile.notes}</p>
@@ -2565,6 +2635,36 @@ function InfoRow({ icon: Icon, label, value }: { icon: any; label: string; value
       <div>
         <p className="text-[10px] text-muted-foreground">{label}</p>
         <p className="text-sm font-medium">{value || "—"}</p>
+      </div>
+    </div>
+  );
+}
+
+function EditableInfoRow({ icon: Icon, label, value, onChange, editing, highlight }: {
+  icon: any; label: string; value: string; onChange: (v: string) => void; editing: boolean; highlight?: boolean;
+}) {
+  if (editing) {
+    return (
+      <div className="flex flex-col gap-1">
+        <div className={`flex items-center gap-1.5 ${highlight ? "text-yellow-500" : "text-muted-foreground"}`}>
+          <Icon className="h-3.5 w-3.5" />
+          <span className={`text-[10px] font-medium ${highlight ? "text-yellow-600 dark:text-yellow-400" : ""}`}>{label}</span>
+        </div>
+        <input
+          className="text-sm border border-input rounded px-2 py-1 bg-background focus:outline-none focus:ring-2 focus:ring-ring w-full"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={`${label}...`}
+        />
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-start gap-2">
+      <Icon className={`h-4 w-4 shrink-0 mt-0.5 ${highlight ? "text-yellow-500" : "text-muted-foreground"}`} />
+      <div>
+        <p className={`text-[10px] ${highlight ? "text-yellow-600 dark:text-yellow-400 font-medium" : "text-muted-foreground"}`}>{label}</p>
+        <p className={`text-sm font-medium ${!value ? "text-muted-foreground/50 italic" : ""}`}>{value || "—"}</p>
       </div>
     </div>
   );

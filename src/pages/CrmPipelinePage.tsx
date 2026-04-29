@@ -157,6 +157,9 @@ const CrmPipelinePage = () => {
   const [detailTicket, setDetailTicket] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [filterCanal, setFilterCanal] = useState<string>("all");
+  const [filterOrigem, setFilterOrigem] = useState<string>("all");
+  const [filterCampanha, setFilterCampanha] = useState<string>("all");
 
   // ── Edit mode ──────────────────────────────────────────────────
   interface LocalAutomation {
@@ -232,6 +235,25 @@ const CrmPipelinePage = () => {
     }
   }, [tickets]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Options for Canal / Origem / Campanha filters (computed from loaded tickets)
+  const canalOptions = useMemo(() => {
+    const vals = new Set<string>();
+    tickets?.forEach((t: any) => { if (t.channel) vals.add(t.channel); });
+    return Array.from(vals).sort();
+  }, [tickets]);
+
+  const origemOptions = useMemo(() => {
+    const vals = new Set<string>();
+    tickets?.forEach((t: any) => { if (t.origin) vals.add(t.origin); });
+    return Array.from(vals).sort();
+  }, [tickets]);
+
+  const campanhaOptions = useMemo(() => {
+    const vals = new Set<string>();
+    tickets?.forEach((t: any) => { if (t.campanha) vals.add(t.campanha); });
+    return Array.from(vals).sort();
+  }, [tickets]);
+
   // Build grouped data from server tickets
   const grouped = useMemo(() => {
     const map: Record<string, any[]> = {};
@@ -246,6 +268,9 @@ const CrmPipelinePage = () => {
         if (!name.includes(term) && !number.includes(term) && !title.includes(term)) return;
       }
       if (statusFilter !== "all" && t.status !== statusFilter) return;
+      if (filterCanal !== "all" && (t.channel || "") !== filterCanal) return;
+      if (filterOrigem !== "all" && (t.origin || "") !== filterOrigem) return;
+      if (filterCampanha !== "all" && (t.campanha || "") !== filterCampanha) return;
 
       const days = daysSince(t.last_interaction_at);
       const stageDelay = delayMap[t.pipeline_stage] ?? 2;
@@ -277,7 +302,7 @@ const CrmPipelinePage = () => {
     );
 
     return map;
-  }, [tickets, delayMap, searchTerm, stages, whatsappUnread, whatsappLastActivity]);
+  }, [tickets, delayMap, searchTerm, stages, whatsappUnread, whatsappLastActivity, statusFilter, filterCanal, filterOrigem, filterCampanha]);
 
   // Sync columns from grouped when not dragging and not mutating
   useEffect(() => {
@@ -638,12 +663,24 @@ const CrmPipelinePage = () => {
             <SelectContent>
               <SelectItem value="all">Todas</SelectItem>
               <SelectItem value="mine">Minhas</SelectItem>
-              {allUsers.length > 0 && (
+              {allUsers.filter((u) => u.isAdmin).length > 0 && (
                 <>
                   <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide border-t mt-1 pt-2">
-                    Por usuário
+                    Admins
                   </div>
-                  {allUsers.map((u) => (
+                  {allUsers.filter((u) => u.isAdmin).map((u) => (
+                    <SelectItem key={u.user_id} value={u.user_id}>
+                      {u.full_name || u.email}
+                    </SelectItem>
+                  ))}
+                </>
+              )}
+              {allUsers.filter((u) => !u.isAdmin).length > 0 && (
+                <>
+                  <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide border-t mt-1 pt-2">
+                    Usuários
+                  </div>
+                  {allUsers.filter((u) => !u.isAdmin).map((u) => (
                     <SelectItem key={u.user_id} value={u.user_id}>
                       {u.full_name || u.email}
                     </SelectItem>
@@ -653,6 +690,40 @@ const CrmPipelinePage = () => {
             </SelectContent>
           </Select>
         ) : null}
+        {/* Filtros Canal / Origem / Campanha */}
+        {canalOptions.length > 0 && (
+          <Select value={filterCanal} onValueChange={setFilterCanal}>
+            <SelectTrigger className="h-8 w-32 text-xs bg-zinc-800 border-zinc-700 text-zinc-100">
+              <SelectValue placeholder="Canal" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos canais</SelectItem>
+              {canalOptions.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        )}
+        {origemOptions.length > 0 && (
+          <Select value={filterOrigem} onValueChange={setFilterOrigem}>
+            <SelectTrigger className="h-8 w-32 text-xs bg-zinc-800 border-zinc-700 text-zinc-100">
+              <SelectValue placeholder="Origem" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas origens</SelectItem>
+              {origemOptions.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        )}
+        {campanhaOptions.length > 0 && (
+          <Select value={filterCampanha} onValueChange={setFilterCampanha}>
+            <SelectTrigger className="h-8 w-36 text-xs bg-zinc-800 border-zinc-700 text-zinc-100">
+              <SelectValue placeholder="Campanha" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas campanhas</SelectItem>
+              {campanhaOptions.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        )}
       </div>
 
       {/* ── Conteúdo ── */}
