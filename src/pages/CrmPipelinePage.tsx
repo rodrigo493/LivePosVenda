@@ -9,8 +9,9 @@ import {
   Search,
   FileSpreadsheet,
   Pencil,
-  BarChart3,
-  ExternalLink,
+  TrendingUp,
+  ChevronDown,
+  CalendarClock,
 } from "lucide-react";
 import {
   DndContext,
@@ -970,6 +971,23 @@ function StageColumn({
   const { setNodeRef, isOver } = useDroppable({ id: stage.key });
   const [showStats, setShowStats] = useState(false);
 
+  const stats = useMemo(() => {
+    const now = new Date();
+    const emAndamento = items.filter((t: any) => t.status === "em_andamento").length;
+    const esfriando   = items.filter((t: any) => t._isDelayed).length;
+    const semTarefas  = items.filter((t: any) => {
+      const pending = (t.tasks || []).filter((tk: any) => tk.status !== "concluida");
+      return pending.length === 0;
+    }).length;
+    const atrasadas = items.filter((t: any) =>
+      (t.tasks || []).some((tk: any) =>
+        tk.status !== "concluida" && tk.due_date && new Date(tk.due_date) < now
+      )
+    ).length;
+    const semProdutos = items.filter((t: any) => !(t.quotes?.length > 0)).length;
+    return { emAndamento, esfriando, semTarefas, atrasadas, semProdutos };
+  }, [items]);
+
   return (
     <div
       ref={setNodeRef}
@@ -981,44 +999,39 @@ function StageColumn({
       <div className="px-3 pt-2.5 pb-2 border-b border-zinc-800">
         <div className="flex items-center gap-1.5">
           <span className="text-xs font-semibold flex-1 truncate text-zinc-100">{stage.label}</span>
-          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-zinc-700 text-zinc-300 shrink-0">
-            {items.length}
-          </span>
           {totalValue > 0 && (
-            <span className="text-[10px] font-semibold shrink-0" style={{ color: stage.color }}>
+            <span className="text-[10px] font-semibold shrink-0 tabular-nums" style={{ color: stage.color }}>
               {`R$ ${totalValue.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
             </span>
           )}
+          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-zinc-700 text-zinc-300 shrink-0">
+            {items.length}
+          </span>
           <button
-            className="h-5 w-5 rounded flex items-center justify-center hover:bg-zinc-700 text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
+            className={`flex items-center gap-0.5 h-5 px-1.5 rounded text-[9px] font-semibold transition-colors shrink-0 ${
+              showStats ? "bg-zinc-600 text-zinc-100" : "hover:bg-zinc-700 text-zinc-500 hover:text-zinc-300"
+            }`}
             onClick={() => setShowStats((v) => !v)}
-            title="Ver estatísticas"
+            title="Estatísticas da etapa"
           >
-            <BarChart3 className="h-3 w-3" />
+            <TrendingUp className="h-3 w-3" />
+            <ChevronDown className={`h-2.5 w-2.5 transition-transform ${showStats ? "rotate-180" : ""}`} />
           </button>
         </div>
         {showStats && (
-          <div className="mt-2 grid grid-cols-2 gap-1.5 text-[10px]">
-            <div className="bg-zinc-800 rounded p-1.5">
-              <p className="text-zinc-500">Cards</p>
-              <p className="text-zinc-100 font-bold">{items.length}</p>
-            </div>
-            <div className="bg-zinc-800 rounded p-1.5">
-              <p className="text-zinc-500">Valor total</p>
-              <p className="font-bold" style={{ color: stage.color }}>
-                {totalValue > 0
-                  ? `R$ ${totalValue.toLocaleString("pt-BR", { minimumFractionDigits: 0 })}`
-                  : "—"}
-              </p>
-            </div>
-            <div className="bg-zinc-800 rounded p-1.5">
-              <p className="text-zinc-500">Atrasados</p>
-              <p className="text-amber-400 font-bold">{items.filter((t: any) => t._isDelayed).length}</p>
-            </div>
-            <div className="bg-zinc-800 rounded p-1.5">
-              <p className="text-zinc-500">WhatsApp</p>
-              <p className="text-orange-400 font-bold">{items.filter((t: any) => t._unreadWhatsapp > 0).length}</p>
-            </div>
+          <div className="mt-2 space-y-1 text-[10px]">
+            {[
+              { label: "Em andamento",       value: stats.emAndamento, color: "text-blue-400"   },
+              { label: "Esfriando",           value: stats.esfriando,   color: "text-amber-400"  },
+              { label: "Sem tarefas",         value: stats.semTarefas,  color: "text-zinc-400"   },
+              { label: "Tarefas atrasadas",   value: stats.atrasadas,   color: "text-red-400"    },
+              { label: "Sem prod./serviços",  value: stats.semProdutos, color: "text-purple-400" },
+            ].map(({ label, value, color }) => (
+              <div key={label} className="flex items-center justify-between bg-zinc-800 rounded px-2 py-1">
+                <span className="text-zinc-400">{label}</span>
+                <span className={`font-bold ${color}`}>{value}</span>
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -1099,17 +1112,38 @@ function getLastOrderRoute(quotes: any[]): string | null {
   return null;
 }
 
+function formatTaskDateTime(due_date: string | null, due_time: string | null): string {
+  if (!due_date) return "";
+  const [y, m, d] = due_date.split("-");
+  const date = `${d}/${m}`;
+  if (due_time) {
+    const [h, min] = due_time.split(":");
+    return `${date} ${h}:${min}`;
+  }
+  return date;
+}
+
 function PipelineCard({ ticket, onQuickTask, onClick, isAdmin }: { ticket: any; onQuickTask: () => void; onClick: () => void; isAdmin: boolean }) {
-  const navigate = useNavigate();
   const typeInfo = TICKET_TYPE_LABELS[ticket.ticket_type] || { label: ticket.ticket_type, color: "bg-zinc-700 text-zinc-300" };
   const unreadWpp = ticket._unreadWhatsapp || 0;
   const lastOrderTag = getLastOrderTag(ticket.quotes || []);
-  const lastOrderRoute = getLastOrderRoute(ticket.quotes || []);
   const isDelayed = ticket._isDelayed;
   const days = ticket._daysSinceInteraction ?? 0;
   const stageColor: string = ticket._stageColor ?? "#6366f1";
   const statusInfo = STATUS_LABELS[ticket.status] ?? { label: ticket.status, dot: "#71717a" };
   const value = Number(ticket.estimated_value || 0);
+  const problem = (ticket.description || ticket.problem_category || "").trim();
+
+  // Próxima tarefa pendente com data mais próxima
+  const nextTask = useMemo(() => {
+    const pending = (ticket.tasks || []).filter((t: any) => t.status !== "concluida" && t.due_date);
+    if (pending.length === 0) return null;
+    return pending.sort((a: any, b: any) => {
+      const da = a.due_date + (a.due_time || "");
+      const db = b.due_date + (b.due_time || "");
+      return da.localeCompare(db);
+    })[0];
+  }, [ticket.tasks]);
 
   return (
     <div
@@ -1130,8 +1164,8 @@ function PipelineCard({ ticket, onQuickTask, onClick, isAdmin }: { ticket: any; 
         </div>
       )}
 
-      <div className="p-2.5 space-y-1.5">
-        {/* Linha 1: tipo + status/esfriar + prioridade */}
+      <div className="p-2.5 space-y-1">
+        {/* Linha 1: tipo + tags + status + prioridade */}
         <div className="flex items-center gap-1 flex-wrap">
           <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide ${typeInfo.color}`}>
             {typeInfo.label}
@@ -1156,37 +1190,48 @@ function PipelineCard({ ticket, onQuickTask, onClick, isAdmin }: { ticket: any; 
           </span>
         </div>
 
-        {/* Linha 2: nome do cliente */}
-        <p className="text-xs font-semibold line-clamp-1 text-zinc-100">
-          {ticket.clients?.name || ticket.title || "—"}
-        </p>
-
-
-        {/* Linha 3: número + tag de problema */}
-        <div className="flex items-center gap-1 flex-wrap">
-          <span className="text-[9px] font-mono text-zinc-500">{ticket.ticket_number}</span>
-          {(ticket.description || ticket.problem_category) && (
-            <span className="text-[9px] font-medium bg-yellow-900/50 text-yellow-300 border border-yellow-700/40 px-1 py-0.5 rounded truncate max-w-[100px]">
-              {(ticket.description || ticket.problem_category).slice(0, 18)}
+        {/* Linha 2: nome + valor */}
+        <div className="flex items-start justify-between gap-1">
+          <p className="text-xs font-semibold line-clamp-1 text-zinc-100 flex-1 min-w-0">
+            {ticket.clients?.name || ticket.title || "—"}
+          </p>
+          {value > 0 && (
+            <span className="text-[10px] font-bold shrink-0 tabular-nums" style={{ color: stageColor }}>
+              {`R$ ${value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
             </span>
           )}
         </div>
 
-        {/* Linha 4: tarefa rápida + valor */}
-        <div className="flex items-center justify-between">
+        {/* Linha 3: número · problema */}
+        <div className="flex items-center gap-1 min-w-0">
+          <span className="text-[9px] font-mono text-zinc-500 shrink-0">{ticket.ticket_number}</span>
+          {problem && (
+            <>
+              <span className="text-[9px] text-zinc-600">·</span>
+              <span className="text-[9px] text-zinc-400 truncate">{problem.slice(0, 40)}</span>
+            </>
+          )}
+        </div>
+
+        {/* Linha 4: criar tarefa + próxima tarefa agendada */}
+        <div className="flex items-center gap-1.5 min-w-0">
           <Button
             variant="ghost"
             size="sm"
-            className="h-5 px-1 text-[9px] text-zinc-500 hover:text-zinc-300 gap-0.5 -ml-1"
+            className="h-5 px-1 text-[9px] text-zinc-500 hover:text-zinc-300 gap-0.5 -ml-1 shrink-0"
             onClick={(e) => { e.stopPropagation(); onQuickTask(); }}
             title="Criar tarefa"
           >
             <ListTodo className="h-2.5 w-2.5" /> Criar tarefa
           </Button>
-          {value > 0 && (
-            <span className="text-[10px] font-bold" style={{ color: stageColor }}>
-              {`R$ ${value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-            </span>
+          {nextTask && (
+            <div className="flex items-center gap-1 min-w-0 flex-1 bg-zinc-700/40 rounded px-1.5 py-0.5">
+              <CalendarClock className="h-2.5 w-2.5 text-zinc-400 shrink-0" />
+              <span className="text-[9px] text-zinc-300 truncate flex-1">{nextTask.title}</span>
+              <span className="text-[9px] text-zinc-500 shrink-0 tabular-nums">
+                {formatTaskDateTime(nextTask.due_date, nextTask.due_time)}
+              </span>
+            </div>
           )}
         </div>
       </div>
