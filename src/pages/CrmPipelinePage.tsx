@@ -60,7 +60,7 @@ import { useEquipments } from "@/hooks/useEquipments";
 import { useAllUsers } from "@/hooks/useUserAccess";
 import { CrudDialog } from "@/components/shared/CrudDialog";
 import { TaskCreateDialog } from "@/components/tasks/TaskCreateDialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -157,9 +157,7 @@ const CrmPipelinePage = () => {
   const [detailTicket, setDetailTicket] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [filterCanal, setFilterCanal] = useState<string>("all");
-  const [filterOrigem, setFilterOrigem] = useState<string>("all");
-  const [filterCampanha, setFilterCampanha] = useState<string>("all");
+  const [filterSource, setFilterSource] = useState<string>("all");
 
   // ── Edit mode ──────────────────────────────────────────────────
   interface LocalAutomation {
@@ -268,9 +266,12 @@ const CrmPipelinePage = () => {
         if (!name.includes(term) && !number.includes(term) && !title.includes(term)) return;
       }
       if (statusFilter !== "all" && t.status !== statusFilter) return;
-      if (filterCanal !== "all" && (t.channel || "") !== filterCanal) return;
-      if (filterOrigem !== "all" && (t.origin || "") !== filterOrigem) return;
-      if (filterCampanha !== "all" && (t.campanha || "") !== filterCampanha) return;
+      if (filterSource !== "all") {
+        const [ftype, fval] = filterSource.split(/:(.+)/);
+        if (ftype === "canal" && (t.channel || "") !== fval) return;
+        if (ftype === "origem" && (t.origin || "") !== fval) return;
+        if (ftype === "campanha" && (t.campanha || "") !== fval) return;
+      }
 
       const days = daysSince(t.last_interaction_at);
       const stageDelay = delayMap[t.pipeline_stage] ?? 2;
@@ -302,7 +303,7 @@ const CrmPipelinePage = () => {
     );
 
     return map;
-  }, [tickets, delayMap, searchTerm, stages, whatsappUnread, whatsappLastActivity, statusFilter, filterCanal, filterOrigem, filterCampanha]);
+  }, [tickets, delayMap, searchTerm, stages, whatsappUnread, whatsappLastActivity, statusFilter, filterSource]);
 
   // Sync columns from grouped when not dragging and not mutating
   useEffect(() => {
@@ -690,37 +691,32 @@ const CrmPipelinePage = () => {
             </SelectContent>
           </Select>
         ) : null}
-        {/* Filtros Canal / Origem / Campanha */}
-        {canalOptions.length > 0 && (
-          <Select value={filterCanal} onValueChange={setFilterCanal}>
-            <SelectTrigger className="h-8 w-32 text-xs bg-zinc-800 border-zinc-700 text-zinc-100">
-              <SelectValue placeholder="Canal" />
+        {/* Filtro unificado Canal / Origem / Campanha */}
+        {(canalOptions.length > 0 || origemOptions.length > 0 || campanhaOptions.length > 0) && (
+          <Select value={filterSource} onValueChange={setFilterSource}>
+            <SelectTrigger className="h-8 w-40 text-xs bg-zinc-800 border-zinc-700 text-zinc-100">
+              <SelectValue placeholder="Canal / Origem" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Todos canais</SelectItem>
-              {canalOptions.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        )}
-        {origemOptions.length > 0 && (
-          <Select value={filterOrigem} onValueChange={setFilterOrigem}>
-            <SelectTrigger className="h-8 w-32 text-xs bg-zinc-800 border-zinc-700 text-zinc-100">
-              <SelectValue placeholder="Origem" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas origens</SelectItem>
-              {origemOptions.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        )}
-        {campanhaOptions.length > 0 && (
-          <Select value={filterCampanha} onValueChange={setFilterCampanha}>
-            <SelectTrigger className="h-8 w-36 text-xs bg-zinc-800 border-zinc-700 text-zinc-100">
-              <SelectValue placeholder="Campanha" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas campanhas</SelectItem>
-              {campanhaOptions.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+              <SelectItem value="all">Todos os canais</SelectItem>
+              {canalOptions.length > 0 && (
+                <SelectGroup>
+                  <SelectLabel className="text-[10px] uppercase tracking-wide text-zinc-500">Canal</SelectLabel>
+                  {canalOptions.map((v) => <SelectItem key={`canal:${v}`} value={`canal:${v}`}>{v}</SelectItem>)}
+                </SelectGroup>
+              )}
+              {origemOptions.length > 0 && (
+                <SelectGroup>
+                  <SelectLabel className="text-[10px] uppercase tracking-wide text-zinc-500">Origem</SelectLabel>
+                  {origemOptions.map((v) => <SelectItem key={`origem:${v}`} value={`origem:${v}`}>{v}</SelectItem>)}
+                </SelectGroup>
+              )}
+              {campanhaOptions.length > 0 && (
+                <SelectGroup>
+                  <SelectLabel className="text-[10px] uppercase tracking-wide text-zinc-500">Campanha</SelectLabel>
+                  {campanhaOptions.map((v) => <SelectItem key={`campanha:${v}`} value={`campanha:${v}`}>{v}</SelectItem>)}
+                </SelectGroup>
+              )}
             </SelectContent>
           </Select>
         )}
