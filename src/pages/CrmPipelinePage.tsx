@@ -694,7 +694,7 @@ const CrmPipelinePage = () => {
         {/* Filtro unificado Canal / Origem / Campanha */}
         <Select value={filterSource} onValueChange={setFilterSource}>
             <SelectTrigger className="h-8 w-40 text-xs bg-zinc-800 border-zinc-700 text-zinc-100">
-              <SelectValue placeholder="Canal / Origem" />
+              <SelectValue placeholder="Canal / Origem / Campanha" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos os canais</SelectItem>
