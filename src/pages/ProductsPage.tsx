@@ -69,7 +69,6 @@ function useNomusStock(enabled: boolean) {
       );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? `Erro ${res.status}`);
-      if (!Array.isArray(data)) throw new Error(`Diagnóstico Nomus: ${JSON.stringify(data).slice(0, 400)}`);
       return data as NomusProduct[];
     },
   });

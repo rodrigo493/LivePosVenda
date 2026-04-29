@@ -10,6 +10,10 @@ const json = (data: unknown, status = 200) =>
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 
+// Nomus é chamado via proxy Nginx no VPS (OpenSSL), pois o runtime Deno (Rustls)
+// é incompatível com o TLS antigo do servidor live.nomus.com.br.
+const NOMUS_PROXY = "https://posvenda.liveuni.com.br/api/nomus";
+
 interface ProductRow {
   id: number;
   codigo: string;
@@ -20,12 +24,14 @@ interface ProductRow {
   custoTotal: number | null;
 }
 
-async function fetchNomus(url: string, headers: HeadersInit, retries = 2): Promise<any> {
+async function fetchNomus(path: string, retries = 2): Promise<any> {
+  const url = `${NOMUS_PROXY}${path}`;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const res = await fetch(url, { headers });
+      const res = await fetch(url, {
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+      });
       const rawText = await res.text();
-      console.log(`fetchNomus ${res.status} ${url.slice(-80)} → ${rawText.slice(0, 150)}`);
       if (res.status === 429) {
         let wait = 5000;
         try { const b = JSON.parse(rawText); if (b.tempoAteLiberar) wait = Number(b.tempoAteLiberar) * 1000; } catch { /* */ }
@@ -33,12 +39,12 @@ async function fetchNomus(url: string, headers: HeadersInit, retries = 2): Promi
         continue;
       }
       if (!res.ok) {
-        console.error(`Nomus HTTP ${res.status} for ${url}`);
+        console.error(`Nomus HTTP ${res.status} for ${path}: ${rawText.slice(0, 200)}`);
         return null;
       }
       try { return JSON.parse(rawText); } catch { return rawText; }
     } catch (err) {
-      console.error(`fetchNomus attempt ${attempt + 1}/${retries + 1} failed for ${url}:`, String(err));
+      console.error(`fetchNomus attempt ${attempt + 1}/${retries + 1} failed for ${path}:`, String(err));
       if (attempt >= retries) return null;
     }
   }
@@ -48,37 +54,12 @@ async function fetchNomus(url: string, headers: HeadersInit, retries = 2): Promi
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-  const NOMUS_API_KEY = Deno.env.get("NOMUS_API_KEY");
-  const NOMUS_API_URL = Deno.env.get("NOMUS_API_URL");
-
-  if (!NOMUS_API_KEY || !NOMUS_API_URL) {
-    console.error("Secrets não configurados", { hasKey: !!NOMUS_API_KEY, hasUrl: !!NOMUS_API_URL });
-    return json({ error: "Secrets NOMUS_API_KEY e NOMUS_API_URL não configurados" }, 500);
-  }
-
-  const authHeaders = {
-    Authorization: `Basic ${NOMUS_API_KEY}`,
-    "Content-Type": "application/json",
-    Accept: "application/json",
-  };
-
-  console.log("Iniciando busca de produtos no Nomus:", NOMUS_API_URL);
-
-  // 1. Fetch all pages of /produtos (sem filtro para garantir compatibilidade)
+  // 1. Buscar todas as páginas de produtos ativos
   const allRaw: any[] = [];
-  let firstPageRaw: any = undefined;
   let page = 1;
   while (page <= 50) {
-    const url = `${NOMUS_API_URL}/rest/produtos?pagina=${page}`;
-    console.log(`Buscando página ${page}: ${url}`);
-    const data = await fetchNomus(url, authHeaders);
-    if (page === 1) firstPageRaw = data;
-    if (!Array.isArray(data)) {
-      console.log(`Página ${page} retornou não-array:`, JSON.stringify(data)?.slice(0, 200));
-      break;
-    }
-    console.log(`Página ${page}: ${data.length} produtos`);
-    if (data.length === 0) break;
+    const data = await fetchNomus(`/rest/produtos?query=ativo=true&pagina=${page}`);
+    if (!Array.isArray(data) || data.length === 0) break;
     allRaw.push(...data);
     if (data.length < 20) break;
     page++;
@@ -86,12 +67,11 @@ Deno.serve(async (req) => {
 
   console.log(`Total de produtos carregados: ${allRaw.length}`);
 
-  if (allRaw.length > 0) {
-    console.log("Exemplo de produto (campos):", Object.keys(allRaw[0]).join(", "));
-    console.log("Exemplo produto[0]:", JSON.stringify(allRaw[0])?.slice(0, 500));
+  if (allRaw.length === 0) {
+    return json({ error: "Nenhum produto retornado pela API Nomus" }, 500);
   }
 
-  // 2. Map products + aggregate saldo
+  // 2. Mapear produtos e agregar saldo por setor
   const products: ProductRow[] = allRaw.map((p: any) => {
     const setores: any[] = p.empresasSetoresEstoque || p.setoresEstoque || [];
     const saldoTotal = setores.reduce(
@@ -110,13 +90,12 @@ Deno.serve(async (req) => {
     };
   });
 
-  // 3. Fetch cost for products with stock (batch 5)
+  // 3. Buscar custo dos produtos com estoque (lotes de 5)
   const withStock = products.filter((p) => p.saldoTotal > 0).slice(0, 100);
-  console.log(`Produtos com estoque: ${withStock.length}`);
 
   const fetchCost = async (p: ProductRow) => {
-    const data = await fetchNomus(`${NOMUS_API_URL}/rest/saldosEstoqueProduto/${p.id}`, authHeaders);
-    if (!data) return;
+    const data = await fetchNomus(`/rest/saldosEstoqueProduto/${p.id}`);
+    if (!data || !Array.isArray(data) && typeof data !== "object") return;
     const items: any[] = Array.isArray(data) ? data : [data];
     if (items.length === 0) return;
     const totalSaldo = items.reduce((s, i) => s + (Number(i.saldoTotal) || 0), 0);
@@ -133,8 +112,5 @@ Deno.serve(async (req) => {
   products.sort((a, b) => b.saldoTotal - a.saldoTotal || a.descricao.localeCompare(b.descricao, "pt-BR"));
 
   console.log(`Retornando ${products.length} produtos`);
-  if (products.length === 0) {
-    return json({ _debug: { nomusUrl: NOMUS_API_URL, firstPageRaw, totalRaw: allRaw.length }, products: [] });
-  }
   return json(products);
 });
