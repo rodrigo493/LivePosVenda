@@ -59,16 +59,30 @@ function useNomusStock(enabled: boolean) {
     queryFn: async () => {
       // Chama o proxy Nginx do VPS diretamente (same-origin, sem CORS nem edge function).
       // Nginx injeta a autenticação Nomus e usa OpenSSL (compatível com TLS do servidor Nomus).
+      const fetchPage = async (page: number): Promise<any[] | null> => {
+        for (let attempt = 0; attempt <= 2; attempt++) {
+          const res = await fetch(
+            `/api/nomus/rest/produtos?query=ativo=true&pagina=${page}`,
+            { headers: { Accept: "application/json" } },
+          );
+          if (res.status === 429) {
+            const body = await res.json().catch(() => ({}));
+            const wait = (Number(body.tempoAteLiberar) || 5) * 1000;
+            await new Promise((r) => setTimeout(r, wait));
+            continue;
+          }
+          if (!res.ok) return null;
+          const data = await res.json();
+          return Array.isArray(data) ? data : null;
+        }
+        return null;
+      };
+
       const allRaw: any[] = [];
       let page = 1;
       while (page <= 20) {
-        const res = await fetch(
-          `/api/nomus/rest/produtos?query=ativo=true&pagina=${page}`,
-          { headers: { Accept: "application/json" } },
-        );
-        if (!res.ok) break;
-        const data = await res.json();
-        if (!Array.isArray(data) || data.length === 0) break;
+        const data = await fetchPage(page);
+        if (!data || data.length === 0) break;
         allRaw.push(...data);
         if (data.length < 20) break;
         page++;
