@@ -692,8 +692,7 @@ const CrmPipelinePage = () => {
           </Select>
         ) : null}
         {/* Filtro unificado Canal / Origem / Campanha */}
-        {(canalOptions.length > 0 || origemOptions.length > 0 || campanhaOptions.length > 0) && (
-          <Select value={filterSource} onValueChange={setFilterSource}>
+        <Select value={filterSource} onValueChange={setFilterSource}>
             <SelectTrigger className="h-8 w-40 text-xs bg-zinc-800 border-zinc-700 text-zinc-100">
               <SelectValue placeholder="Canal / Origem" />
             </SelectTrigger>
@@ -719,7 +718,6 @@ const CrmPipelinePage = () => {
               )}
             </SelectContent>
           </Select>
-        )}
       </div>
 
       {/* ── Conteúdo ── */}
