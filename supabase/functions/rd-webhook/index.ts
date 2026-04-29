@@ -166,6 +166,97 @@ async function resolveOrCreateClient(
   return null;
 }
 
+// Processa eventos CRM vindos pelo webhook Marketing (leads-only payload)
+// Ex: OPPORTUNITY_UPDATED, OPPORTUNITY_CREATED
+// Payload: { leads: [{ last_conversion: { content: { __cdp__original_event: { event_type, payload } } } }] }
+async function handleMarketingCrmOpportunity(
+  lead: Record<string, unknown>,
+  cdpEvent: Record<string, unknown>,
+): Promise<void> {
+  const cdpPayload = (cdpEvent.payload as Record<string, unknown>) ?? {};
+  const cdpEventType = (cdpEvent.event_type as string) ?? "OPPORTUNITY_UPDATED";
+
+  const name = (lead.name as string) ?? "Lead RD Station";
+  const email = (lead.email as string) ?? (cdpPayload.email as string) ?? null;
+  const rawPhone = (lead.personal_phone as string) ?? (lead.mobile_phone as string) ?? null;
+  const phone = rawPhone?.replace(/\D/g, "") ?? null;
+  const leadId = (lead.id as string) ?? (lead.uuid as string) ?? null;
+
+  const stageName = (cdpPayload.funnel_stage as string) ?? null;
+  const opportunityValue = Number(cdpPayload.opportunity_value ?? 0);
+  const ownerEmail = (cdpPayload.contact_owner_email as string) ?? null;
+
+  // Extrai ID do deal da URL: .../deals/{id}
+  const opportunityUrl = (cdpPayload.opportunity_url as string) ?? "";
+  const dealIdMatch = opportunityUrl.match(/\/deals\/([a-f0-9]+)/);
+  const crmDealId = dealIdMatch?.[1] ?? null;
+  const rdDealId = crmDealId ? `crm-${crmDealId}` : `mkt-${leadId ?? Date.now()}`;
+
+  console.log(`rd-webhook ${cdpEventType}: lead=${leadId}, email=${email}, stage=${stageName}, rdDealId=${rdDealId}`);
+
+  let clientId: string | null = null;
+  if (email) {
+    const { data } = await admin.from("clients").select("id").eq("email", email).limit(1).maybeSingle();
+    if (data) clientId = data.id;
+  }
+  if (!clientId && phone && phone.length >= 8) {
+    const { data } = await admin.from("clients").select("id").ilike("phone", `%${phone.slice(-8)}`).limit(1).maybeSingle();
+    if (data) clientId = data.id;
+  }
+  if (!clientId) {
+    const { data: newClient } = await admin.from("clients").upsert(
+      { name, email: email ?? null, phone: phone ?? null, rd_contact_id: leadId, status: "ativo" },
+      { onConflict: leadId ? "rd_contact_id" : "email" },
+    ).select("id").maybeSingle();
+    if (newClient) clientId = newClient.id;
+  }
+
+  const { pipelineId, stageKey } = await resolvePipelineAndStage(stageName);
+  if (!pipelineId) {
+    await logSync("webhook", cdpEventType, leadId, null, "error", "no_pipeline", cdpPayload);
+    return;
+  }
+
+  let assignedTo: string | null = null;
+  if (ownerEmail) assignedTo = await getAuthIdByEmail(ownerEmail);
+
+  const shortId = crmDealId?.slice(-6).toUpperCase() ?? leadId?.slice(-6).toUpperCase() ?? Date.now().toString(36).toUpperCase();
+  const upsertPayload: Record<string, unknown> = {
+    rd_deal_id: rdDealId,
+    title: name,
+    ticket_type: "negociacao",
+    status: "aberto",
+    estimated_value: opportunityValue,
+    pipeline_id: pipelineId,
+    pipeline_stage: stageKey,
+    assigned_to: assignedTo,
+    ticket_number: `RD-${shortId}`,
+    origin: "rd_station",
+    channel: "rd_station",
+  };
+  if (clientId) upsertPayload.client_id = clientId;
+
+  let { data: ticket, error } = await admin.from("tickets")
+    .upsert(upsertPayload, { onConflict: "rd_deal_id" })
+    .select("id").maybeSingle();
+
+  if (error?.message?.includes("assigned_to_fkey")) {
+    const r = await admin.from("tickets")
+      .upsert({ ...upsertPayload, assigned_to: null }, { onConflict: "rd_deal_id" })
+      .select("id").maybeSingle();
+    ticket = r.data;
+    error = r.error ?? null;
+  }
+
+  if (error) {
+    await logSync("webhook", cdpEventType, leadId, null, "error", error.message, cdpPayload);
+    console.error(`rd-webhook ${cdpEventType} upsert failed:`, error.message);
+  } else {
+    await logSync("webhook", cdpEventType, leadId, ticket?.id ?? null, "success", null, null);
+    console.log(`rd-webhook: ${cdpEventType} ${rdDealId} → ticket ${ticket?.id}`);
+  }
+}
+
 // Processa evento OPPORTUNITY do RD Station Marketing
 // Payload: { event_type: "OPPORTUNITY", leads: [...], payload: {...} }
 async function handleMarketingOpportunity(
@@ -397,6 +488,27 @@ Deno.serve(async (req) => {
     const evtUpper = eventName.toUpperCase();
     if (evtUpper === "OPPORTUNITY" || evtUpper.includes("OPPORTUNIT")) {
       await handleMarketingOpportunity(body);
+      return okResponse();
+    }
+
+    // Payload sem event_type mas com "leads" — webhook Marketing disparado por evento CRM
+    // O event_type real fica em leads[0].last_conversion.content.__cdp__original_event.event_type
+    if (!eventName && Array.isArray(body.leads)) {
+      const leads = body.leads as Record<string, unknown>[];
+      const lead = leads[0];
+      if (lead) {
+        const lastConv = (lead.last_conversion as Record<string, unknown>) ?? {};
+        const content = (lastConv.content as Record<string, unknown>) ?? {};
+        const cdpEvent = (content.__cdp__original_event as Record<string, unknown>) ?? {};
+        const cdpEventType = (cdpEvent.event_type as string) ?? "";
+        console.log("rd-webhook CDP event:", cdpEventType);
+        if (cdpEventType.startsWith("OPPORTUNITY")) {
+          await handleMarketingCrmOpportunity(lead, cdpEvent);
+        } else {
+          // TASK_*, CONVERSION, etc. — ignorar silenciosamente
+          await logSync("webhook", cdpEventType || "unknown", null, null, "skipped", `ignored_cdp_event: ${cdpEventType}`, null);
+        }
+      }
       return okResponse();
     }
 
