@@ -17,7 +17,6 @@ export function usePipelineTickets(
         .from("tickets")
         .select("*, clients(name), equipments(serial_number, equipment_models(name)), quotes(id, quote_number, status, service_request_id, warranty_claim_id, updated_at)")
         .eq("pipeline_id", pipelineId)
-        .not("status", "eq", "fechado")
         .is("deleted_at", null)
         .order("pipeline_position", { ascending: true })
         .order("last_interaction_at", { ascending: true });
