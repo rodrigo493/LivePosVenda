@@ -171,8 +171,8 @@ async function upsertDeal(
   eventName: string,
   rawPayload: unknown,
 ): Promise<void> {
-  // Webhook payload usa deal.id, import usa deal._id
-  const rdDealId = (deal.id ?? deal._id) as string;
+  // RD Station CRM usa _id como identificador principal do deal
+  const rdDealId = (deal._id ?? deal.id) as string;
   if (!rdDealId) {
     await logSync("webhook", eventName, null, null, "error", "no_deal_id", rawPayload);
     return;
@@ -257,7 +257,17 @@ Deno.serve(async (req) => {
       return okResponse();
     }
 
-    const eventName: string = (body.event_name as string) || (body.event_type as string) || "";
+    // Log completo para diagnóstico
+    const bodyKeys = Object.keys(body);
+    console.log("rd-webhook body keys:", bodyKeys);
+    console.log("rd-webhook body preview:", JSON.stringify(body).slice(0, 800));
+
+    const eventName: string = (
+      (body.event_name as string) ||
+      (body.event_type as string) ||
+      (body.type as string) ||
+      ""
+    );
     console.log("rd-webhook event:", eventName);
 
     const { data: config } = await admin
@@ -268,7 +278,7 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     if (!config) {
-      await logSync("webhook", eventName, null, null, "skipped", "no_active_config", body);
+      await logSync("webhook", eventName || "unknown", null, null, "skipped", "no_active_config", body);
       return okResponse();
     }
 
@@ -277,23 +287,41 @@ Deno.serve(async (req) => {
       .update({ last_webhook_at: new Date().toISOString() })
       .eq("id", config.id);
 
-    // RD Station CRM webhook usa "document" como chave do deal
-    const deal = (body.document ?? body.crm_deal ?? body.deal ?? null) as Record<string, unknown> | null;
+    // RD Station CRM envia o deal em event_data (campo principal)
+    // Fallback para outras variações de payload
+    const deal = (
+      body.event_data ??
+      body.document ??
+      body.crm_deal ??
+      body.deal ??
+      null
+    ) as Record<string, unknown> | null;
 
-    if (eventName === "crm_deal_created" || eventName === "crm_deal_updated") {
+    const evtLower = eventName.toLowerCase();
+    const isDealCreated = evtLower === "crm_deal_created" || evtLower === "dealcreated";
+    const isDealUpdated = evtLower === "crm_deal_updated" || evtLower === "dealupdated";
+    const isDealDeleted = evtLower === "crm_deal_deleted" || evtLower === "dealdeleted";
+
+    if (isDealCreated || isDealUpdated) {
       if (!deal) {
-        await logSync("webhook", eventName, null, null, "error", "no_deal_in_payload", body);
+        console.error("rd-webhook: deal não encontrado no payload. Keys recebidas:", bodyKeys);
+        await logSync("webhook", eventName, null, null, "error", `no_deal_in_payload. body_keys: ${bodyKeys.join(",")}`, body);
         return okResponse();
       }
       await upsertDeal(deal, eventName, body);
-    } else if (eventName === "crm_deal_deleted") {
-      const rdDealId = (deal?.id ?? deal?._id ?? body.deal_id ?? null) as string | null;
+    } else if (isDealDeleted) {
+      const rdDealId = (
+        (deal as Record<string, unknown> | null)?._id ??
+        (deal as Record<string, unknown> | null)?.id ??
+        body.deal_id ??
+        null
+      ) as string | null;
       if (rdDealId) {
         await admin.from("tickets").update({ status: "cancelado" }).eq("rd_deal_id", rdDealId);
         await logSync("webhook", eventName, rdDealId, null, "success", null, null);
       }
     } else {
-      await logSync("webhook", eventName, null, null, "skipped", `unknown_event: ${eventName}`, body);
+      await logSync("webhook", eventName || "empty", null, null, "skipped", `unknown_event: ${eventName}. body_keys: ${bodyKeys.join(",")}`, body);
     }
 
     return okResponse();

@@ -28,7 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Copy, Plug, Unplug, RefreshCw, ScrollText, Zap } from "lucide-react";
+import { Copy, Plug, Unplug, RefreshCw, ScrollText, Zap, AlertTriangle, CheckCircle2, ChevronDown, ChevronRight } from "lucide-react";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const RD_WEBHOOK_URL = `${SUPABASE_URL}/functions/v1/rd-webhook`;
@@ -56,6 +56,7 @@ type SyncLog = {
   rd_id: string | null;
   status: string;
   error_message: string | null;
+  payload: Record<string, unknown> | null;
   created_at: string;
 };
 
@@ -95,18 +96,20 @@ export default function RdStationPage() {
   const [importing, setImporting] = useState(false);
   const [testing, setTesting] = useState(false);
 
+  const [expandedLog, setExpandedLog] = useState<string | null>(null);
+
   const { data: logs } = useQuery<SyncLog[]>({
     queryKey: ["rd_sync_log", logStatus],
     queryFn: async () => {
       let q = supabase
         .from("rd_sync_log")
-        .select("id, operation, event_type, rd_id, status, error_message, created_at")
+        .select("id, operation, event_type, rd_id, status, error_message, payload, created_at")
         .order("created_at", { ascending: false })
         .limit(100);
       if (logStatus !== "all") q = q.eq("status", logStatus);
       const { data, error } = await q;
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []) as SyncLog[];
     },
     enabled: logsOpen,
   });
@@ -332,12 +335,44 @@ export default function RdStationPage() {
         </div>
       )}
 
-      <div className="border rounded-lg p-4 space-y-2">
-        <h2 className="font-semibold text-sm">URL do Webhook</h2>
-        <p className="text-xs text-muted-foreground">
-          Cadastre esta URL no painel RD Station em Configurações → Integrações
-          → Webhooks.
-        </p>
+      {/* Diagnóstico de webhook */}
+      {config && (
+        <div className={`border rounded-lg p-4 space-y-2 ${
+          !config.last_webhook_at
+            ? "border-amber-500/50 bg-amber-50/5"
+            : "border-green-500/30 bg-green-50/5"
+        }`}>
+          <div className="flex items-center gap-2">
+            {config.last_webhook_at ? (
+              <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+            ) : (
+              <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
+            )}
+            <h2 className="font-semibold text-sm">
+              Status do Webhook em Tempo Real
+            </h2>
+          </div>
+          {!config.last_webhook_at ? (
+            <p className="text-xs text-amber-600 font-medium">
+              ⚠ Nenhum webhook recebido ainda. Verifique se a URL está cadastrada no RD Station e se a integração está ativa.
+            </p>
+          ) : (
+            <p className="text-xs text-green-600">
+              Último evento recebido: {fmtDate(config.last_webhook_at)}
+            </p>
+          )}
+        </div>
+      )}
+
+      <div className="border rounded-lg p-4 space-y-3">
+        <h2 className="font-semibold text-sm">Configurar Webhook no RD Station</h2>
+        <ol className="text-xs text-muted-foreground space-y-1.5 list-decimal list-inside">
+          <li>Acesse <strong>RD Station CRM → Configurações → Integrações → Webhooks</strong></li>
+          <li>Clique em <strong>Novo Webhook</strong></li>
+          <li>Cole a URL abaixo no campo de URL</li>
+          <li>Selecione os eventos: <code className="bg-muted px-1 rounded">Negociação Criada</code> e <code className="bg-muted px-1 rounded">Negociação Atualizada</code></li>
+          <li>Salve e verifique se a integração está <strong>Ativa</strong> nesta página</li>
+        </ol>
         <div className="flex items-center gap-2 bg-muted rounded px-3 py-2">
           <span className="text-xs font-mono flex-1 break-all">
             {RD_WEBHOOK_URL}
@@ -355,7 +390,7 @@ export default function RdStationPage() {
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
-          Eventos:{" "}
+          Eventos internos:{" "}
           <code className="bg-muted px-1 rounded">crm_deal_created</code>,{" "}
           <code className="bg-muted px-1 rounded">crm_deal_updated</code>,{" "}
           <code className="bg-muted px-1 rounded">crm_deal_deleted</code>
@@ -436,6 +471,7 @@ export default function RdStationPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="text-xs w-4"></TableHead>
                   <TableHead className="text-xs">Data</TableHead>
                   <TableHead className="text-xs">Operação</TableHead>
                   <TableHead className="text-xs">Evento</TableHead>
@@ -446,40 +482,63 @@ export default function RdStationPage() {
               </TableHeader>
               <TableBody>
                 {(logs ?? []).map((log) => (
-                  <TableRow key={log.id}>
-                    <TableCell className="text-xs">
-                      {fmtDate(log.created_at)}
-                    </TableCell>
-                    <TableCell className="text-xs">{log.operation}</TableCell>
-                    <TableCell className="text-xs">
-                      {log.event_type ?? "—"}
-                    </TableCell>
-                    <TableCell className="text-xs font-mono">
-                      {log.rd_id ?? "—"}
-                    </TableCell>
-                    <TableCell className="text-xs">
-                      <Badge
-                        variant={
-                          log.status === "success"
-                            ? "default"
-                            : log.status === "error"
-                              ? "destructive"
-                              : "secondary"
-                        }
-                        className="text-[10px]"
-                      >
-                        {log.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">
-                      {log.error_message ?? "—"}
-                    </TableCell>
-                  </TableRow>
+                  <>
+                    <TableRow
+                      key={log.id}
+                      className={log.payload ? "cursor-pointer hover:bg-muted/40" : ""}
+                      onClick={() => log.payload && setExpandedLog(expandedLog === log.id ? null : log.id)}
+                    >
+                      <TableCell className="text-xs px-1">
+                        {log.payload && (
+                          expandedLog === log.id
+                            ? <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                            : <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                        )}
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {fmtDate(log.created_at)}
+                      </TableCell>
+                      <TableCell className="text-xs">{log.operation}</TableCell>
+                      <TableCell className="text-xs">
+                        {log.event_type ?? "—"}
+                      </TableCell>
+                      <TableCell className="text-xs font-mono">
+                        {log.rd_id ?? "—"}
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        <Badge
+                          variant={
+                            log.status === "success"
+                              ? "default"
+                              : log.status === "error"
+                                ? "destructive"
+                                : "secondary"
+                          }
+                          className="text-[10px]"
+                        >
+                          {log.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">
+                        {log.error_message ?? "—"}
+                      </TableCell>
+                    </TableRow>
+                    {expandedLog === log.id && log.payload && (
+                      <TableRow key={`${log.id}-payload`}>
+                        <TableCell colSpan={7} className="bg-muted/30 px-4 py-2">
+                          <p className="text-[10px] font-semibold text-muted-foreground mb-1">Payload recebido:</p>
+                          <pre className="text-[10px] font-mono text-foreground whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
+                            {JSON.stringify(log.payload, null, 2)}
+                          </pre>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </>
                 ))}
                 {(logs ?? []).length === 0 && (
                   <TableRow>
                     <TableCell
-                      colSpan={6}
+                      colSpan={7}
                       className="text-center text-xs text-muted-foreground py-4"
                     >
                       Nenhum log encontrado.
