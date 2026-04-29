@@ -155,16 +155,7 @@ async function importDeals(
         const userEmail = (deal.user as { email?: string } | null)?.email ?? null;
         const contacts = (deal.contacts as Record<string, unknown>[] | undefined) ?? [];
 
-        let assignedTo: string | null = null;
-        if (userEmail) {
-          const { data: profile } = await admin
-            .from("profiles")
-            .select("id")
-            .eq("email", userEmail)
-            .limit(1)
-            .single();
-          assignedTo = profile?.id ?? null;
-        }
+        const assignedTo: string | null = null; // skip RD user mapping — emails differ
 
         let clientId: string | null = null;
         for (const contact of contacts) {
