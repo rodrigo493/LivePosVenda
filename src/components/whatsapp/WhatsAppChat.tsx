@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Send, MessageSquare, Paperclip, X, Mic, Download, CornerUpLeft, ChevronDown, Copy, Forward } from "lucide-react";
+import { Send, MessageSquare, Paperclip, X, Mic, Download, CornerUpLeft, ChevronDown, Copy, Forward, Check, CheckCheck, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -407,6 +407,13 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
     };
   }, []);
 
+  const deleteMessage = async (msgId: string) => {
+    const { error } = await supabase.from("whatsapp_messages").delete().eq("id", msgId);
+    if (error) { toast.error("Erro ao apagar mensagem"); return; }
+    qc.invalidateQueries({ queryKey: ["whatsapp-messages", clientId] });
+    toast.success("Mensagem apagada");
+  };
+
   const formatRecTime = (s: number) =>
     `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
@@ -672,6 +679,17 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
                                 <Download className="h-3.5 w-3.5 text-muted-foreground" /> Baixar
                               </button>
                             )}
+                            {outbound && (
+                              <>
+                                <div className="my-1 border-t" />
+                                <button
+                                  onClick={() => { setOpenMenuId(null); deleteMessage(msg.id); }}
+                                  className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-red-50 dark:hover:bg-red-950/30 text-red-600 text-left"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" /> Apagar
+                                </button>
+                              </>
+                            )}
                           </div>
                         )}
 
@@ -718,9 +736,18 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
                           ) : (
                             <p className="whitespace-pre-wrap text-[13px] leading-relaxed">{msg.message_text}</p>
                           )}
-                          <p className={`text-[9px] mt-1 text-right ${outbound ? "text-white/60" : "text-muted-foreground"}`}>
-                            {formatTime(msg.created_at)}
-                          </p>
+                          <div className={`flex items-center justify-end gap-0.5 mt-1 ${outbound ? "text-white/60" : "text-muted-foreground"}`}>
+                            <span className="text-[9px]">{formatTime(msg.created_at)}</span>
+                            {outbound && (
+                              msg.status === "read" ? (
+                                <CheckCheck size={12} className="flex-shrink-0 text-sky-300" />
+                              ) : msg.status === "delivered" ? (
+                                <CheckCheck size={12} className="flex-shrink-0" />
+                              ) : (
+                                <Check size={12} className="flex-shrink-0" />
+                              )
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
