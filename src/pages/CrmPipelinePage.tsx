@@ -258,7 +258,7 @@ const CrmPipelinePage = () => {
         _stageColor: stageColor,
       };
       const target = map[t.pipeline_stage] ? t.pipeline_stage : "sem_atendimento";
-      map[target].push(enriched);
+      map[target]?.push(enriched);
     });
 
     Object.values(map).forEach((arr) =>
