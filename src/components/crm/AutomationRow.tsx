@@ -36,6 +36,9 @@ const VARIABLES = [
   { label: "{{ticket_numero}}", key: "{{ticket_numero}}" },
 ];
 
+const inputDark = "h-7 text-xs bg-zinc-800 border-zinc-600 text-zinc-100 placeholder:text-zinc-500";
+const textareaDark = "w-full rounded-md border border-zinc-600 bg-zinc-800 px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-primary/50 resize-none";
+
 function VariableChips({ onInsert }: { onInsert: (v: string) => void }) {
   return (
     <div className="flex flex-wrap gap-1 mt-1">
@@ -44,7 +47,7 @@ function VariableChips({ onInsert }: { onInsert: (v: string) => void }) {
           key={v.key}
           type="button"
           onClick={() => onInsert(v.key)}
-          className="px-1.5 py-0.5 rounded text-[10px] bg-amber-100 text-amber-800 hover:bg-amber-200 transition-colors font-mono"
+          className="px-1.5 py-0.5 rounded text-[10px] bg-amber-900/40 text-amber-400 hover:bg-amber-900/60 transition-colors font-mono"
         >
           {v.label}
         </button>
@@ -72,20 +75,20 @@ export function AutomationRow({ automation, onChange, onDelete }: AutomationRowP
   const cfg = automation.action_config;
 
   return (
-    <div className="rounded-md border bg-muted/30 p-3 space-y-2">
+    <div className="rounded-md border border-zinc-700 bg-zinc-800/50 p-3 space-y-2">
       {/* Linha principal */}
       <div className="flex items-center gap-2">
         <Zap className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
-        <span className="text-xs text-muted-foreground flex-shrink-0">Ao entrar na etapa</span>
-        <span className="text-xs text-muted-foreground flex-shrink-0">→</span>
+        <span className="text-xs text-zinc-400 flex-shrink-0">Ao entrar na etapa</span>
+        <span className="text-xs text-zinc-600 flex-shrink-0">→</span>
 
         <select
           value={automation.action_type}
           onChange={(e) => handleActionTypeChange(e.target.value as AutomationActionType)}
-          className="flex-1 min-w-0 h-7 rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          className="flex-1 min-w-0 h-7 rounded-md border border-zinc-600 bg-zinc-800 px-2 text-xs text-zinc-100 focus:outline-none focus:ring-1 focus:ring-primary/50"
         >
           {ACTION_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
+            <option key={opt.value} value={opt.value} className="bg-zinc-800">
               {opt.label}
             </option>
           ))}
@@ -97,7 +100,7 @@ export function AutomationRow({ automation, onChange, onDelete }: AutomationRowP
           onClick={toggleActive}
           title={automation.is_active ? "Desativar" : "Ativar"}
           className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors focus:outline-none ${
-            automation.is_active ? "bg-primary" : "bg-input"
+            automation.is_active ? "bg-primary" : "bg-zinc-700"
           }`}
         >
           <span
@@ -110,7 +113,7 @@ export function AutomationRow({ automation, onChange, onDelete }: AutomationRowP
         <Button
           variant="ghost"
           size="icon"
-          className="h-7 w-7 flex-shrink-0 text-muted-foreground hover:text-destructive"
+          className="h-7 w-7 flex-shrink-0 text-zinc-500 hover:text-destructive"
           onClick={onDelete}
         >
           <Trash2 className="h-3.5 w-3.5" />
@@ -119,7 +122,7 @@ export function AutomationRow({ automation, onChange, onDelete }: AutomationRowP
 
       {/* Delay */}
       <div className="flex items-center gap-2">
-        <span className="text-[10px] text-muted-foreground">Executar após</span>
+        <span className="text-[10px] text-zinc-400">Executar após</span>
         <input
           type="number"
           min={0}
@@ -127,9 +130,9 @@ export function AutomationRow({ automation, onChange, onDelete }: AutomationRowP
           onChange={(e) =>
             onChange({ ...automation, delay_minutes: Math.max(0, Number(e.target.value)) })
           }
-          className="h-6 w-16 rounded border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          className="h-6 w-16 rounded border border-zinc-600 bg-zinc-800 px-2 text-xs text-zinc-100 focus:outline-none focus:ring-1 focus:ring-primary/50"
         />
-        <span className="text-[10px] text-muted-foreground">min</span>
+        <span className="text-[10px] text-zinc-400">min</span>
       </div>
 
       {/* Campos de config por action_type */}
@@ -139,24 +142,20 @@ export function AutomationRow({ automation, onChange, onDelete }: AutomationRowP
             value={(cfg.to as string) ?? ""}
             onChange={(e) => handleConfigChange("to", e.target.value)}
             placeholder="Para: número ou {{tecnico_telefone}}"
-            className="h-7 text-xs font-mono"
+            className={`${inputDark} font-mono`}
           />
           <VariableChips
-            onInsert={(v) =>
-              handleConfigChange("to", ((cfg.to as string) ?? "") + v)
-            }
+            onInsert={(v) => handleConfigChange("to", ((cfg.to as string) ?? "") + v)}
           />
           <textarea
             value={(cfg.message as string) ?? ""}
             onChange={(e) => handleConfigChange("message", e.target.value)}
             placeholder="Mensagem..."
             rows={3}
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+            className={textareaDark}
           />
           <VariableChips
-            onInsert={(v) =>
-              handleConfigChange("message", ((cfg.message as string) ?? "") + v)
-            }
+            onInsert={(v) => handleConfigChange("message", ((cfg.message as string) ?? "") + v)}
           />
         </div>
       )}
@@ -167,25 +166,23 @@ export function AutomationRow({ automation, onChange, onDelete }: AutomationRowP
             value={(cfg.title as string) ?? ""}
             onChange={(e) => handleConfigChange("title", e.target.value)}
             placeholder="Título da tarefa"
-            className="h-7 text-xs"
+            className={inputDark}
           />
           <VariableChips
-            onInsert={(v) =>
-              handleConfigChange("title", ((cfg.title as string) ?? "") + v)
-            }
+            onInsert={(v) => handleConfigChange("title", ((cfg.title as string) ?? "") + v)}
           />
           <textarea
             value={(cfg.description as string) ?? ""}
             onChange={(e) => handleConfigChange("description", e.target.value)}
             placeholder="Descrição (opcional)"
             rows={2}
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+            className={textareaDark}
           />
           <Input
             value={(cfg.squad_user_id as string) ?? ""}
             onChange={(e) => handleConfigChange("squad_user_id", e.target.value)}
             placeholder="ID do usuário no Squad (responsável)"
-            className="h-7 text-xs font-mono"
+            className={`${inputDark} font-mono`}
           />
         </div>
       )}
@@ -196,25 +193,23 @@ export function AutomationRow({ automation, onChange, onDelete }: AutomationRowP
             value={(cfg.squad_user_id as string) ?? ""}
             onChange={(e) => handleConfigChange("squad_user_id", e.target.value)}
             placeholder="ID do usuário no Squad"
-            className="h-7 text-xs font-mono"
+            className={`${inputDark} font-mono`}
           />
           <textarea
             value={(cfg.message as string) ?? ""}
             onChange={(e) => handleConfigChange("message", e.target.value)}
             placeholder="Mensagem para o workspace"
             rows={2}
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+            className={textareaDark}
           />
           <VariableChips
-            onInsert={(v) =>
-              handleConfigChange("message", ((cfg.message as string) ?? "") + v)
-            }
+            onInsert={(v) => handleConfigChange("message", ((cfg.message as string) ?? "") + v)}
           />
         </div>
       )}
 
       {automation.action_type === "move_stage" && (
-        <p className="text-xs text-muted-foreground italic">
+        <p className="text-xs text-zinc-500 italic">
           Configurar após criar a automação
         </p>
       )}
@@ -225,14 +220,14 @@ export function AutomationRow({ automation, onChange, onDelete }: AutomationRowP
             value={(cfg.subject as string) ?? ""}
             onChange={(e) => handleConfigChange("subject", e.target.value)}
             placeholder="Assunto"
-            className="h-7 text-xs"
+            className={inputDark}
           />
           <textarea
             value={(cfg.body as string) ?? ""}
             onChange={(e) => handleConfigChange("body", e.target.value)}
             placeholder="Corpo do e-mail"
             rows={3}
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+            className={textareaDark}
           />
         </div>
       )}

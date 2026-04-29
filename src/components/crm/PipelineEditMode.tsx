@@ -90,11 +90,11 @@ export function PipelineEditMode({
     <div className="flex flex-col gap-4 h-full">
       {/* Barra superior */}
       <div className="flex items-center gap-3 flex-wrap">
-        <Pencil className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+        <Pencil className="h-4 w-4 text-zinc-400 flex-shrink-0" />
         <Input
           value={pipeline.name}
           onChange={(e) => onNameChange(e.target.value)}
-          className="max-w-xs h-9"
+          className="max-w-xs h-9 bg-zinc-800 border-zinc-600 text-zinc-100"
           placeholder="Nome do funil"
         />
 
@@ -138,7 +138,7 @@ export function PipelineEditMode({
               ))}
 
               {stages.length === 0 && (
-                <div className="flex items-center justify-center w-64 h-48 rounded-lg border border-dashed text-sm text-muted-foreground">
+                <div className="flex items-center justify-center w-64 h-48 rounded-lg border border-dashed border-zinc-700 text-sm text-zinc-500">
                   Nenhuma etapa. Clique em "+ Nova etapa".
                 </div>
               )}

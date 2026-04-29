@@ -674,20 +674,20 @@ const CrmPipelinePage = () => {
       ) : (
         <>
       {!currentPipeline && !isLoading && pipelines.length === 0 ? (
-        <div className="p-12 text-center text-muted-foreground text-sm">Sem acesso ao CRM. Solicite acesso ao administrador.</div>
+        <div className="p-12 text-center text-zinc-500 text-sm">Sem acesso ao CRM. Solicite acesso ao administrador.</div>
       ) : isLoading ? (
-        <div className="p-8 text-center text-muted-foreground text-sm">Carregando pipeline...</div>
+        <div className="p-8 text-center text-zinc-500 text-sm">Carregando pipeline...</div>
       ) : viewMode === "list" ? (
-        <div className="rounded-xl border overflow-hidden">
-          <table className="w-full text-xs">
+        <div className="rounded-xl border border-zinc-800 overflow-hidden bg-zinc-900">
+          <table className="w-full text-xs text-zinc-100">
             <thead>
-              <tr className="bg-muted/60 border-b">
-                <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Etapa</th>
-                <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Cliente</th>
-                <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Título</th>
-                <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Nº</th>
-                <th className="text-center px-3 py-2 font-semibold text-muted-foreground">Dias s/ interação</th>
-                <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Status</th>
+              <tr className="bg-zinc-800 border-b border-zinc-700">
+                <th className="text-left px-3 py-2 font-semibold text-zinc-400">Etapa</th>
+                <th className="text-left px-3 py-2 font-semibold text-zinc-400">Cliente</th>
+                <th className="text-left px-3 py-2 font-semibold text-zinc-400">Título</th>
+                <th className="text-left px-3 py-2 font-semibold text-zinc-400">Nº</th>
+                <th className="text-center px-3 py-2 font-semibold text-zinc-400">Dias s/ interação</th>
+                <th className="text-left px-3 py-2 font-semibold text-zinc-400">Status</th>
               </tr>
             </thead>
             <tbody>
@@ -695,7 +695,7 @@ const CrmPipelinePage = () => {
                 (columns[stage.key] || []).map((ticket: any) => (
                   <tr
                     key={ticket.id}
-                    className="border-b last:border-0 hover:bg-muted/40 cursor-pointer transition-colors"
+                    className="border-b border-zinc-800 last:border-0 hover:bg-zinc-800/60 cursor-pointer transition-colors"
                     onClick={() => setDetailTicket(ticket)}
                   >
                     <td className="px-3 py-2">
@@ -705,12 +705,12 @@ const CrmPipelinePage = () => {
                       </span>
                     </td>
                     <td className="px-3 py-2 font-medium">{ticket.clients?.name || "—"}</td>
-                    <td className="px-3 py-2 max-w-[240px] truncate text-muted-foreground">{ticket.title}</td>
-                    <td className="px-3 py-2 text-muted-foreground">{ticket.ticket_number}</td>
+                    <td className="px-3 py-2 max-w-[240px] truncate text-zinc-400">{ticket.title}</td>
+                    <td className="px-3 py-2 text-zinc-400">{ticket.ticket_number}</td>
                     <td className="px-3 py-2 text-center">
                       {(() => {
                         const d = daysSince(ticket.last_interaction_at);
-                        const color = d >= 5 ? "text-destructive" : d >= 2 ? "text-amber-500" : "text-muted-foreground";
+                        const color = d >= 5 ? "text-red-400" : d >= 2 ? "text-amber-400" : "text-zinc-500";
                         return <span className={`font-mono font-semibold ${color}`}>{d === 999 ? "—" : `${d}d`}</span>;
                       })()}
                     </td>
@@ -720,7 +720,7 @@ const CrmPipelinePage = () => {
               )}
               {stages.every((s) => (columns[s.key] || []).length === 0) && (
                 <tr>
-                  <td colSpan={6} className="px-3 py-10 text-center text-muted-foreground">Nenhum ticket neste funil</td>
+                  <td colSpan={6} className="px-3 py-10 text-center text-zinc-500">Nenhum ticket neste funil</td>
                 </tr>
               )}
             </tbody>
