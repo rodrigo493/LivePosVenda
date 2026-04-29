@@ -155,7 +155,16 @@ async function importDeals(
         const userEmail = (deal.user as { email?: string } | null)?.email ?? null;
         const contacts = (deal.contacts as Record<string, unknown>[] | undefined) ?? [];
 
-        const assignedTo: string | null = null; // skip RD user mapping — emails differ
+        let assignedTo: string | null = null;
+        if (userEmail) {
+          const { data: profile } = await admin
+            .from("profiles")
+            .select("id")
+            .eq("email", userEmail)
+            .limit(1)
+            .maybeSingle();
+          assignedTo = profile?.id ?? null;
+        }
 
         let clientId: string | null = null;
         for (const contact of contacts) {
@@ -209,24 +218,32 @@ async function importDeals(
         else if (deal.win === false) status = "cancelado";
         else if (deal.hold === true) status = "pausado";
 
-        const { error: upsertErr } = await admin.from("tickets").upsert(
-          {
-            rd_deal_id: rdDealId,
-            title: (deal.name as string) || "Negociação sem título",
-            ticket_type: "pos_venda",
-            status,
-            estimated_value: Number(deal.amount_total ?? 0),
-            pipeline_id: pipeline.id,
-            pipeline_stage: stageKey ?? stages?.[0]?.key ?? "sem_atendimento",
-            assigned_to: assignedTo,
-            client_id: clientId,
-            ticket_number: `RD-${rdDealId}`,
-            origin: "rd_station",
-            channel: "rd_station",
-            created_at: (deal.created_at as string) || new Date().toISOString(),
-          },
-          { onConflict: "rd_deal_id" },
-        );
+        const payload = {
+          rd_deal_id: rdDealId,
+          title: (deal.name as string) || "Negociação sem título",
+          ticket_type: "pos_venda",
+          status,
+          estimated_value: Number(deal.amount_total ?? 0),
+          pipeline_id: pipeline.id,
+          pipeline_stage: stageKey ?? stages?.[0]?.key ?? "sem_atendimento",
+          assigned_to: assignedTo,
+          client_id: clientId,
+          ticket_number: `RD-${rdDealId}`,
+          origin: "rd_station",
+          channel: "rd_station",
+          created_at: (deal.created_at as string) || new Date().toISOString(),
+        };
+
+        let { error: upsertErr } = await admin.from("tickets").upsert(payload, { onConflict: "rd_deal_id" });
+
+        // FK violation on assigned_to → retry without it
+        if (upsertErr?.message?.includes("assigned_to_fkey")) {
+          const { error: retryErr } = await admin.from("tickets").upsert(
+            { ...payload, assigned_to: null },
+            { onConflict: "rd_deal_id" },
+          );
+          upsertErr = retryErr ?? null;
+        }
 
         if (upsertErr) throw new Error(upsertErr.message);
 

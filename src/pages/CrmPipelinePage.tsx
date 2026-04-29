@@ -910,9 +910,7 @@ function StageColumn({
           </span>
           {totalValue > 0 && (
             <span className="text-[10px] font-semibold shrink-0" style={{ color: stage.color }}>
-              {totalValue >= 1000
-                ? `R$ ${(totalValue / 1000).toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 1 })}k`
-                : `R$ ${totalValue.toLocaleString("pt-BR", { minimumFractionDigits: 0 })}`}
+              {`R$ ${totalValue.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
             </span>
           )}
           <button
@@ -1098,9 +1096,7 @@ function PipelineCard({ ticket, onQuickTask, onClick, isAdmin }: { ticket: any; 
           </Button>
           {value > 0 && (
             <span className="text-[10px] font-bold" style={{ color: stageColor }}>
-              {value >= 1000
-                ? `R$ ${(value / 1000).toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 1 })}k`
-                : `R$ ${value.toLocaleString("pt-BR", { minimumFractionDigits: 0 })}`}
+              {`R$ ${value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
             </span>
           )}
         </div>
