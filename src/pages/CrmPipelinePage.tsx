@@ -146,6 +146,7 @@ const CrmPipelinePage = () => {
   const [excelImportOpen, setExcelImportOpen] = useState(false);
   const [detailTicket, setDetailTicket] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
 
   // ── Edit mode ──────────────────────────────────────────────────
   interface LocalAutomation {
@@ -233,9 +234,11 @@ const CrmPipelinePage = () => {
         const title = (t.title || "").toLowerCase();
         if (!name.includes(term) && !number.includes(term) && !title.includes(term)) return;
       }
+      if (statusFilter !== "all" && t.status !== statusFilter) return;
 
       const days = daysSince(t.last_interaction_at);
       const stageDelay = delayMap[t.pipeline_stage] ?? 2;
+      const stageColor = stages.find((s) => s.key === t.pipeline_stage)?.color ?? "#6366f1";
       const enriched = {
         ...t,
         _daysSinceInteraction: days,
@@ -243,6 +246,7 @@ const CrmPipelinePage = () => {
         _isNoContact: t.pipeline_stage === "sem_atendimento",
         _unreadWhatsapp: whatsappUnread.get(t.client_id) || 0,
         _lastWhatsappAt: whatsappLastActivity.get(t.client_id) || null,
+        _stageColor: stageColor,
       };
       const target = map[t.pipeline_stage] ? t.pipeline_stage : "sem_atendimento";
       map[target].push(enriched);
@@ -569,6 +573,11 @@ const CrmPipelinePage = () => {
           </>
         )}
         <div className="flex-1" />
+        {tickets && tickets.length > 0 && (
+          <span className="text-[11px] text-muted-foreground hidden sm:inline whitespace-nowrap">
+            {tickets.length} negociações
+          </span>
+        )}
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
           <input
@@ -576,17 +585,28 @@ const CrmPipelinePage = () => {
             placeholder="Buscar cliente, nº ou título..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-8 pr-3 py-1.5 text-sm rounded-lg border border-input bg-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring h-8 w-56"
+            className="pl-8 pr-3 py-1.5 text-sm rounded-lg border border-input bg-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring h-8 w-48"
           />
         </div>
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="h-8 w-36 text-xs">
+            <SelectValue placeholder="Todos os status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos os status</SelectItem>
+            <SelectItem value="aberto">Em andamento</SelectItem>
+            <SelectItem value="cancelado">Perdida</SelectItem>
+            <SelectItem value="pausado">Pausado</SelectItem>
+          </SelectContent>
+        </Select>
         {isAdmin ? (
           <Select value={filterBy} onValueChange={setFilterBy}>
-            <SelectTrigger className="h-8 w-40 text-xs">
+            <SelectTrigger className="h-8 w-36 text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Todos os cards</SelectItem>
-              <SelectItem value="mine">Meus cards</SelectItem>
+              <SelectItem value="all">Todas</SelectItem>
+              <SelectItem value="mine">Minhas</SelectItem>
               {allUsers.length > 0 && (
                 <>
                   <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide border-t mt-1 pt-2">
@@ -635,7 +655,7 @@ const CrmPipelinePage = () => {
         >
           <div
             ref={scrollRef}
-            className={`flex gap-3 overflow-x-auto pb-4 select-none ${isGrabbing ? "cursor-grabbing" : "cursor-grab"}`}
+            className={`flex gap-3 overflow-x-auto pb-4 select-none rounded-xl bg-zinc-950 p-3 ${isGrabbing ? "cursor-grabbing" : "cursor-grab"}`}
             style={{ minHeight: "calc(100vh - 165px)" }}
             onMouseDown={(e) => {
               if (activeId) return;
@@ -665,6 +685,7 @@ const CrmPipelinePage = () => {
                   totalValue={totalValue}
                   onQuickTask={handleQuickTask}
                   onClickTicket={setDetailTicket}
+                  onNewTicket={() => setClientDialog(true)}
                   isAdmin={isAdmin}
                 />
               );
@@ -808,6 +829,13 @@ const CrmPipelinePage = () => {
   );
 };
 
+const STATUS_LABELS: Record<string, { label: string; dot: string }> = {
+  aberto:    { label: "Em andamento", dot: "#3b82f6" },
+  fechado:   { label: "Vendida",      dot: "#22c55e" },
+  cancelado: { label: "Perdida",      dot: "#ef4444" },
+  pausado:   { label: "Pausado",      dot: "#f97316" },
+};
+
 const TICKET_TYPE_LABELS: Record<string, { label: string; color: string }> = {
   chamado_tecnico: { label: "Chamado Técnico", color: "bg-blue-100 text-blue-800" },
   garantia: { label: "Garantia", color: "bg-orange-100 text-orange-800" },
@@ -844,6 +872,7 @@ function StageColumn({
   totalValue,
   onQuickTask,
   onClickTicket,
+  onNewTicket,
   isAdmin,
 }: {
   stage: { key: string; label: string; color: string };
@@ -851,30 +880,65 @@ function StageColumn({
   totalValue: number;
   onQuickTask: (ticketId: string, clientId: string) => void;
   onClickTicket: (ticket: any) => void;
+  onNewTicket: () => void;
   isAdmin: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.key });
+  const [showStats, setShowStats] = useState(false);
 
   return (
     <div
       ref={setNodeRef}
-      className={`flex-1 min-w-[230px] rounded-xl border bg-card flex flex-col transition-all ${
-        isOver ? "ring-2 ring-primary/50" : ""
+      className={`flex-1 min-w-[230px] rounded-xl border border-zinc-800 bg-zinc-900 flex flex-col transition-all ${
+        isOver ? "ring-2 ring-primary/40" : ""
       }`}
       style={{ borderTop: `3px solid ${stage.color}` }}
     >
-      <div className="px-3 pt-2.5 pb-2 border-b">
+      <div className="px-3 pt-2.5 pb-2 border-b border-zinc-800">
         <div className="flex items-center gap-1.5">
-          <span className="text-xs font-semibold flex-1 truncate">{stage.label}</span>
-          <Badge variant="secondary" className="text-[10px] h-5 shrink-0">
+          <span className="text-xs font-semibold flex-1 truncate text-zinc-100">{stage.label}</span>
+          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-zinc-700 text-zinc-300 shrink-0">
             {items.length}
-          </Badge>
+          </span>
           {totalValue > 0 && (
-            <span className="text-[10px] font-semibold text-primary shrink-0">
-              R$ {totalValue.toLocaleString("pt-BR", { minimumFractionDigits: 0 })}
+            <span className="text-[10px] font-semibold shrink-0" style={{ color: stage.color }}>
+              {totalValue >= 1000
+                ? `R$ ${(totalValue / 1000).toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 1 })}k`
+                : `R$ ${totalValue.toLocaleString("pt-BR", { minimumFractionDigits: 0 })}`}
             </span>
           )}
+          <button
+            className="h-5 w-5 rounded flex items-center justify-center hover:bg-zinc-700 text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
+            onClick={() => setShowStats((v) => !v)}
+            title="Ver estatísticas"
+          >
+            <BarChart3 className="h-3 w-3" />
+          </button>
         </div>
+        {showStats && (
+          <div className="mt-2 grid grid-cols-2 gap-1.5 text-[10px]">
+            <div className="bg-zinc-800 rounded p-1.5">
+              <p className="text-zinc-500">Cards</p>
+              <p className="text-zinc-100 font-bold">{items.length}</p>
+            </div>
+            <div className="bg-zinc-800 rounded p-1.5">
+              <p className="text-zinc-500">Valor total</p>
+              <p className="font-bold" style={{ color: stage.color }}>
+                {totalValue > 0
+                  ? `R$ ${totalValue.toLocaleString("pt-BR", { minimumFractionDigits: 0 })}`
+                  : "—"}
+              </p>
+            </div>
+            <div className="bg-zinc-800 rounded p-1.5">
+              <p className="text-zinc-500">Atrasados</p>
+              <p className="text-amber-400 font-bold">{items.filter((t: any) => t._isDelayed).length}</p>
+            </div>
+            <div className="bg-zinc-800 rounded p-1.5">
+              <p className="text-zinc-500">WhatsApp</p>
+              <p className="text-orange-400 font-bold">{items.filter((t: any) => t._unreadWhatsapp > 0).length}</p>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-2 space-y-1.5 min-h-[60px]">
@@ -890,9 +954,16 @@ function StageColumn({
           ))}
         </SortableContext>
         {items.length === 0 && (
-          <p className="text-[11px] text-muted-foreground text-center py-8">Nenhum atendimento</p>
+          <p className="text-[11px] text-zinc-600 text-center py-8">Nenhum atendimento</p>
         )}
       </div>
+
+      <button
+        onClick={onNewTicket}
+        className="flex items-center gap-1.5 px-3 py-2 text-[11px] text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors rounded-b-xl border-t border-zinc-800 w-full"
+      >
+        <span className="text-base leading-none">+</span> Nova negociação
+      </button>
     </div>
   );
 }
@@ -937,76 +1008,93 @@ function getLastOrderTag(quotes: any[]): "ORÇ" | "PA" | "PG" | null {
 }
 
 function PipelineCard({ ticket, onQuickTask, onClick, isAdmin }: { ticket: any; onQuickTask: () => void; onClick: () => void; isAdmin: boolean }) {
-  const typeInfo = TICKET_TYPE_LABELS[ticket.ticket_type] || { label: ticket.ticket_type, color: "bg-muted text-muted-foreground" };
+  const typeInfo = TICKET_TYPE_LABELS[ticket.ticket_type] || { label: ticket.ticket_type, color: "bg-zinc-700 text-zinc-300" };
   const unreadWpp = ticket._unreadWhatsapp || 0;
   const lastOrderTag = getLastOrderTag(ticket.quotes || []);
+  const isDelayed = ticket._isDelayed;
+  const days = ticket._daysSinceInteraction ?? 0;
+  const stageColor: string = ticket._stageColor ?? "#6366f1";
+  const statusInfo = STATUS_LABELS[ticket.status] ?? { label: ticket.status, dot: "#71717a" };
+  const value = Number(ticket.estimated_value || 0);
 
   return (
     <div
       onClick={onClick}
-      className={`rounded-lg border cursor-pointer hover:shadow-md transition-shadow overflow-hidden ${
+      className={`rounded-lg border cursor-pointer transition-all overflow-hidden hover:brightness-110 ${
         unreadWpp > 0
-          ? "bg-[#f97316]/[0.06] border-[#c2410c] animate-unread-pulse"
-          : "bg-card"
+          ? "bg-[#1f1208] border-[#7c2d12]"
+          : "bg-zinc-800 border-zinc-700"
       }`}
+      style={{ borderLeft: `3px solid ${stageColor}` }}
     >
-      {isAdmin && ticket.is_paused && (
-        <div className="bg-muted text-muted-foreground text-[9px] font-bold px-2 py-0.5 rounded-b-md uppercase tracking-wide inline-block">
-          Pausado
-        </div>
-      )}
       {unreadWpp > 0 && (
-        <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-[#c2410c]/30">
-          <span className="h-1.5 w-1.5 rounded-full bg-[#c2410c] animate-dot-pulse" />
-          <span className="text-[10px] font-bold text-[#f97316] uppercase tracking-wide">
-            {unreadWpp} {unreadWpp === 1 ? "mensagem não lida" : "mensagens não lidas"}
+        <div className="flex items-center gap-1.5 px-2.5 py-1 border-b border-[#7c2d12]/50">
+          <span className="h-1.5 w-1.5 rounded-full bg-orange-500 animate-dot-pulse" />
+          <span className="text-[9px] font-bold text-orange-400 uppercase tracking-wide">
+            {unreadWpp} msg não {unreadWpp === 1 ? "lida" : "lidas"}
           </span>
         </div>
       )}
-      <div className="p-3">
-        <div className="flex items-center justify-between mb-1.5">
-          <div className="flex items-center gap-1">
-            <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded ${typeInfo.color}`}>{typeInfo.label}</span>
-            {lastOrderTag && (
-              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 border border-blue-200">
-                {lastOrderTag}
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-1">
-            {unreadWpp > 0 && (
-              <span className="flex items-center gap-0.5 bg-[#c2410c] text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">
-                <svg viewBox="0 0 24 24" fill="currentColor" className="h-2.5 w-2.5">
-                  <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
-                </svg>
-                {unreadWpp}
-              </span>
-            )}
+
+      <div className="p-2.5 space-y-1.5">
+        {/* Linha 1: tipo + status/esfriar + prioridade */}
+        <div className="flex items-center gap-1 flex-wrap">
+          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide ${typeInfo.color}`}>
+            {typeInfo.label}
+          </span>
+          {lastOrderTag && (
+            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-900/60 text-blue-300 border border-blue-700/50">
+              {lastOrderTag}
+            </span>
+          )}
+          {isDelayed ? (
+            <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-amber-900/60 text-amber-300 border border-amber-700/50 flex items-center gap-0.5">
+              ⚠ Esfrindo {days}d
+            </span>
+          ) : (
+            <span className="text-[9px] font-medium px-1.5 py-0.5 rounded flex items-center gap-1 bg-zinc-700/60 text-zinc-400">
+              <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ backgroundColor: statusInfo.dot }} />
+              {statusInfo.label}
+            </span>
+          )}
+          <span className="ml-auto">
             <StatusBadge status={ticket.priority} />
-          </div>
+          </span>
         </div>
 
-        <p className="text-xs font-semibold line-clamp-1">{ticket.clients?.name || "—"}</p>
-        {(ticket.description || ticket.problem_category) && (
-          <span className="inline-block text-[10px] font-medium bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded line-clamp-1 mb-1">
-            {ticket.description || ticket.problem_category}
-          </span>
-        )}
+        {/* Linha 2: nome do cliente */}
+        <p className="text-xs font-semibold line-clamp-1 text-zinc-100">
+          {ticket.clients?.name || ticket.title || "—"}
+        </p>
 
-        <div className="flex items-center justify-between mt-1.5">
-          <span className="text-[9px] font-mono text-muted-foreground">{ticket.ticket_number}</span>
+        {/* Linha 3: número + tag de problema */}
+        <div className="flex items-center gap-1 flex-wrap">
+          <span className="text-[9px] font-mono text-zinc-500">{ticket.ticket_number}</span>
+          {(ticket.description || ticket.problem_category) && (
+            <span className="text-[9px] font-medium bg-yellow-900/50 text-yellow-300 border border-yellow-700/40 px-1 py-0.5 rounded truncate max-w-[100px]">
+              {(ticket.description || ticket.problem_category).slice(0, 18)}
+            </span>
+          )}
+        </div>
+
+        {/* Linha 4: tarefa rápida + valor */}
+        <div className="flex items-center justify-between">
           <Button
             variant="ghost"
             size="sm"
-            className="h-5 w-5 p-0"
-            onClick={(e) => {
-              e.stopPropagation();
-              onQuickTask();
-            }}
+            className="h-5 px-1 text-[9px] text-zinc-500 hover:text-zinc-300 gap-0.5 -ml-1"
+            onClick={(e) => { e.stopPropagation(); onQuickTask(); }}
             title="Criar tarefa"
           >
-            <ListTodo className="h-3 w-3" />
+            <ListTodo className="h-2.5 w-2.5" /> Criar tarefa
           </Button>
+          {value > 0 && (
+            <span className="text-[10px] font-bold" style={{ color: stageColor }}>
+              {value >= 1000
+                ? `R$ ${(value / 1000).toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 1 })}k`
+                : `R$ ${value.toLocaleString("pt-BR", { minimumFractionDigits: 0 })}`}
+            </span>
+          )}
         </div>
       </div>
     </div>
