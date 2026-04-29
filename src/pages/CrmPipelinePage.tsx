@@ -10,7 +10,6 @@ import {
   FileSpreadsheet,
   Pencil,
   BarChart3,
-  AlertTriangle,
   ExternalLink,
 } from "lucide-react";
 import {
@@ -1162,19 +1161,6 @@ function PipelineCard({ ticket, onQuickTask, onClick, isAdmin }: { ticket: any; 
           {ticket.clients?.name || ticket.title || "—"}
         </p>
 
-        {/* Bloco PA/PG — triângulo proeminente */}
-        {lastOrderRoute && lastOrderTag && lastOrderTag !== "ORÇ" && (
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); navigate(lastOrderRoute); }}
-            className="w-full flex items-center gap-1.5 px-2 py-1 rounded border border-amber-700/50 bg-amber-900/20 hover:bg-amber-900/40 transition-colors group"
-            title={`Abrir ${lastOrderTag}`}
-          >
-            <AlertTriangle className="h-3.5 w-3.5 text-amber-400 animate-pulse shrink-0" />
-            <span className="text-[10px] font-bold text-amber-300 flex-1 text-left">{lastOrderTag}</span>
-            <ExternalLink className="h-3 w-3 text-amber-500 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
-          </button>
-        )}
 
         {/* Linha 3: número + tag de problema */}
         <div className="flex items-center gap-1 flex-wrap">
