@@ -589,19 +589,32 @@ const PADetailPage = () => {
         ...(nomusFields.cfop ? { cfop: nomusFields.cfop } : {}),
       };
 
-      const orderRes = await fetch("/api/nomus/rest/pedidos", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Accept": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      const existingNomusId = (sr as any).nomus_order_id as number | null;
+      const orderRes = await fetch(
+        existingNomusId
+          ? `/api/nomus/rest/pedidos/${existingNomusId}`
+          : "/api/nomus/rest/pedidos",
+        {
+          method: existingNomusId ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json", "Accept": "application/json" },
+          body: JSON.stringify(payload),
+        }
+      );
 
       if (!orderRes.ok) {
         const errText = await orderRes.text();
         throw new Error(`Erro Nomus [${orderRes.status}]: ${errText}`);
       }
 
-      await supabase.from("service_requests").update({ status: "resolvido" as any }).eq("id", id!);
-      toast.success("Pedido criado no ERP com sucesso!");
+      const orderData = await orderRes.json().catch(() => null);
+      const returnedNomusId: number | null = orderData?.id ?? orderData?.Id ?? existingNomusId;
+
+      await supabase.from("service_requests").update({
+        status: "resolvido" as any,
+        ...(returnedNomusId ? { nomus_order_id: returnedNomusId } : {}),
+      }).eq("id", id!);
+
+      toast.success(existingNomusId ? "Pedido atualizado no ERP!" : "Pedido criado no ERP com sucesso!");
       qc.invalidateQueries({ queryKey: ["service_request_detail", id] });
     } catch (err: any) {
       if (import.meta.env.DEV) console.error("Approve error:", err);
@@ -1153,7 +1166,9 @@ const PADetailPage = () => {
           <div className="px-4 pb-4">
             <Button className="gap-1.5 w-full md:w-auto" onClick={handleApprove} disabled={approving}>
               {approving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              {approving ? "Criando no ERP..." : "Criar Pedido no Nomus"}
+              {approving
+                ? ((sr as any).nomus_order_id ? "Atualizando no ERP..." : "Criando no ERP...")
+                : ((sr as any).nomus_order_id ? "Atualizar Pedido no Nomus" : "Criar Pedido no Nomus")}
             </Button>
           </div>
         </motion.div>
