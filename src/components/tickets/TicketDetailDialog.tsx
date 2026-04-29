@@ -5,6 +5,7 @@ import {
   AlertTriangle, Send, Pencil, Check, X, Wrench, Shield, ClipboardList,
   ExternalLink, Receipt, Settings2, ArrowLeft, Cpu, Plus, ChevronDown, History, CheckSquare, Brain,
   BookOpen, Upload, Trash2, MoreVertical, Copy, PauseCircle, PlayCircle,
+  ShoppingCart, Search, Minus,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -41,6 +42,14 @@ import { useSoftDeleteTicket, useUpdateTicket } from "@/hooks/useTickets";
 import { usePipelineStages } from "@/hooks/usePipelineStages";
 import { usePipelines } from "@/hooks/usePipelines";
 import { useAllUsers } from "@/hooks/useUserAccess";
+import { useDealCatalogProducts } from "@/hooks/useDealCatalogProducts";
+import {
+  useTicketNegotiationItems,
+  useAddNegotiationItem,
+  useUpdateNegotiationItem,
+  useRemoveNegotiationItem,
+} from "@/hooks/useTicketNegotiationItems";
+import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { formatDate as fmtDate, formatCurrency as fmtCurrency } from "@/lib/formatters";
 import { ACTIVITY_LOG_LIMIT } from "@/constants/limits";
@@ -321,6 +330,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   const qc = useQueryClient();
   const [ticketDescription, setTicketDescription] = useState("");
   const [ticketInternalNotes, setTicketInternalNotes] = useState("");
+  const [ticketObjecao, setTicketObjecao] = useState("");
   const [ticketType, setTicketType] = useState(ticket?.ticket_type || "");
   const [newNote, setNewNote] = useState("");
   const [activeTab, setActiveTab] = useState("info");
@@ -400,6 +410,12 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   const { data: clientHistory } = useClientServiceHistory(enabledClientId);
   const { data: ticketEntregaveis } = useTicketEntregaveis(enabledId);
   const { data: ticketMemoria } = useTicketMemoria(enabledId);
+  const { data: negotiationItems = [] } = useTicketNegotiationItems(enabledId);
+  const { data: dealCatalog = [] } = useDealCatalogProducts();
+  const addNegItem = useAddNegotiationItem();
+  const updateNegItem = useUpdateNegotiationItem();
+  const removeNegItem = useRemoveNegotiationItem();
+  const [negSearch, setNegSearch] = useState("");
   const isAdmin = hasRole("admin");
 
   const aprovarMemoria = useMutation({
@@ -529,6 +545,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
     if (!open || !ticket) return;
     setTicketDescription(ticket.description || "");
     setTicketInternalNotes(ticket.internal_notes || "");
+    setTicketObjecao(ticket.objecao || "");
     setTicketType(ticket.ticket_type || "");
     setLocalPipelineId(ticket.pipeline_id ?? null);
     setLocalAssignedTo(ticket.assigned_to ?? null);
@@ -542,7 +559,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
     setPsEvidencias([]);
     setPsMemoriaId(null);
     setPsAprovada(false);
-  }, [open, ticket?.id, ticket?.description, ticket?.internal_notes, ticket?.ticket_type]);
+  }, [open, ticket?.id, ticket?.description, ticket?.internal_notes, ticket?.objecao, ticket?.ticket_type]);
 
   // Pre-fill PS form from existing memoria record
   useEffect(() => {
@@ -609,7 +626,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   });
 
   const updateTicketField = useMutation({
-    mutationFn: async ({ field, value }: { field: "description" | "internal_notes" | "ticket_type"; value: string }) => {
+    mutationFn: async ({ field, value }: { field: "description" | "internal_notes" | "objecao" | "ticket_type"; value: string }) => {
       const { error } = await supabase.from("tickets").update({ [field]: value, updated_at: new Date().toISOString() }).eq("id", ticketId!);
       if (error) throw error;
 
@@ -875,6 +892,11 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   const handleSaveSolution = (value: string) => {
     setTicketInternalNotes(value);
     updateTicketField.mutate({ field: "internal_notes", value });
+  };
+
+  const handleSaveObjecao = (value: string) => {
+    setTicketObjecao(value);
+    updateTicketField.mutate({ field: "objecao", value });
   };
 
   // Check if we're in a sub-tab (client-level view)
@@ -1215,6 +1237,13 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                 {psMemoriaId && <span className={`ml-1 rounded-full h-1.5 w-1.5 ${psAprovada ? "bg-emerald-500" : "bg-amber-400"}`} />}
               </TabsTrigger>
 
+              <TabsTrigger value="negociacao-produtos" className="text-xs rounded-none border-b-2 border-transparent data-[state=active]:border-indigo-500 data-[state=active]:shadow-none px-3 pb-2 gap-1 data-[state=active]:text-indigo-600">
+                <ShoppingCart className="h-3 w-3" /> Produtos Negociação
+                {negotiationItems.length > 0 && (
+                  <span className="ml-0.5 rounded-full bg-indigo-500 text-white text-[9px] font-bold px-1.5 py-px">{negotiationItems.length}</span>
+                )}
+              </TabsTrigger>
+
               <div className="h-5 w-px bg-border mx-2 self-center" />
 
               <TabsTrigger value="whatsapp" className="text-xs rounded-none border-b-2 border-transparent data-[state=active]:border-emerald-500 data-[state=active]:shadow-none px-3 pb-2 gap-1 data-[state=active]:text-emerald-600">
@@ -1291,13 +1320,19 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
 
                   <Separator />
 
-                  {/* Problem & Solution */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                  {/* Problem, Objeção & Solution */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
                     <EditableField
                       value={problem} onSave={handleSaveProblem} saving={updateTicketField.isPending}
                       placeholder="Descreva o problema encontrado..."
                       icon={<AlertTriangle className="h-4 w-4 text-destructive" />}
                       label="Problema" borderClass="border-destructive/30" bgClass="bg-destructive/5" labelClass="text-destructive"
+                    />
+                    <EditableField
+                      value={ticketObjecao} onSave={handleSaveObjecao} saving={updateTicketField.isPending}
+                      placeholder="Registre a objeção do cliente..."
+                      icon={<AlertTriangle className="h-4 w-4 text-yellow-500" />}
+                      label="Objeção" borderClass="border-yellow-400/40" bgClass="bg-yellow-50/60 dark:bg-yellow-900/10" labelClass="text-yellow-600 dark:text-yellow-400"
                     />
                     <EditableField
                       value={solution} onSave={handleSaveSolution} saving={updateTicketField.isPending}
@@ -2206,6 +2241,146 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                     </div>
 
                   </div>
+                </TabsContent>
+
+                {/* ── Tab: Produtos Negociação ────────────── */}
+                <TabsContent value="negociacao-produtos" className="mt-0 space-y-4">
+                  {/* Busca e adição de produtos do catálogo */}
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Adicionar produto do catálogo</p>
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                      <Input
+                        value={negSearch}
+                        onChange={(e) => setNegSearch(e.target.value)}
+                        placeholder="Buscar produto..."
+                        className="pl-8 h-8 text-sm"
+                      />
+                    </div>
+                    {negSearch.trim() && (
+                      <div className="border rounded-lg overflow-hidden max-h-48 overflow-y-auto bg-card">
+                        {dealCatalog
+                          .filter((p) =>
+                            p.visible &&
+                            p.name.toLowerCase().includes(negSearch.toLowerCase())
+                          )
+                          .map((product) => (
+                            <button
+                              key={product.id}
+                              onClick={() => {
+                                if (!ticketId) return;
+                                addNegItem.mutate({
+                                  ticket_id: ticketId,
+                                  product_id: product.id,
+                                  product_name: product.name,
+                                  unit_price: product.base_price,
+                                });
+                                setNegSearch("");
+                              }}
+                              className="w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-muted transition-colors text-left border-b last:border-0"
+                            >
+                              <span className="font-medium truncate flex-1">{product.name}</span>
+                              <span className="text-xs text-muted-foreground ml-3 shrink-0 tabular-nums">
+                                R$ {Number(product.base_price).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                              </span>
+                              <Plus className="h-3.5 w-3.5 text-primary ml-2 shrink-0" />
+                            </button>
+                          ))}
+                        {dealCatalog.filter((p) => p.visible && p.name.toLowerCase().includes(negSearch.toLowerCase())).length === 0 && (
+                          <p className="px-3 py-4 text-sm text-muted-foreground text-center">Nenhum produto encontrado.</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Lista de produtos selecionados */}
+                  {negotiationItems.length > 0 ? (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Aparelhos de interesse</p>
+                      <div className="border rounded-lg overflow-hidden">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="bg-muted/50 border-b">
+                              <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Produto</th>
+                              <th className="text-center px-3 py-2 text-xs font-semibold text-muted-foreground w-16">Qtd</th>
+                              <th className="text-right px-3 py-2 text-xs font-semibold text-muted-foreground w-36">Valor unit. (R$)</th>
+                              <th className="text-right px-3 py-2 text-xs font-semibold text-muted-foreground w-28">Subtotal</th>
+                              <th className="w-8" />
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {negotiationItems.map((item) => (
+                              <tr key={item.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                                <td className="px-3 py-2 font-medium">{item.product_name}</td>
+                                <td className="px-3 py-2 text-center">
+                                  <div className="flex items-center justify-center gap-1">
+                                    <button
+                                      onClick={() => item.quantity > 1 && updateNegItem.mutate({ id: item.id, ticket_id: item.ticket_id, quantity: item.quantity - 1 })}
+                                      className="h-5 w-5 rounded border flex items-center justify-center hover:bg-muted disabled:opacity-40"
+                                      disabled={item.quantity <= 1}
+                                    >
+                                      <Minus className="h-2.5 w-2.5" />
+                                    </button>
+                                    <span className="w-6 text-center tabular-nums text-xs font-semibold">{item.quantity}</span>
+                                    <button
+                                      onClick={() => updateNegItem.mutate({ id: item.id, ticket_id: item.ticket_id, quantity: item.quantity + 1 })}
+                                      className="h-5 w-5 rounded border flex items-center justify-center hover:bg-muted"
+                                    >
+                                      <Plus className="h-2.5 w-2.5" />
+                                    </button>
+                                  </div>
+                                </td>
+                                <td className="px-3 py-2 text-right">
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    step={0.01}
+                                    defaultValue={item.unit_price}
+                                    key={`price-${item.id}-${item.unit_price}`}
+                                    onBlur={(e) => {
+                                      const v = parseFloat(e.target.value);
+                                      if (!isNaN(v) && v !== item.unit_price) {
+                                        updateNegItem.mutate({ id: item.id, ticket_id: item.ticket_id, unit_price: v });
+                                      }
+                                    }}
+                                    className="w-32 text-right border rounded px-2 py-1 text-xs bg-background tabular-nums focus:outline-none focus:ring-1 focus:ring-primary"
+                                  />
+                                </td>
+                                <td className="px-3 py-2 text-right font-semibold tabular-nums text-xs">
+                                  R$ {(item.unit_price * item.quantity).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                                </td>
+                                <td className="px-2 py-2 text-center">
+                                  <button
+                                    onClick={() => removeNegItem.mutate({ id: item.id, ticket_id: item.ticket_id })}
+                                    className="h-6 w-6 rounded flex items-center justify-center hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+                                  >
+                                    <X className="h-3.5 w-3.5" />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot>
+                            <tr className="bg-muted/50 border-t">
+                              <td colSpan={3} className="px-3 py-2 text-xs font-semibold text-right text-muted-foreground">Total</td>
+                              <td className="px-3 py-2 text-right font-bold tabular-nums" style={{ color: "hsl(var(--primary))" }}>
+                                R$ {negotiationItems
+                                  .reduce((s, i) => s + i.unit_price * i.quantity, 0)
+                                  .toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                              </td>
+                              <td />
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="py-10 text-center text-muted-foreground">
+                      <ShoppingCart className="h-8 w-8 mx-auto mb-2 opacity-20" />
+                      <p className="text-sm">Nenhum produto adicionado ainda.</p>
+                      <p className="text-xs mt-1">Busque um produto acima para adicionar.</p>
+                    </div>
+                  )}
                 </TabsContent>
 
                 {/* ── Tab: WhatsApp ──────────────────────── */}

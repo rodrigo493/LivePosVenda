@@ -1169,7 +1169,10 @@ function PipelineCard({ ticket, pipelineName, onQuickTask, onClick, isAdmin }: {
   // Usa estimated_value ou, se vazio, soma os totais dos orçamentos
   const value = Number(ticket.estimated_value || 0) ||
     (ticket.quotes || []).reduce((s: number, q: any) => s + Number(q.total || 0), 0);
-  const problem = (ticket.description || ticket.problem_category || "").trim();
+  const problem = isVendas
+    ? (ticket.objecao || "").trim()
+    : (ticket.description || ticket.problem_category || "").trim();
+  const problemLabel = isVendas ? "Objeção" : null;
 
   // Próxima tarefa pendente com data mais próxima
   const nextTask = useMemo(() => {
@@ -1243,15 +1246,25 @@ function PipelineCard({ ticket, pipelineName, onQuickTask, onClick, isAdmin }: {
           </span>
         </div>
 
-        {/* Linha 3: número · problema */}
+        {/* Linha 3: número · problema/objeção */}
         <div className="flex items-center gap-1 min-w-0">
           <span className="text-[9px] font-mono text-zinc-500 shrink-0">{ticket.ticket_number}</span>
-          {problem && (
+          {problem ? (
             <>
               <span className="text-[9px] text-zinc-600">·</span>
-              <span className="text-[9px] text-zinc-400 truncate">{problem.slice(0, 40)}</span>
+              {problemLabel && (
+                <span className="text-[9px] font-bold text-yellow-500 shrink-0">{problemLabel}:</span>
+              )}
+              <span className={`text-[9px] truncate ${problemLabel ? "text-yellow-300/80" : "text-zinc-400"}`}>
+                {problem.slice(0, 40)}
+              </span>
             </>
-          )}
+          ) : problemLabel ? (
+            <>
+              <span className="text-[9px] text-zinc-600">·</span>
+              <span className="text-[9px] text-yellow-700/60 italic">sem objeção</span>
+            </>
+          ) : null}
         </div>
 
         {/* Linha 4: criar tarefa + próxima tarefa agendada */}
