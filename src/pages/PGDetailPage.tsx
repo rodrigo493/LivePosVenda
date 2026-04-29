@@ -84,6 +84,7 @@ const PGDetailPage = () => {
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [parts, setParts] = useState<string | null>(null);
   const [squadNotes, setSquadNotes] = useState<string | null>(null);
+  const [savingSquad, setSavingSquad] = useState(false);
   const [costVal, setCostVal] = useState<string | null>(null);
   const [approving, setApproving] = useState(false);
   const [searchMode, setSearchMode] = useState<"peca" | "servico" | null>(null);
@@ -427,7 +428,9 @@ const PGDetailPage = () => {
         }).eq("id", linkedQuote.id);
       }
 
-      toast.success("Todas as alterações foram salvas!");
+      // Notify Squad whenever items are saved
+      void notifySquad({ recordType: "pg", recordId: id!, reference: claimNumber });
+      toast.success("Alterações salvas e Squad notificado!");
       setEditing(false);
       qc.invalidateQueries({ queryKey: ["warranty_claim_detail", id] });
       qc.invalidateQueries({ queryKey: ["pg_linked_quote", id] });
@@ -460,6 +463,22 @@ const PGDetailPage = () => {
       toast.error(err.message || "Erro ao salvar");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveSquadNotes = async () => {
+    setSavingSquad(true);
+    try {
+      const notes = currentSquadNotes.trim() || null;
+      const { error } = await supabase.from("warranty_claims").update({ squad_notes: notes }).eq("id", id!);
+      if (error) throw error;
+      await notifySquad({ recordType: "pg", recordId: id!, reference: claimNumber });
+      toast.success("Observações salvas e enviadas ao Squad!");
+      qc.invalidateQueries({ queryKey: ["warranty_claim_detail", id] });
+    } catch (err: any) {
+      toast.error(err.message || "Erro ao enviar ao Squad");
+    } finally {
+      setSavingSquad(false);
     }
   };
 
@@ -865,14 +884,22 @@ const PGDetailPage = () => {
           <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Peças Cobertas</label>
           <Textarea value={currentParts} onChange={(e) => setParts(e.target.value)} placeholder="Peças cobertas pela garantia..." rows={2} />
         </div>
-        <div className="md:col-span-2">
-          <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Observações Squad</label>
+        <div className="md:col-span-2 bg-card rounded-xl border p-4 space-y-2">
+          <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold block">
+            Observações Squad
+          </label>
           <Textarea
             value={currentSquadNotes}
             onChange={(e) => setSquadNotes(e.target.value)}
             placeholder="Informações adicionais enviadas ao Squad junto com este PG..."
             rows={4}
           />
+          <div className="flex justify-end pt-1">
+            <Button size="sm" className="gap-1.5" onClick={handleSaveSquadNotes} disabled={savingSquad}>
+              {savingSquad ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+              {savingSquad ? "Enviando..." : "Salvar e Enviar ao Squad"}
+            </Button>
+          </div>
         </div>
         <div>
           <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Custo Interno (R$)</label>

@@ -83,6 +83,7 @@ const PADetailPage = () => {
 
   const [notes, setNotes] = useState<string | null>(null);
   const [squadNotes, setSquadNotes] = useState<string | null>(null);
+  const [savingSquad, setSavingSquad] = useState(false);
   const [cost, setCost] = useState<string | null>(null);
   const [editStatus, setEditStatus] = useState<string | null>(null);
   const [approving, setApproving] = useState(false);
@@ -382,6 +383,22 @@ const PADetailPage = () => {
     qc.invalidateQueries({ queryKey: ["pa_linked_quote", id] });
   };
 
+  const handleSaveSquadNotes = async () => {
+    setSavingSquad(true);
+    try {
+      const notesVal = currentSquadNotes.trim() || null;
+      const { error } = await supabase.from("service_requests").update({ squad_notes: notesVal }).eq("id", id!);
+      if (error) throw error;
+      await notifySquad({ recordType: "pa", recordId: id!, reference: requestNumber });
+      toast.success("Observações salvas e enviadas ao Squad!");
+      qc.invalidateQueries({ queryKey: ["service_request_detail", id] });
+    } catch (err: any) {
+      toast.error(err.message || "Erro ao enviar ao Squad");
+    } finally {
+      setSavingSquad(false);
+    }
+  };
+
   const handleEnterEdit = () => {
     setEditing(true);
     setNotes(sr.notes ?? "");
@@ -459,7 +476,9 @@ const PADetailPage = () => {
         }).eq("id", linkedQuote.id);
       }
 
-      toast.success("Todas as alterações foram salvas!");
+      // Notify Squad whenever items are saved
+      void notifySquad({ recordType: "pa", recordId: id!, reference: requestNumber });
+      toast.success("Alterações salvas e Squad notificado!");
       setEditing(false);
       setNotes(null);
       setCost(null);
@@ -939,14 +958,22 @@ const PADetailPage = () => {
             rows={3}
           />
         </div>
-        <div className="md:col-span-3">
-          <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Observações Squad</label>
+        <div className="md:col-span-3 bg-card rounded-xl border p-4 space-y-2">
+          <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold block">
+            Observações Squad
+          </label>
           <Textarea
             value={currentSquadNotes}
             onChange={(e) => setSquadNotes(e.target.value)}
             placeholder="Informações adicionais enviadas ao Squad junto com este PA..."
             rows={4}
           />
+          <div className="flex justify-end pt-1">
+            <Button size="sm" className="gap-1.5" onClick={handleSaveSquadNotes} disabled={savingSquad}>
+              {savingSquad ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+              {savingSquad ? "Enviando..." : "Salvar e Enviar ao Squad"}
+            </Button>
+          </div>
         </div>
         <div>
           <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Custo Estimado (R$)</label>
