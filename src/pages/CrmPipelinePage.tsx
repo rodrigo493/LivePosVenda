@@ -528,9 +528,10 @@ const CrmPipelinePage = () => {
   };
 
   return (
-    <div>
+    <div className="-mx-6 -mt-6 -mb-6 flex flex-col bg-zinc-950">
+
       {/* ── Header preto com logo ── */}
-      <div className="-mx-6 -mt-6 mb-0 bg-black flex items-center justify-between px-6 py-3">
+      <div className="bg-black flex items-center justify-between px-6 py-2.5">
         <div className="flex items-center gap-3">
           {/* Botões modo Kanban / Lista */}
           <div className="flex items-center gap-1 bg-white/10 rounded-lg p-1">
@@ -552,7 +553,7 @@ const CrmPipelinePage = () => {
           <img
             src="/crm-pipeline-logo.png"
             alt="Live CRM Pipeline"
-            className="h-10 lg:h-12 w-auto object-contain select-none"
+            className="h-8 lg:h-9 w-auto object-contain select-none"
             draggable={false}
           />
         </div>
@@ -560,21 +561,21 @@ const CrmPipelinePage = () => {
           <Button size="sm" className="gap-1.5 h-8" onClick={() => setClientDialog(true)}>
             <UserPlus className="h-3.5 w-3.5" /> Novo Cliente
           </Button>
-          <Button variant="outline" size="sm" className="h-8" onClick={() => setBatchOpen(true)}>
+          <Button variant="outline" size="sm" className="h-8 border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-white bg-transparent" onClick={() => setBatchOpen(true)}>
             <ClipboardPaste className="h-3.5 w-3.5 mr-1" /> Sincronizar
           </Button>
-          <Button variant="outline" size="sm" className="h-8" onClick={() => setExcelImportOpen(true)}>
+          <Button variant="outline" size="sm" className="h-8 border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-white bg-transparent" onClick={() => setExcelImportOpen(true)}>
             <FileSpreadsheet className="h-3.5 w-3.5 mr-1" /> Excel
           </Button>
-          <Button variant="outline" size="sm" className="h-8" onClick={() => setSyncOpen(true)}>
+          <Button variant="outline" size="sm" className="h-8 border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-white bg-transparent" onClick={() => setSyncOpen(true)}>
             <Upload className="h-3.5 w-3.5 mr-1" /> CSV
           </Button>
         </div>
       </div>
 
       {/* ── Barra de funil + filtros ── */}
-      <div className="flex items-center gap-2 py-2 border-b mb-3 flex-wrap">
-        <span className="font-semibold text-sm">{currentPipeline?.name ?? "Pipeline CRM"}</span>
+      <div className="flex items-center gap-2 px-6 py-2 border-b border-zinc-800 bg-zinc-900 flex-wrap">
+        <span className="font-semibold text-sm text-zinc-100">{currentPipeline?.name ?? "Pipeline CRM"}</span>
         {!isEditing && (
           <FunnelSwitcher
             currentPipelineId={currentPipeline?.id ?? null}
@@ -583,11 +584,11 @@ const CrmPipelinePage = () => {
         )}
         {isAdmin && !isEditing && (
           <>
-            <div className="w-px h-5 bg-border mx-0.5" />
+            <div className="w-px h-5 bg-zinc-700 mx-0.5" />
             <Button
               variant="outline"
               size="sm"
-              className="h-8 gap-1.5"
+              className="h-8 gap-1.5 border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-white bg-transparent"
               onClick={enterEditMode}
               disabled={!currentPipeline}
             >
@@ -602,22 +603,22 @@ const CrmPipelinePage = () => {
         )}
         <div className="flex-1" />
         {tickets && tickets.length > 0 && (
-          <span className="text-[11px] text-muted-foreground hidden sm:inline whitespace-nowrap">
+          <span className="text-[11px] text-zinc-500 hidden sm:inline whitespace-nowrap">
             {tickets.length} negociações
           </span>
         )}
         <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500" />
           <input
             type="text"
             placeholder="Buscar cliente, nº ou título..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-8 pr-3 py-1.5 text-sm rounded-lg border border-input bg-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring h-8 w-48"
+            className="pl-8 pr-3 py-1.5 text-sm rounded-lg border border-zinc-700 bg-zinc-800 text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-primary/50 h-8 w-48"
           />
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="h-8 w-36 text-xs">
+          <SelectTrigger className="h-8 w-36 text-xs bg-zinc-800 border-zinc-700 text-zinc-100">
             <SelectValue placeholder="Todos os status" />
           </SelectTrigger>
           <SelectContent>
@@ -629,7 +630,7 @@ const CrmPipelinePage = () => {
         </Select>
         {isAdmin ? (
           <Select value={filterBy} onValueChange={setFilterBy}>
-            <SelectTrigger className="h-8 w-36 text-xs">
+            <SelectTrigger className="h-8 w-36 text-xs bg-zinc-800 border-zinc-700 text-zinc-100">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -651,6 +652,9 @@ const CrmPipelinePage = () => {
           </Select>
         ) : null}
       </div>
+
+      {/* ── Conteúdo ── */}
+      <div className="flex-1 px-4 py-3">
 
       {isEditing && currentPipeline ? (
         <PipelineEditMode
@@ -780,6 +784,7 @@ const CrmPipelinePage = () => {
       )}
         </>
       )}
+      </div>
 
       <TaskCreateDialog
         open={taskCreate.open}
