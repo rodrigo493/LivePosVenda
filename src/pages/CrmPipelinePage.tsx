@@ -94,9 +94,16 @@ const CrmPipelinePage = () => {
   const { data: pipelines = [] } = usePipelines();
   const [currentPipeline, setCurrentPipeline] = useState<Pipeline | null>(null);
 
+  const selectPipeline = useCallback((p: Pipeline) => {
+    setCurrentPipeline(p);
+    localStorage.setItem("crm_last_pipeline_id", p.id);
+  }, []);
+
   useEffect(() => {
     if (pipelines.length > 0 && !currentPipeline) {
-      setCurrentPipeline(pipelines[0]);
+      const storedId = localStorage.getItem("crm_last_pipeline_id");
+      const stored = storedId ? pipelines.find((p) => p.id === storedId) : null;
+      setCurrentPipeline(stored ?? pipelines[0]);
     }
   }, [pipelines, currentPipeline]);
 
@@ -551,7 +558,7 @@ const CrmPipelinePage = () => {
         {!isEditing && (
           <FunnelSwitcher
             currentPipelineId={currentPipeline?.id ?? null}
-            onSelect={setCurrentPipeline}
+            onSelect={selectPipeline}
           />
         )}
         {isAdmin && !isEditing && (
@@ -569,7 +576,7 @@ const CrmPipelinePage = () => {
             </Button>
             <FunnelManagerDropdown
               currentPipeline={currentPipeline}
-              onPipelineCreated={setCurrentPipeline}
+              onPipelineCreated={selectPipeline}
             />
           </>
         )}
