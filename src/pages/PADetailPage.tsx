@@ -574,8 +574,25 @@ const PADetailPage = () => {
         };
       }));
 
-      const payload = {
-        codigoPedido: nomusFields.pedido || requestNumber,
+      const codigoPedido = nomusFields.pedido || requestNumber;
+
+      // Helper: busca ID do pedido no Nomus pelo codigoPedido
+      const findNomusOrderId = async (codigo: string): Promise<number | null> => {
+        try {
+          const q = encodeURIComponent(`codigoPedido=="${codigo}"`);
+          const r = await fetch(`/api/nomus/rest/pedidos?query=${q}`, {
+            headers: { Accept: "application/json" },
+          });
+          if (!r.ok) return null;
+          const list = await r.json();
+          return Array.isArray(list) && list.length > 0 ? (list[0].id ?? null) : null;
+        } catch { return null; }
+      };
+
+      let existingNomusId = (sr as any).nomus_order_id as number | null;
+
+      // Monta payload base sem codigoPedido para o PUT (Nomus rejeita como duplicado mesmo sendo o mesmo código)
+      const basePayload = {
         dataEmissao: nomusFields.dataEmissao || fallbackDate,
         idCondicaoPagamento: 28,
         idEmpresa: 2,
@@ -584,37 +601,60 @@ const PADetailPage = () => {
         idTipoMovimentacao: 60,
         idTipoPedido: 1,
         observacoes: currentNotes || `Pedido de Acessório - ${nomusFields.cliente}`,
-        observacoesInternas: `Gerado pelo Live Care - ${nomusFields.pedido || requestNumber}`,
+        observacoesInternas: `Gerado pelo Live Care - ${codigoPedido}`,
         itensPedido,
         ...(nomusFields.cfop ? { cfop: nomusFields.cfop } : {}),
       };
 
-      const existingNomusId = (sr as any).nomus_order_id as number | null;
+      let returnedNomusId: number | null = existingNomusId;
+      let isUpdate = !!existingNomusId;
+
       const orderRes = await fetch(
-        existingNomusId
-          ? `/api/nomus/rest/pedidos/${existingNomusId}`
-          : "/api/nomus/rest/pedidos",
+        existingNomusId ? `/api/nomus/rest/pedidos/${existingNomusId}` : "/api/nomus/rest/pedidos",
         {
           method: existingNomusId ? "PUT" : "POST",
           headers: { "Content-Type": "application/json", "Accept": "application/json" },
-          body: JSON.stringify(payload),
+          body: JSON.stringify(existingNomusId ? basePayload : { codigoPedido, ...basePayload }),
         }
       );
 
       if (!orderRes.ok) {
-        const errText = await orderRes.text();
-        throw new Error(`Erro Nomus [${orderRes.status}]: ${errText}`);
-      }
+        const errBody = await orderRes.json().catch(() => ({}));
+        const isDuplicate = orderRes.status === 406 &&
+          JSON.stringify(errBody).includes("nomeEClienteUnico");
 
-      const orderData = await orderRes.json().catch(() => null);
-      const returnedNomusId: number | null = orderData?.id ?? orderData?.Id ?? existingNomusId;
+        if (isDuplicate && !existingNomusId) {
+          // Pedido já existe no Nomus mas não temos o ID salvo — buscar e atualizar
+          const foundId = await findNomusOrderId(codigoPedido);
+          if (!foundId) throw new Error("Pedido já existe no Nomus mas não foi possível localizar o ID para atualizar.");
+          existingNomusId = foundId;
+          returnedNomusId = foundId;
+          isUpdate = true;
+          const retryRes = await fetch(`/api/nomus/rest/pedidos/${foundId}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json", "Accept": "application/json" },
+            body: JSON.stringify(basePayload),
+          });
+          if (!retryRes.ok) {
+            const retryErr = await retryRes.text();
+            throw new Error(`Erro Nomus ao atualizar [${retryRes.status}]: ${retryErr}`);
+          }
+          const retryData = await retryRes.json().catch(() => null);
+          returnedNomusId = retryData?.id ?? retryData?.Id ?? foundId;
+        } else {
+          throw new Error(`Erro Nomus [${orderRes.status}]: ${JSON.stringify(errBody)}`);
+        }
+      } else {
+        const orderData = await orderRes.json().catch(() => null);
+        returnedNomusId = orderData?.id ?? orderData?.Id ?? existingNomusId;
+      }
 
       await supabase.from("service_requests").update({
         status: "resolvido" as any,
         ...(returnedNomusId ? { nomus_order_id: returnedNomusId } : {}),
       }).eq("id", id!);
 
-      toast.success(existingNomusId ? "Pedido atualizado no ERP!" : "Pedido criado no ERP com sucesso!");
+      toast.success(isUpdate ? "Pedido atualizado no ERP!" : "Pedido criado no ERP com sucesso!");
       qc.invalidateQueries({ queryKey: ["service_request_detail", id] });
     } catch (err: any) {
       if (import.meta.env.DEV) console.error("Approve error:", err);
