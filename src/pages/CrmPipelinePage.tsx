@@ -176,6 +176,7 @@ const CrmPipelinePage = () => {
   const deleteStageHook = useDeleteStage();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [isGrabbing, setIsGrabbing] = useState(false);
+  const [viewMode, setViewMode] = useState<"kanban" | "list">("kanban");
   const grabState = useRef({ isDown: false, startX: 0, scrollLeft: 0 });
 
   // Local columns state for smooth drag — synced from server data
@@ -530,12 +531,31 @@ const CrmPipelinePage = () => {
     <div>
       {/* ── Header preto com logo ── */}
       <div className="-mx-6 -mt-6 mb-0 bg-black flex items-center justify-between px-6 py-3">
-        <img
-          src="/crm-pipeline-logo.png"
-          alt="Live CRM Pipeline"
-          className="h-10 lg:h-12 w-auto object-contain select-none"
-          draggable={false}
-        />
+        <div className="flex items-center gap-3">
+          {/* Botões modo Kanban / Lista */}
+          <div className="flex items-center gap-1 bg-white/10 rounded-lg p-1">
+            <button
+              onClick={() => setViewMode("kanban")}
+              title="Modo Kanban"
+              className={`p-1.5 rounded-md transition-colors ${viewMode === "kanban" ? "bg-white/20 text-white" : "text-white/50 hover:text-white/80"}`}
+            >
+              <Kanban className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => setViewMode("list")}
+              title="Modo Lista"
+              className={`p-1.5 rounded-md transition-colors ${viewMode === "list" ? "bg-white/20 text-white" : "text-white/50 hover:text-white/80"}`}
+            >
+              <ListTodo className="h-4 w-4" />
+            </button>
+          </div>
+          <img
+            src="/crm-pipeline-logo.png"
+            alt="Live CRM Pipeline"
+            className="h-10 lg:h-12 w-auto object-contain select-none"
+            draggable={false}
+          />
+        </div>
         <div className="flex items-center gap-1.5 flex-wrap justify-end">
           <Button size="sm" className="gap-1.5 h-8" onClick={() => setClientDialog(true)}>
             <UserPlus className="h-3.5 w-3.5" /> Novo Cliente
@@ -653,6 +673,55 @@ const CrmPipelinePage = () => {
         <div className="p-12 text-center text-muted-foreground text-sm">Sem acesso ao CRM. Solicite acesso ao administrador.</div>
       ) : isLoading ? (
         <div className="p-8 text-center text-muted-foreground text-sm">Carregando pipeline...</div>
+      ) : viewMode === "list" ? (
+        <div className="rounded-xl border overflow-hidden">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-muted/60 border-b">
+                <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Etapa</th>
+                <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Cliente</th>
+                <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Título</th>
+                <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Nº</th>
+                <th className="text-center px-3 py-2 font-semibold text-muted-foreground">Dias s/ interação</th>
+                <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stages.flatMap((stage) =>
+                (columns[stage.key] || []).map((ticket: any) => (
+                  <tr
+                    key={ticket.id}
+                    className="border-b last:border-0 hover:bg-muted/40 cursor-pointer transition-colors"
+                    onClick={() => setDetailTicket(ticket)}
+                  >
+                    <td className="px-3 py-2">
+                      <span className="flex items-center gap-1.5">
+                        <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: stage.color }} />
+                        {stage.label}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 font-medium">{ticket.clients?.name || "—"}</td>
+                    <td className="px-3 py-2 max-w-[240px] truncate text-muted-foreground">{ticket.title}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{ticket.ticket_number}</td>
+                    <td className="px-3 py-2 text-center">
+                      {(() => {
+                        const d = daysSince(ticket.last_interaction_at);
+                        const color = d >= 5 ? "text-destructive" : d >= 2 ? "text-amber-500" : "text-muted-foreground";
+                        return <span className={`font-mono font-semibold ${color}`}>{d === 999 ? "—" : `${d}d`}</span>;
+                      })()}
+                    </td>
+                    <td className="px-3 py-2"><StatusBadge status={ticket.status} /></td>
+                  </tr>
+                ))
+              )}
+              {stages.every((s) => (columns[s.key] || []).length === 0) && (
+                <tr>
+                  <td colSpan={6} className="px-3 py-10 text-center text-muted-foreground">Nenhum ticket neste funil</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       ) : (
         <DndContext
           sensors={sensors}
