@@ -7,6 +7,19 @@ const RD_API_BASE = "https://crm.rdstation.com/api/v1";
 
 const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+function normalizeStr(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[áàâãä]/g, "a")
+    .replace(/[éèêë]/g, "e")
+    .replace(/[íìîï]/g, "i")
+    .replace(/[óòôõö]/g, "o")
+    .replace(/[úùûü]/g, "u")
+    .replace(/[ç]/g, "c")
+    .replace(/[ñ]/g, "n")
+    .trim();
+}
+
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -55,6 +68,35 @@ async function rdGet(
   throw new Error(`RD API ${path} → 5 tentativas excedidas (429)`);
 }
 
+// Busca auth.users via REST com timeout de 8s para não travar a função
+async function buildEmailToAuthIdMap(): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/admin/users?per_page=1000`, {
+      signal: controller.signal,
+      headers: {
+        "apikey": SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      },
+    });
+    clearTimeout(timer);
+    if (res.ok) {
+      const body = await res.json() as { users?: Array<{ id: string; email?: string }> };
+      for (const u of body.users ?? []) {
+        if (u.email) map.set(u.email, u.id);
+      }
+      console.log("rd-import: auth users loaded:", map.size);
+    } else {
+      console.warn("rd-import: auth users fetch status:", res.status);
+    }
+  } catch (e) {
+    console.warn("rd-import: auth users fetch failed (continuing without user mapping):", String(e));
+  }
+  return map;
+}
+
 async function importContacts(token: string): Promise<number> {
   let count = 0;
   let nextPage: string | null = null;
@@ -96,7 +138,7 @@ async function importContacts(token: string): Promise<number> {
       }
     }
 
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 300));
     nextPage = resp.has_more ? (resp.next_page ?? null) : null;
   } while (nextPage);
 
@@ -106,9 +148,8 @@ async function importContacts(token: string): Promise<number> {
 async function importDeals(
   token: string,
   rdPipelineId: string | null,
-): Promise<{ dealIds: string[]; count: number }> {
-  const dealIds: string[] = [];
-
+  emailToAuthId: Map<string, string>,
+): Promise<{ count: number }> {
   // Use "Funil de Vendas" pipeline, fallback to first available
   const { data: salesPipeline } = await admin
     .from("pipelines")
@@ -131,12 +172,16 @@ async function importDeals(
         .order("position", { ascending: true })
     : { data: [] };
 
-  const stageMap = new Map((stages ?? []).map((s) => [s.label.toLowerCase(), s.key]));
+  const stageMap = new Map((stages ?? []).map((s) => [normalizeStr(s.label), s.key]));
   const firstStageKey = stages?.[0]?.key ?? null;
+  console.log("rd-import: stageMap:", [...stageMap.keys()]);
 
+  let totalCount = 0;
   let nextPage: string | null = null;
+  let pageNum = 0;
 
   do {
+    pageNum++;
     const params: Record<string, string> = { limit: "200" };
     if (rdPipelineId) params.deal_pipeline_id = rdPipelineId;
     if (nextPage) params.page = nextPage;
@@ -147,24 +192,18 @@ async function importDeals(
       next_page?: string;
     };
 
+    console.log(`rd-import: page ${pageNum}, ${resp.deals?.length ?? 0} deals, has_more=${resp.has_more}`);
+
     for (const deal of resp.deals ?? []) {
       try {
         const rdDealId = deal._id as string;
-        const stageName = (deal.deal_stage as { name?: string } | null)?.name?.toLowerCase() ?? null;
+        const rawStageName = (deal.deal_stage as { name?: string } | null)?.name ?? null;
+        const stageName = rawStageName ? normalizeStr(rawStageName) : null;
         const stageKey = stageName ? (stageMap.get(stageName) ?? firstStageKey) : firstStageKey;
         const userEmail = (deal.user as { email?: string } | null)?.email ?? null;
         const contacts = (deal.contacts as Record<string, unknown>[] | undefined) ?? [];
 
-        let assignedTo: string | null = null;
-        if (userEmail) {
-          const { data: profile } = await admin
-            .from("profiles")
-            .select("id")
-            .eq("email", userEmail)
-            .limit(1)
-            .maybeSingle();
-          assignedTo = profile?.id ?? null;
-        }
+        const assignedTo = userEmail ? (emailToAuthId.get(userEmail) ?? null) : null;
 
         let clientId: string | null = null;
         for (const contact of contacts) {
@@ -174,7 +213,7 @@ async function importDeals(
           const phone = phones[0]?.phone?.replace(/\D/g, "") ?? null;
 
           if (email) {
-            const { data } = await admin.from("clients").select("id").eq("email", email).limit(1).single();
+            const { data } = await admin.from("clients").select("id").eq("email", email).limit(1).maybeSingle();
             if (data) { clientId = data.id; break; }
           }
           if (phone && phone.length >= 8) {
@@ -183,7 +222,7 @@ async function importDeals(
               .select("id")
               .ilike("phone", `%${phone.slice(-8)}`)
               .limit(1)
-              .single();
+              .maybeSingle();
             if (data) { clientId = data.id; break; }
           }
           const whatsapp = (contact.phones as { phone: string; whatsapp_url_web?: string }[] | undefined)
@@ -202,11 +241,10 @@ async function importDeals(
               { onConflict: "rd_contact_id" },
             )
             .select("id")
-            .single();
+            .maybeSingle();
           if (newClient) { clientId = newClient.id; break; }
         }
 
-        // client_id is NOT NULL — skip deal if no client found/created
         if (!clientId || !pipeline?.id) {
           await logSync("import", "deal", rdDealId, null, "skipped",
             !clientId ? "no_client" : "no_pipeline");
@@ -225,7 +263,7 @@ async function importDeals(
           status,
           estimated_value: Number(deal.amount_total ?? 0),
           pipeline_id: pipeline.id,
-          pipeline_stage: stageKey ?? stages?.[0]?.key ?? "sem_atendimento",
+          pipeline_stage: stageKey ?? firstStageKey ?? "sem_atendimento",
           assigned_to: assignedTo,
           client_id: clientId,
           ticket_number: `RD-${rdDealId}`,
@@ -236,7 +274,6 @@ async function importDeals(
 
         let { error: upsertErr } = await admin.from("tickets").upsert(payload, { onConflict: "rd_deal_id" });
 
-        // FK violation on assigned_to → retry without it
         if (upsertErr?.message?.includes("assigned_to_fkey")) {
           const { error: retryErr } = await admin.from("tickets").upsert(
             { ...payload, assigned_to: null },
@@ -247,7 +284,7 @@ async function importDeals(
 
         if (upsertErr) throw new Error(upsertErr.message);
 
-        dealIds.push(rdDealId);
+        totalCount++;
         await logSync("import", "deal", rdDealId, null, "success", null);
       } catch (e) {
         const rdDealId = deal._id as string;
@@ -256,54 +293,11 @@ async function importDeals(
       }
     }
 
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 300));
     nextPage = resp.has_more ? (resp.next_page ?? null) : null;
   } while (nextPage);
 
-  return { dealIds, count: dealIds.length };
-}
-
-async function importActivities(token: string, rdDealId: string): Promise<number> {
-  let count = 0;
-
-  const { data: ticket } = await admin
-    .from("tickets")
-    .select("id")
-    .eq("rd_deal_id", rdDealId)
-    .limit(1)
-    .single();
-
-  if (!ticket) return 0;
-
-  const resp = await rdGet("/activities", token, { deal_id: rdDealId }) as {
-    activities?: Record<string, unknown>[];
-    deal_activities?: Record<string, unknown>[];
-  };
-
-  const activities = resp.activities ?? resp.deal_activities ?? [];
-
-  for (const activity of activities) {
-    try {
-      const text = (activity.text as string) || (activity.description as string) || null;
-      if (!text) continue;
-
-      await admin.from("ticket_comments").upsert(
-        {
-          rd_activity_id: activity.id as string,
-          ticket_id: ticket.id,
-          content: text,
-          author_id: null,
-          created_at: (activity.date as string) || new Date().toISOString(),
-        },
-        { onConflict: "rd_activity_id" },
-      );
-      count++;
-    } catch (e) {
-      console.error(`import activity ${activity.id} for deal ${rdDealId} failed:`, e);
-    }
-  }
-
-  return count;
+  return { count: totalCount };
 }
 
 Deno.serve(async (req) => {
@@ -326,33 +320,33 @@ Deno.serve(async (req) => {
     });
   }
 
-  const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    global: { headers: { Authorization: authHeader } },
-  });
-  const { data: { user } } = await userClient.auth.getUser();
-  if (!user) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 401,
-      headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-    });
-  }
-
-  const { data: role } = await admin
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", user.id)
-    .eq("role", "admin")
-    .limit(1)
-    .single();
-
-  if (!role) {
-    return new Response(JSON.stringify({ error: "Admin access required" }), {
-      status: 403,
-      headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-    });
-  }
-
   try {
+    const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const { data: { user } } = await userClient.auth.getUser();
+    if (!user) {
+      return new Response(JSON.stringify({ ok: false, error: "Unauthorized" }), {
+        status: 200,
+        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+      });
+    }
+
+    const { data: role } = await admin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", user.id)
+      .eq("role", "admin")
+      .limit(1)
+      .maybeSingle();
+
+    if (!role) {
+      return new Response(JSON.stringify({ ok: false, error: "Admin access required — user.id: " + user.id }), {
+        status: 200,
+        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+      });
+    }
+
     const { data: config, error: cfgErr } = await admin
       .from("rd_integration_config")
       .select("*")
@@ -360,31 +354,36 @@ Deno.serve(async (req) => {
       .single();
 
     if (cfgErr || !config) {
-      return new Response(JSON.stringify({ error: "Configuração não encontrada. Cadastre o token primeiro." }), {
-        status: 400,
+      return new Response(JSON.stringify({ ok: false, error: "Configuração não encontrada. Cadastre o token primeiro." }), {
+        status: 200,
         headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
       });
     }
 
+    const body = await req.json().catch(() => ({})) as { skip_contacts?: boolean };
+    const skipContacts = body.skip_contacts === true;
+
     const token = config.api_token as string;
     const rdPipelineId = config.rd_pipeline_id as string | null;
-    // rdPipelineId may be null — importDeals handles it by importing all deals
 
-    console.log("rd-import: starting historical import...");
+    console.log("rd-import: starting import, skip_contacts=", skipContacts);
 
-    const totalContacts = await importContacts(token);
-    console.log(`rd-import: ${totalContacts} contacts imported`);
+    // Build user email→id map before import
+    const emailToAuthId = await buildEmailToAuthIdMap();
 
-    const { dealIds, count: totalDeals } = await importDeals(token, rdPipelineId);
+    let totalContacts = 0;
+    if (!skipContacts) {
+      totalContacts = await importContacts(token);
+      console.log(`rd-import: ${totalContacts} contacts imported`);
+    }
+
+    const { count: totalDeals } = await importDeals(token, rdPipelineId, emailToAuthId);
     console.log(`rd-import: ${totalDeals} deals imported`);
-
-    // Activities import skipped — runs separately to avoid timeout
-    const totalComments = 0;
 
     const importStats = {
       total_deals: totalDeals,
       total_contacts: totalContacts,
-      total_comments: totalComments,
+      total_comments: 0,
       imported_at: new Date().toISOString(),
     };
 
@@ -399,8 +398,8 @@ Deno.serve(async (req) => {
     });
   } catch (e) {
     console.error("rd-import error:", e);
-    return new Response(JSON.stringify({ error: String(e) }), {
-      status: 500,
+    return new Response(JSON.stringify({ ok: false, error: String(e) }), {
+      status: 200,
       headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
     });
   }

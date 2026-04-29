@@ -191,18 +191,22 @@ export default function RdStationPage() {
         data: { session },
       } = await supabase.auth.getSession();
       const res = await supabase.functions.invoke("rd-import", {
-        body: {},
+        body: { skip_contacts: true },
         headers: { Authorization: `Bearer ${session?.access_token}` },
       });
       if (res.error) {
-        const detail = (res.data as { error?: string } | null)?.error;
-        throw new Error(detail || res.error.message);
+        throw new Error(res.error.message);
       }
       const stats = res.data as {
+        ok: boolean;
+        error?: string;
         total_deals: number;
         total_contacts: number;
         total_comments: number;
       };
+      if (!stats?.ok) {
+        throw new Error(stats?.error || "Erro desconhecido na função");
+      }
       toast.success(
         `Import concluído: ${stats.total_deals} deals, ${stats.total_contacts} contatos, ${stats.total_comments} anotações.`,
         { duration: 8000 },
