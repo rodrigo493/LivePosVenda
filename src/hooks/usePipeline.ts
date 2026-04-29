@@ -15,7 +15,7 @@ export function usePipelineTickets(
     queryFn: async () => {
       let q = (supabase as any)
         .from("tickets")
-        .select("*, clients(name), equipments(serial_number, equipment_models(name)), quotes(id, quote_number, status, service_request_id, warranty_claim_id, updated_at), tasks(id, title, due_date, due_time, status)")
+        .select("*, clients(name), equipments(serial_number, equipment_models(name)), quotes(id, quote_number, status, total, service_request_id, warranty_claim_id, updated_at), tasks(id, title, due_date, due_time, status)")
         .eq("pipeline_id", pipelineId)
         .is("deleted_at", null)
         .order("pipeline_position", { ascending: true })

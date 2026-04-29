@@ -783,7 +783,11 @@ const CrmPipelinePage = () => {
           >
             {stages.map((stage) => {
               const items = columns[stage.key] || [];
-              const totalValue = items.reduce((s: number, t: any) => s + Number(t.estimated_value || 0), 0);
+              const totalValue = items.reduce((s: number, t: any) => {
+                const v = Number(t.estimated_value || 0) ||
+                  (t.quotes || []).reduce((sq: number, q: any) => sq + Number(q.total || 0), 0);
+                return s + v;
+              }, 0);
 
               return (
                 <StageColumn
@@ -791,6 +795,7 @@ const CrmPipelinePage = () => {
                   stage={stage}
                   items={items}
                   totalValue={totalValue}
+                  pipelineName={currentPipeline?.name ?? ""}
                   onQuickTask={handleQuickTask}
                   onClickTicket={setDetailTicket}
                   onNewTicket={() => setClientDialog(true)}
@@ -980,6 +985,7 @@ function StageColumn({
   stage,
   items,
   totalValue,
+  pipelineName,
   onQuickTask,
   onClickTicket,
   onNewTicket,
@@ -988,6 +994,7 @@ function StageColumn({
   stage: { key: string; label: string; color: string };
   items: any[];
   totalValue: number;
+  pipelineName: string;
   onQuickTask: (ticketId: string, clientId: string) => void;
   onClickTicket: (ticket: any) => void;
   onNewTicket: () => void;
@@ -1046,7 +1053,8 @@ function StageColumn({
         {showStats && (
           <div className="mt-2 space-y-1 text-[10px]">
             {[
-              { label: "Em andamento",       value: stats.emAndamento, color: "text-blue-400"   },
+              { label: "Total de cards",      value: items.length,      color: "text-zinc-100"   },
+              { label: "Em andamento",        value: stats.emAndamento, color: "text-blue-400"   },
               { label: "Esfriando",           value: stats.esfriando,   color: "text-amber-400"  },
               { label: "Sem tarefas",         value: stats.semTarefas,  color: "text-zinc-400"   },
               { label: "Tarefas atrasadas",   value: stats.atrasadas,   color: "text-red-400"    },
@@ -1067,6 +1075,7 @@ function StageColumn({
             <SortableCard
               key={ticket.id}
               ticket={ticket}
+              pipelineName={pipelineName}
               onQuickTask={() => onQuickTask(ticket.id, ticket.client_id)}
               onClick={() => onClickTicket(ticket)}
               isAdmin={isAdmin}
@@ -1088,7 +1097,7 @@ function StageColumn({
   );
 }
 
-function SortableCard({ ticket, onQuickTask, onClick, isAdmin }: { ticket: any; onQuickTask: () => void; onClick: () => void; isAdmin: boolean }) {
+function SortableCard({ ticket, pipelineName, onQuickTask, onClick, isAdmin }: { ticket: any; pipelineName: string; onQuickTask: () => void; onClick: () => void; isAdmin: boolean }) {
   const {
     attributes,
     listeners,
@@ -1106,7 +1115,7 @@ function SortableCard({ ticket, onQuickTask, onClick, isAdmin }: { ticket: any; 
 
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <PipelineCard ticket={ticket} onQuickTask={onQuickTask} onClick={onClick} isAdmin={isAdmin} />
+      <PipelineCard ticket={ticket} pipelineName={pipelineName} onQuickTask={onQuickTask} onClick={onClick} isAdmin={isAdmin} />
     </div>
   );
 }
@@ -1148,7 +1157,7 @@ function formatTaskDateTime(due_date: string | null, due_time: string | null): s
   return date;
 }
 
-function PipelineCard({ ticket, onQuickTask, onClick, isAdmin }: { ticket: any; onQuickTask: () => void; onClick: () => void; isAdmin: boolean }) {
+function PipelineCard({ ticket, pipelineName, onQuickTask, onClick, isAdmin }: { ticket: any; pipelineName: string; onQuickTask: () => void; onClick: () => void; isAdmin: boolean }) {
   const typeInfo = TICKET_TYPE_LABELS[ticket.ticket_type] || { label: ticket.ticket_type, color: "bg-zinc-700 text-zinc-300" };
   const unreadWpp = ticket._unreadWhatsapp || 0;
   const lastOrderTag = getLastOrderTag(ticket.quotes || []);
@@ -1156,7 +1165,10 @@ function PipelineCard({ ticket, onQuickTask, onClick, isAdmin }: { ticket: any; 
   const days = ticket._daysSinceInteraction ?? 0;
   const stageColor: string = ticket._stageColor ?? "#6366f1";
   const statusInfo = STATUS_LABELS[ticket.status] ?? { label: ticket.status, dot: "#71717a" };
-  const value = Number(ticket.estimated_value || 0);
+  const isVendas = pipelineName.toLowerCase().includes("vend");
+  // Usa estimated_value ou, se vazio, soma os totais dos orçamentos
+  const value = Number(ticket.estimated_value || 0) ||
+    (ticket.quotes || []).reduce((s: number, q: any) => s + Number(q.total || 0), 0);
   const problem = (ticket.description || ticket.problem_category || "").trim();
 
   // Próxima tarefa pendente com data mais próxima
@@ -1195,8 +1207,12 @@ function PipelineCard({ ticket, onQuickTask, onClick, isAdmin }: { ticket: any; 
           <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide ${typeInfo.color}`}>
             {typeInfo.label}
           </span>
-          {lastOrderTag && lastOrderTag !== "ORÇ" && (
-            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-900/60 text-blue-300 border border-blue-700/50">
+          {lastOrderTag && (lastOrderTag !== "ORÇ" || isVendas) && (
+            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
+              lastOrderTag === "ORÇ"
+                ? "bg-indigo-900/60 text-indigo-300 border-indigo-700/50"
+                : "bg-blue-900/60 text-blue-300 border-blue-700/50"
+            }`}>
               {lastOrderTag}
             </span>
           )}
@@ -1220,11 +1236,11 @@ function PipelineCard({ ticket, onQuickTask, onClick, isAdmin }: { ticket: any; 
           <p className="text-xs font-semibold line-clamp-1 text-zinc-100 flex-1 min-w-0">
             {ticket.clients?.name || ticket.title || "—"}
           </p>
-          {value > 0 && (
-            <span className="text-[10px] font-bold shrink-0 tabular-nums" style={{ color: stageColor }}>
-              {`R$ ${value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-            </span>
-          )}
+          <span className="text-[10px] font-bold shrink-0 tabular-nums" style={{ color: value > 0 ? stageColor : "#52525b" }}>
+            {value > 0
+              ? `R$ ${value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+              : "—"}
+          </span>
         </div>
 
         {/* Linha 3: número · problema */}
