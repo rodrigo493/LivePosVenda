@@ -156,23 +156,22 @@ export default function RdStationPage() {
     }
     setTesting(true);
     try {
-      const res = await fetch(
-        `https://crm.rdstation.com/api/v1/deals?token=${token}&limit=1`,
-        { headers: { Accept: "application/json" } },
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const pipeline = data.deals?.[0]?.deal_pipeline;
-        if (pipeline?.id && !config?.rd_pipeline_id) {
-          await saveMutation.mutateAsync({ rdPipelineId: pipeline.id });
+      const res = await supabase.functions.invoke("rd-test", {
+        body: { token },
+      });
+      if (res.error) throw new Error(res.error.message);
+      const data = res.data as { ok: boolean; status?: number; pipeline?: { id: string; name: string } | null };
+      if (data.ok) {
+        if (data.pipeline?.id && !config?.rd_pipeline_id) {
+          await saveMutation.mutateAsync({ rdPipelineId: data.pipeline.id });
           toast.success(
-            `Conexão OK! Pipeline detectado: ${pipeline.name} (${pipeline.id})`,
+            `Conexão OK! Pipeline detectado: ${data.pipeline.name} (${data.pipeline.id})`,
           );
         } else {
           toast.success("Conexão com RD Station OK!");
         }
       } else {
-        toast.error(`Falha na conexão: HTTP ${res.status}`);
+        toast.error(`Falha na conexão: HTTP ${data.status ?? "?"} — verifique o token.`);
       }
     } catch (e) {
       toast.error(`Erro: ${String(e)}`);

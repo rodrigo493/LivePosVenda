@@ -9,6 +9,7 @@ import {
   Search,
   FileSpreadsheet,
   Pencil,
+  BarChart3,
 } from "lucide-react";
 import {
   DndContext,
