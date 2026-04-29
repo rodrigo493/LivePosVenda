@@ -343,13 +343,55 @@ Deno.serve(async (req) => {
     }
 
     const token = config.api_token as string;
-    const rdPipelineId = config.rd_pipeline_id as string | null;
+    let rdPipelineId = config.rd_pipeline_id as string | null;
 
+    // Auto-detect pipeline if not configured yet
     if (!rdPipelineId) {
-      return new Response(JSON.stringify({ error: "rd_pipeline_id não configurado. Use 'Testar conexão' para detectar o pipeline." }), {
-        status: 400,
-        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-      });
+      console.log("rd-import: rd_pipeline_id not set, auto-detecting...");
+      try {
+        // Try /deal_pipelines endpoint
+        const plRes = await fetch(`https://crm.rdstation.com/api/v1/deal_pipelines?token=${encodeURIComponent(token)}`, {
+          headers: { Accept: "application/json" },
+        });
+        if (plRes.ok) {
+          const plData = await plRes.json() as { deal_pipelines?: Array<{ _id: string; name: string }> };
+          const first = plData.deal_pipelines?.[0];
+          if (first?._id) {
+            rdPipelineId = first._id;
+            await admin.from("rd_integration_config").update({ rd_pipeline_id: rdPipelineId }).eq("id", config.id);
+            console.log(`rd-import: auto-detected pipeline ${rdPipelineId}`);
+          }
+        }
+      } catch (e) {
+        console.warn("rd-import: pipeline auto-detect failed:", e);
+      }
+
+      // Fallback: get pipeline from first deal
+      if (!rdPipelineId) {
+        try {
+          const dRes = await fetch(`https://crm.rdstation.com/api/v1/deals?token=${encodeURIComponent(token)}&limit=1`, {
+            headers: { Accept: "application/json" },
+          });
+          if (dRes.ok) {
+            const dData = await dRes.json() as { deals?: Array<{ deal_pipeline?: { id: string } }> };
+            const pid = dData.deals?.[0]?.deal_pipeline?.id;
+            if (pid) {
+              rdPipelineId = pid;
+              await admin.from("rd_integration_config").update({ rd_pipeline_id: rdPipelineId }).eq("id", config.id);
+              console.log(`rd-import: auto-detected pipeline from deal: ${rdPipelineId}`);
+            }
+          }
+        } catch (e) {
+          console.warn("rd-import: pipeline fallback detect failed:", e);
+        }
+      }
+
+      if (!rdPipelineId) {
+        return new Response(JSON.stringify({ error: "Não foi possível detectar o pipeline do RD Station. Verifique o token." }), {
+          status: 400,
+          headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+        });
+      }
     }
 
     console.log("rd-import: starting historical import...");

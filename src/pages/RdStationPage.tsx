@@ -185,12 +185,6 @@ export default function RdStationPage() {
       toast.error("Ative a integração antes de importar.");
       return;
     }
-    if (!config?.rd_pipeline_id) {
-      toast.error(
-        "rd_pipeline_id não configurado. Use Testar conexão primeiro.",
-      );
-      return;
-    }
     setImporting(true);
     try {
       const {
