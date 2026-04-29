@@ -82,6 +82,7 @@ const PADetailPage = () => {
   const [saving, setSaving] = useState(false);
 
   const [notes, setNotes] = useState<string | null>(null);
+  const [squadNotes, setSquadNotes] = useState<string | null>(null);
   const [cost, setCost] = useState<string | null>(null);
   const [editStatus, setEditStatus] = useState<string | null>(null);
   const [approving, setApproving] = useState(false);
@@ -296,6 +297,7 @@ const PADetailPage = () => {
   if (!sr) return <div className="p-8 text-center text-muted-foreground">Pedido não encontrado.</div>;
 
   const currentNotes = notes ?? sr.notes ?? "";
+  const currentSquadNotes = squadNotes ?? (sr as any).squad_notes ?? "";
   const currentCost = cost ?? String(sr.estimated_cost || 0);
   const currentStatus = editStatus ?? sr.status;
   const requestNumber = (sr as any).request_number || "PA";
@@ -383,6 +385,7 @@ const PADetailPage = () => {
   const handleEnterEdit = () => {
     setEditing(true);
     setNotes(sr.notes ?? "");
+    setSquadNotes((sr as any).squad_notes ?? "");
     setCost(String(sr.estimated_cost || 0));
     setEditStatus(sr.status);
     // Re-init editable items from current data
@@ -400,6 +403,7 @@ const PADetailPage = () => {
   const handleCancelEdit = () => {
     setEditing(false);
     setNotes(null);
+    setSquadNotes(null);
     setCost(null);
     setEditStatus(null);
   };
@@ -410,6 +414,7 @@ const PADetailPage = () => {
       // 1. Save service request fields
       const { error: srError } = await supabase.from("service_requests").update({
         notes: currentNotes,
+        squad_notes: currentSquadNotes || null,
         estimated_cost: parseFloat(currentCost) || 0,
         status: currentStatus as any,
       }).eq("id", id!);
@@ -481,11 +486,13 @@ const PADetailPage = () => {
     try {
       const { error } = await supabase.from("service_requests").update({
         notes: currentNotes,
+        squad_notes: currentSquadNotes || null,
         estimated_cost: parseFloat(currentCost) || 0,
       }).eq("id", id!);
       if (error) throw error;
       toast.success("Alterações salvas!");
       setNotes(null);
+      setSquadNotes(null);
       setCost(null);
       qc.invalidateQueries({ queryKey: ["service_request_detail", id] });
     } catch (err: any) {
@@ -930,6 +937,15 @@ const PADetailPage = () => {
             onChange={(e) => setNotes(e.target.value)}
             placeholder="Observações do pedido de acessório..."
             rows={3}
+          />
+        </div>
+        <div className="md:col-span-3">
+          <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Observações Squad</label>
+          <Textarea
+            value={currentSquadNotes}
+            onChange={(e) => setSquadNotes(e.target.value)}
+            placeholder="Informações adicionais enviadas ao Squad junto com este PA..."
+            rows={4}
           />
         </div>
         <div>

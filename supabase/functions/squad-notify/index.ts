@@ -55,6 +55,14 @@ Deno.serve(async (req) => {
     const url = pathFor(record_type, record_id);
     const table = tableFor(record_type);
 
+    // Fetch squad_notes from the record to include in the Squad payload
+    const { data: record } = await supabase
+      .from(table)
+      .select('squad_notes')
+      .eq('id', record_id)
+      .maybeSingle();
+    const squadNotes: string | null = (record as any)?.squad_notes ?? null;
+
     let status: number | null = null;
     let errorText: string | null = null;
 
@@ -65,7 +73,7 @@ Deno.serve(async (req) => {
           'Authorization': `Bearer ${SQUAD_TOKEN}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ reference, url }),
+        body: JSON.stringify({ reference, url, ...(squadNotes ? { notes: squadNotes } : {}) }),
       });
       status = res.status;
       if (!res.ok) {

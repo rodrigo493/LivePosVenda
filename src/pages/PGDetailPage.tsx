@@ -83,6 +83,7 @@ const PGDetailPage = () => {
   const [defect, setDefect] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [parts, setParts] = useState<string | null>(null);
+  const [squadNotes, setSquadNotes] = useState<string | null>(null);
   const [costVal, setCostVal] = useState<string | null>(null);
   const [approving, setApproving] = useState(false);
   const [searchMode, setSearchMode] = useState<"peca" | "servico" | null>(null);
@@ -273,6 +274,7 @@ const PGDetailPage = () => {
   const currentDefect = defect ?? wc.defect_description ?? "";
   const currentAnalysis = analysis ?? wc.technical_analysis ?? "";
   const currentParts = parts ?? wc.covered_parts ?? "";
+  const currentSquadNotes = squadNotes ?? (wc as any).squad_notes ?? "";
   const currentCost = costVal ?? String(wc.internal_cost || 0);
   const claimNumber = (wc as any).claim_number || "PG";
   const clientName = wc.tickets?.clients?.name || "—";
@@ -381,6 +383,7 @@ const PGDetailPage = () => {
         defect_description: currentDefect,
         technical_analysis: currentAnalysis,
         covered_parts: currentParts,
+        squad_notes: currentSquadNotes || null,
         internal_cost: parseFloat(currentCost) || 0,
       }).eq("id", id!);
       if (wcError) throw wcError;
@@ -450,6 +453,7 @@ const PGDetailPage = () => {
       setDefect(null);
       setAnalysis(null);
       setParts(null);
+      setSquadNotes(null);
       setCostVal(null);
       qc.invalidateQueries({ queryKey: ["warranty_claim_detail", id] });
     } catch (err: any) {
@@ -860,6 +864,15 @@ const PGDetailPage = () => {
         <div>
           <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Peças Cobertas</label>
           <Textarea value={currentParts} onChange={(e) => setParts(e.target.value)} placeholder="Peças cobertas pela garantia..." rows={2} />
+        </div>
+        <div className="md:col-span-2">
+          <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Observações Squad</label>
+          <Textarea
+            value={currentSquadNotes}
+            onChange={(e) => setSquadNotes(e.target.value)}
+            placeholder="Informações adicionais enviadas ao Squad junto com este PG..."
+            rows={4}
+          />
         </div>
         <div>
           <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Custo Interno (R$)</label>

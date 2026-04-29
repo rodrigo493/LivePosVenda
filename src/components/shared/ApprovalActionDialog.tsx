@@ -1,6 +1,8 @@
-import { Package, Shield, Wrench } from "lucide-react";
+import { useState } from "react";
+import { Package, Shield, Wrench, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
@@ -22,6 +24,15 @@ type Props = {
 
 export function ApprovalActionDialog({ open, onOpenChange, quote }: Props) {
   const qc = useQueryClient();
+  const [step, setStep] = useState<"choose" | "pa" | "pg">("choose");
+  const [squadNotes, setSquadNotes] = useState("");
+
+  const resetAndClose = (open: boolean) => {
+    setStep("choose");
+    setSquadNotes("");
+    onOpenChange(open);
+  };
+
   if (!quote) return null;
 
   const invalidate = () => {
@@ -40,14 +51,15 @@ export function ApprovalActionDialog({ open, onOpenChange, quote }: Props) {
       ticket_id: quote.ticket_id,
       request_type: "troca_peca" as any,
       notes: "Gerado a partir de orçamento aprovado",
+      squad_notes: squadNotes.trim() || null,
       request_number: paNumber,
-    }).select().single();
+    } as any).select().single();
     if (error) { toast.error(error.message || "Erro ao criar PA"); return; }
     await supabase.from("quotes").update({ service_request_id: paData.id } as any).eq("id", quote.id);
     void notifySquad({ recordType: "pa", recordId: paData.id, reference: paNumber });
     toast.success(`Pedido de Acessório ${paNumber} criado!`);
     invalidate();
-    onOpenChange(false);
+    resetAndClose(false);
   };
 
   const createPg = async () => {
@@ -57,14 +69,15 @@ export function ApprovalActionDialog({ open, onOpenChange, quote }: Props) {
     const { data: pgData, error } = await supabase.from("warranty_claims").insert({
       ticket_id: quote.ticket_id,
       defect_description: "Gerado a partir de orçamento aprovado",
+      squad_notes: squadNotes.trim() || null,
       claim_number: pgNumber,
-    }).select().single();
+    } as any).select().single();
     if (error) { toast.error(error.message || "Erro ao criar PG"); return; }
     await supabase.from("quotes").update({ warranty_claim_id: pgData.id } as any).eq("id", quote.id);
     void notifySquad({ recordType: "pg", recordId: pgData.id, reference: pgNumber });
     toast.success(`Pedido de Garantia ${pgNumber} criado!`);
     invalidate();
-    onOpenChange(false);
+    resetAndClose(false);
   };
 
   const createOs = async () => {
@@ -90,26 +103,64 @@ export function ApprovalActionDialog({ open, onOpenChange, quote }: Props) {
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={resetAndClose}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
           <DialogTitle>Orçamento aprovado</DialogTitle>
-          <DialogDescription>O que deseja criar a partir deste orçamento?</DialogDescription>
+          <DialogDescription>
+            {step === "choose"
+              ? "O que deseja criar a partir deste orçamento?"
+              : step === "pa"
+              ? "Pedido de Acessório (PA)"
+              : "Pedido de Garantia (PG)"}
+          </DialogDescription>
         </DialogHeader>
-        <div className="flex flex-col gap-3 pt-2">
-          <Button className="w-full gap-2" onClick={createOs}>
-            <Wrench className="h-4 w-4" /> Ordem de Serviço (OS)
-          </Button>
-          <Button variant="outline" className="w-full gap-2" onClick={createPa}>
-            <Package className="h-4 w-4" /> Pedido de Acessório (PA)
-          </Button>
-          <Button variant="outline" className="w-full gap-2" onClick={createPg}>
-            <Shield className="h-4 w-4" /> Pedido de Garantia (PG)
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
-            Apenas aprovar, sem criar
-          </Button>
-        </div>
+
+        {step === "choose" && (
+          <div className="flex flex-col gap-3 pt-2">
+            <Button className="w-full gap-2" onClick={createOs}>
+              <Wrench className="h-4 w-4" /> Ordem de Serviço (OS)
+            </Button>
+            <Button variant="outline" className="w-full gap-2" onClick={() => setStep("pa")}>
+              <Package className="h-4 w-4" /> Pedido de Acessório (PA)
+            </Button>
+            <Button variant="outline" className="w-full gap-2" onClick={() => setStep("pg")}>
+              <Shield className="h-4 w-4" /> Pedido de Garantia (PG)
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => resetAndClose(false)}>
+              Apenas aprovar, sem criar
+            </Button>
+          </div>
+        )}
+
+        {(step === "pa" || step === "pg") && (
+          <div className="flex flex-col gap-4 pt-2">
+            <div>
+              <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">
+                Observações Squad <span className="normal-case font-normal">(opcional)</span>
+              </label>
+              <Textarea
+                autoFocus
+                value={squadNotes}
+                onChange={(e) => setSquadNotes(e.target.value)}
+                placeholder="Informações adicionais que serão enviadas ao Squad..."
+                rows={4}
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" className="gap-1.5" onClick={() => setStep("choose")}>
+                <ArrowLeft className="h-4 w-4" /> Voltar
+              </Button>
+              <Button
+                className="flex-1 gap-2"
+                onClick={step === "pa" ? createPa : createPg}
+              >
+                {step === "pa" ? <Package className="h-4 w-4" /> : <Shield className="h-4 w-4" />}
+                Confirmar e criar {step.toUpperCase()}
+              </Button>
+            </div>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
