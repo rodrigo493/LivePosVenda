@@ -89,7 +89,7 @@ const adminNav = [
 ];
 
 export function AppSidebar() {
-  const { state, toggleSidebar } = useSidebar();
+  const { state, toggleSidebar, isMobile, setOpenMobile } = useSidebar();
   const collapsed = state === "collapsed";
   const location = useLocation();
   const isActive = (path: string) => location.pathname === path;
@@ -119,6 +119,7 @@ export function AppSidebar() {
       <NavLink
         to={item.url}
         end={item.url === "/"}
+        onClick={() => { if (isMobile) setOpenMobile(false); }}
         className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-200 ${
           isActive(item.url)
             ? "bg-sidebar-accent text-sidebar-primary font-medium"

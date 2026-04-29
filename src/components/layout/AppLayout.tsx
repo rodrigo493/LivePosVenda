@@ -1,4 +1,4 @@
-import { SidebarProvider } from "@/components/ui/sidebar";
+import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { Bell, Search, LogOut, Shield } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
@@ -33,6 +33,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         <div className="flex-1 flex flex-col min-w-0">
           <header className="h-14 flex items-center justify-between border-b px-4 bg-card/50 backdrop-blur-sm sticky top-0 z-10">
             <div className="flex items-center gap-3">
+              <SidebarTrigger className="md:hidden" />
               <div className="hidden md:flex items-center gap-2 bg-muted rounded-lg px-3 py-1.5">
                 <Search className="h-3.5 w-3.5 text-muted-foreground" />
                 <input
@@ -88,7 +89,7 @@ export function AppLayout({ children }: AppLayoutProps) {
               </Popover>
             </div>
           </header>
-          <main className="flex-1 p-6 overflow-auto">
+          <main className="flex-1 p-4 md:p-6 overflow-auto">
             {children}
           </main>
         </div>
