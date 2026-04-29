@@ -109,12 +109,19 @@ async function importDeals(
 ): Promise<{ dealIds: string[]; count: number }> {
   const dealIds: string[] = [];
 
-  // Use the first available local pipeline
-  const { data: pipeline } = await admin
+  // Use "Funil de Vendas" pipeline, fallback to first available
+  const { data: salesPipeline } = await admin
     .from("pipelines")
     .select("id")
+    .ilike("name", "%vendas%")
     .limit(1)
     .maybeSingle();
+
+  const { data: firstPipeline } = !salesPipeline
+    ? await admin.from("pipelines").select("id").limit(1).maybeSingle()
+    : { data: null };
+
+  const pipeline = salesPipeline ?? firstPipeline;
 
   const { data: stages } = pipeline?.id
     ? await admin
@@ -199,19 +206,27 @@ async function importDeals(
           if (newClient) { clientId = newClient.id; break; }
         }
 
+        // client_id is NOT NULL — skip deal if no client found/created
+        if (!clientId || !pipeline?.id) {
+          await logSync("import", "deal", rdDealId, null, "skipped",
+            !clientId ? "no_client" : "no_pipeline");
+          continue;
+        }
+
         let status = "aberto";
         if (deal.win === true) status = "fechado";
         else if (deal.win === false) status = "cancelado";
         else if (deal.hold === true) status = "pausado";
 
-        await admin.from("tickets").upsert(
+        const { error: upsertErr } = await admin.from("tickets").upsert(
           {
             rd_deal_id: rdDealId,
             title: (deal.name as string) || "Negociação sem título",
+            ticket_type: "pos_venda",
             status,
             estimated_value: Number(deal.amount_total ?? 0),
-            pipeline_id: pipeline?.id ?? null,
-            pipeline_stage: stageKey,
+            pipeline_id: pipeline.id,
+            pipeline_stage: stageKey ?? stages?.[0]?.key ?? "sem_atendimento",
             assigned_to: assignedTo,
             client_id: clientId,
             ticket_number: `RD-${rdDealId}`,
@@ -221,6 +236,8 @@ async function importDeals(
           },
           { onConflict: "rd_deal_id" },
         );
+
+        if (upsertErr) throw new Error(upsertErr.message);
 
         dealIds.push(rdDealId);
         await logSync("import", "deal", rdDealId, null, "success", null);
@@ -353,12 +370,8 @@ Deno.serve(async (req) => {
     const { dealIds, count: totalDeals } = await importDeals(token, rdPipelineId);
     console.log(`rd-import: ${totalDeals} deals imported`);
 
-    let totalComments = 0;
-    for (const rdDealId of dealIds) {
-      totalComments += await importActivities(token, rdDealId);
-      await new Promise((r) => setTimeout(r, 200));
-    }
-    console.log(`rd-import: ${totalComments} activities imported`);
+    // Activities import skipped — runs separately to avoid timeout
+    const totalComments = 0;
 
     const importStats = {
       total_deals: totalDeals,
