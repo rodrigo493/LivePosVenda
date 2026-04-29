@@ -50,6 +50,22 @@ interface NomusProduct {
 
 // ─── Nomus Stock Hook ─────────────────────────────────────────────────────────
 
+// Fetch com retry automático em caso de 429 (rate limit do Nomus)
+async function nomusFetch(path: string): Promise<any | null> {
+  for (let attempt = 0; attempt <= 2; attempt++) {
+    const res = await fetch(`/api/nomus${path}`, { headers: { Accept: "application/json" } });
+    if (res.status === 429) {
+      const body = await res.json().catch(() => ({}));
+      const wait = (Number(body.tempoAteLiberar) || 5) * 1000;
+      await new Promise((r) => setTimeout(r, wait));
+      continue;
+    }
+    if (!res.ok) return null;
+    return await res.json().catch(() => null);
+  }
+  return null;
+}
+
 function useNomusStock(enabled: boolean) {
   return useQuery<NomusProduct[]>({
     queryKey: ["nomus-stock"],
@@ -57,58 +73,43 @@ function useNomusStock(enabled: boolean) {
     staleTime: 5 * 60_000,
     retry: false,
     queryFn: async () => {
-      // Chama o proxy Nginx do VPS diretamente (same-origin, sem CORS nem edge function).
-      // Nginx injeta a autenticação Nomus e usa OpenSSL (compatível com TLS do servidor Nomus).
-      const fetchPage = async (page: number): Promise<any[] | null> => {
-        for (let attempt = 0; attempt <= 2; attempt++) {
-          const res = await fetch(
-            `/api/nomus/rest/produtos?query=ativo=true&pagina=${page}`,
-            { headers: { Accept: "application/json" } },
-          );
-          if (res.status === 429) {
-            const body = await res.json().catch(() => ({}));
-            const wait = (Number(body.tempoAteLiberar) || 5) * 1000;
-            await new Promise((r) => setTimeout(r, wait));
-            continue;
-          }
-          if (!res.ok) return null;
-          const data = await res.json();
-          return Array.isArray(data) ? data : null;
-        }
-        return null;
-      };
-
+      // Fase 1: buscar todos os produtos ativos
       const allRaw: any[] = [];
       let page = 1;
-      while (page <= 20) {
-        const data = await fetchPage(page);
-        if (!data || data.length === 0) break;
+      while (page <= 30) {
+        const data = await nomusFetch(`/rest/produtos?query=ativo=true&pagina=${page}`);
+        if (!Array.isArray(data) || data.length === 0) break;
         allRaw.push(...data);
         if (data.length < 20) break;
         page++;
       }
-
       if (allRaw.length === 0) throw new Error("Nenhum produto retornado pelo Nomus");
 
-      return allRaw
-        .map((p: any): NomusProduct => {
-          const setores: any[] = p.empresasSetoresEstoque || p.setoresEstoque || [];
-          const saldoTotal = setores.reduce(
-            (sum: number, e: any) =>
-              sum + (Number(e.saldoEstoqueAtualEmpresa ?? e.saldoEstoque ?? e.saldo ?? 0) || 0),
-            0,
-          );
-          return {
-            id: Number(p.id),
-            codigo: String(p.codigo || ""),
-            descricao: String(p.descricao || p.nome || ""),
-            siglaUnidadeMedida: String(p.siglaUnidadeMedida || p.unidadeMedida || ""),
-            saldoTotal,
-            custoMedioUnitario: null,
-            custoTotal: null,
-          };
-        })
-        .sort((a, b) => b.saldoTotal - a.saldoTotal || a.descricao.localeCompare(b.descricao, "pt-BR"));
+      const products: NomusProduct[] = allRaw.map((p: any) => ({
+        id: Number(p.id),
+        codigo: String(p.codigo || ""),
+        descricao: String(p.descricao || p.nome || ""),
+        siglaUnidadeMedida: String(p.siglaUnidadeMedida || p.unidadeMedida || ""),
+        saldoTotal: 0,
+        custoMedioUnitario: null,
+        custoTotal: null,
+      }));
+
+      // Fase 2: buscar saldo por produto em lotes de 5
+      // saldosEstoqueProduto retorna: [{idEmpresa, saldos:[{saldo: "N"}]}]
+      const fetchSaldo = async (p: NomusProduct) => {
+        const data = await nomusFetch(`/rest/saldosEstoqueProduto/${p.id}`);
+        if (!Array.isArray(data)) return;
+        p.saldoTotal = data
+          .flatMap((e: any) => e.saldos || [])
+          .reduce((sum: number, s: any) => sum + (Number(s.saldo) || 0), 0);
+      };
+
+      for (let i = 0; i < products.length; i += 5) {
+        await Promise.all(products.slice(i, i + 5).map(fetchSaldo));
+      }
+
+      return products.sort((a, b) => b.saldoTotal - a.saldoTotal || a.descricao.localeCompare(b.descricao, "pt-BR"));
     },
   });
 }
