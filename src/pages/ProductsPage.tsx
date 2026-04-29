@@ -57,20 +57,44 @@ function useNomusStock(enabled: boolean) {
     staleTime: 5 * 60_000,
     retry: false,
     queryFn: async () => {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token ?? "";
-      const res = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/nomus-stock`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-          },
-        },
-      );
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? `Erro ${res.status}`);
-      return data as NomusProduct[];
+      // Chama o proxy Nginx do VPS diretamente (same-origin, sem CORS nem edge function).
+      // Nginx injeta a autenticação Nomus e usa OpenSSL (compatível com TLS do servidor Nomus).
+      const allRaw: any[] = [];
+      let page = 1;
+      while (page <= 20) {
+        const res = await fetch(
+          `/api/nomus/rest/produtos?query=ativo=true&pagina=${page}`,
+          { headers: { Accept: "application/json" } },
+        );
+        if (!res.ok) break;
+        const data = await res.json();
+        if (!Array.isArray(data) || data.length === 0) break;
+        allRaw.push(...data);
+        if (data.length < 20) break;
+        page++;
+      }
+
+      if (allRaw.length === 0) throw new Error("Nenhum produto retornado pelo Nomus");
+
+      return allRaw
+        .map((p: any): NomusProduct => {
+          const setores: any[] = p.empresasSetoresEstoque || p.setoresEstoque || [];
+          const saldoTotal = setores.reduce(
+            (sum: number, e: any) =>
+              sum + (Number(e.saldoEstoqueAtualEmpresa ?? e.saldoEstoque ?? e.saldo ?? 0) || 0),
+            0,
+          );
+          return {
+            id: Number(p.id),
+            codigo: String(p.codigo || ""),
+            descricao: String(p.descricao || p.nome || ""),
+            siglaUnidadeMedida: String(p.siglaUnidadeMedida || p.unidadeMedida || ""),
+            saldoTotal,
+            custoMedioUnitario: null,
+            custoTotal: null,
+          };
+        })
+        .sort((a, b) => b.saldoTotal - a.saldoTotal || a.descricao.localeCompare(b.descricao, "pt-BR"));
     },
   });
 }
