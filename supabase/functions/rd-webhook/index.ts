@@ -49,7 +49,7 @@ function mapStatus(deal: Record<string, unknown>): string {
   return "aberto";
 }
 
-// Busca auth.users id pelo email via REST API
+// Busca auth.users id pelo email via REST API (case-insensitive)
 async function getAuthIdByEmail(email: string): Promise<string | null> {
   try {
     const controller = new AbortController();
@@ -67,7 +67,8 @@ async function getAuthIdByEmail(email: string): Promise<string | null> {
     clearTimeout(timer);
     if (!res.ok) return null;
     const body = await res.json() as { users?: Array<{ id: string; email?: string }> };
-    const found = (body.users ?? []).find((u) => u.email === email);
+    const emailLower = email.toLowerCase();
+    const found = (body.users ?? []).find((u) => u.email?.toLowerCase() === emailLower);
     return found?.id ?? null;
   } catch {
     return null;
@@ -104,8 +105,16 @@ async function resolvePipelineAndStage(
 
   if (stageName) {
     const norm = normalizeStr(stageName);
-    const match = (stages ?? []).find((s) => normalizeStr(s.label) === norm);
-    if (match) return { pipelineId: pipeline.id, stageKey: match.key };
+    // 1. Match exato
+    const exact = (stages ?? []).find((s) => normalizeStr(s.label) === norm);
+    if (exact) return { pipelineId: pipeline.id, stageKey: exact.key };
+    // 2. Label local contém nome do RD
+    const fwd = (stages ?? []).find((s) => normalizeStr(s.label).includes(norm));
+    if (fwd) return { pipelineId: pipeline.id, stageKey: fwd.key };
+    // 3. Nome do RD contém label local
+    const rev = (stages ?? []).find((s) => norm.includes(normalizeStr(s.label)));
+    if (rev) return { pipelineId: pipeline.id, stageKey: rev.key };
+    console.warn(`rd-webhook: stage sem match "${stageName}" → usando primeira etapa`);
   }
 
   return { pipelineId: pipeline.id, stageKey: firstKey };
@@ -191,7 +200,7 @@ async function upsertDeal(
   const upsertPayload: Record<string, unknown> = {
     rd_deal_id: rdDealId,
     title,
-    ticket_type: "pos_venda",
+    ticket_type: "negociacao",
     status,
     estimated_value: amountTotal,
     pipeline_id: pipelineId,

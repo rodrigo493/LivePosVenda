@@ -85,7 +85,8 @@ async function buildEmailToAuthIdMap(): Promise<Map<string, string>> {
     if (res.ok) {
       const body = await res.json() as { users?: Array<{ id: string; email?: string }> };
       for (const u of body.users ?? []) {
-        if (u.email) map.set(u.email, u.id);
+        // lowercase para comparação case-insensitive
+        if (u.email) map.set(u.email.toLowerCase(), u.id);
       }
       console.log("rd-import: auth users loaded:", map.size);
     } else {
@@ -95,6 +96,30 @@ async function buildEmailToAuthIdMap(): Promise<Map<string, string>> {
     console.warn("rd-import: auth users fetch failed (continuing without user mapping):", String(e));
   }
   return map;
+}
+
+// Matching fuzzy de estágio: exato → parcial → null
+function findStageKey(
+  stageName: string | null,
+  stageMap: Map<string, string>,
+  stages: { key: string; label: string }[],
+): string | null {
+  if (!stageName) return null;
+  const norm = normalizeStr(stageName);
+
+  // 1. Match exato normalizado
+  const exact = stageMap.get(norm);
+  if (exact) return exact;
+
+  // 2. Label local contém o nome do RD
+  const fwd = stages.find((s) => normalizeStr(s.label).includes(norm));
+  if (fwd) return fwd.key;
+
+  // 3. Nome do RD contém o label local
+  const rev = stages.find((s) => norm.includes(normalizeStr(s.label)));
+  if (rev) return rev.key;
+
+  return null;
 }
 
 async function importContacts(token: string): Promise<number> {
@@ -149,7 +174,7 @@ async function importDeals(
   token: string,
   rdPipelineId: string | null,
   emailToAuthId: Map<string, string>,
-): Promise<{ count: number }> {
+): Promise<{ count: number; stage_mismatches: string[] }> {
   // Use "Funil de Vendas" pipeline, fallback to first available
   const { data: salesPipeline } = await admin
     .from("pipelines")
@@ -174,7 +199,10 @@ async function importDeals(
 
   const stageMap = new Map((stages ?? []).map((s) => [normalizeStr(s.label), s.key]));
   const firstStageKey = stages?.[0]?.key ?? null;
+  const stagesArr = stages ?? [];
   console.log("rd-import: stageMap:", [...stageMap.keys()]);
+
+  const stageMismatches: string[] = [];
 
   let totalCount = 0;
   let nextPage: string | null = null;
@@ -198,12 +226,22 @@ async function importDeals(
       try {
         const rdDealId = deal._id as string;
         const rawStageName = (deal.deal_stage as { name?: string } | null)?.name ?? null;
-        const stageName = rawStageName ? normalizeStr(rawStageName) : null;
-        const stageKey = stageName ? (stageMap.get(stageName) ?? firstStageKey) : firstStageKey;
+        const stageKey = findStageKey(rawStageName, stageMap, stagesArr) ?? firstStageKey;
+
+        // Log estágios que não encontraram match para diagnóstico
+        if (rawStageName && stageKey === firstStageKey && findStageKey(rawStageName, stageMap, stagesArr) === null) {
+          stageMismatches.push(rawStageName);
+          console.warn(`rd-import: stage sem match "${rawStageName}" → usando primeira etapa`);
+        }
+
         const userEmail = (deal.user as { email?: string } | null)?.email ?? null;
         const contacts = (deal.contacts as Record<string, unknown>[] | undefined) ?? [];
 
-        const assignedTo = userEmail ? (emailToAuthId.get(userEmail) ?? null) : null;
+        // case-insensitive email lookup
+        const assignedTo = userEmail ? (emailToAuthId.get(userEmail.toLowerCase()) ?? null) : null;
+        if (userEmail && !assignedTo) {
+          console.warn(`rd-import: usuário não encontrado em auth.users: ${userEmail}`);
+        }
 
         let clientId: string | null = null;
         for (const contact of contacts) {
@@ -245,9 +283,8 @@ async function importDeals(
           if (newClient) { clientId = newClient.id; break; }
         }
 
-        if (!clientId || !pipeline?.id) {
-          await logSync("import", "deal", rdDealId, null, "skipped",
-            !clientId ? "no_client" : "no_pipeline");
+        if (!pipeline?.id) {
+          await logSync("import", "deal", rdDealId, null, "skipped", "no_pipeline");
           continue;
         }
 
@@ -256,21 +293,22 @@ async function importDeals(
         else if (deal.win === false) status = "cancelado";
         else if (deal.hold === true) status = "pausado";
 
-        const payload = {
+        const payload: Record<string, unknown> = {
           rd_deal_id: rdDealId,
           title: (deal.name as string) || "Negociação sem título",
-          ticket_type: "pos_venda",
+          ticket_type: "negociacao",
           status,
           estimated_value: Number(deal.amount_total ?? 0),
           pipeline_id: pipeline.id,
           pipeline_stage: stageKey ?? firstStageKey ?? "sem_atendimento",
           assigned_to: assignedTo,
-          client_id: clientId,
           ticket_number: `RD-${rdDealId}`,
           origin: "rd_station",
           channel: "rd_station",
           created_at: (deal.created_at as string) || new Date().toISOString(),
         };
+
+        if (clientId) payload.client_id = clientId;
 
         let { error: upsertErr } = await admin.from("tickets").upsert(payload, { onConflict: "rd_deal_id" });
 
@@ -297,7 +335,12 @@ async function importDeals(
     nextPage = resp.has_more ? (resp.next_page ?? null) : null;
   } while (nextPage);
 
-  return { count: totalCount };
+  if (stageMismatches.length > 0) {
+    const uniq = [...new Set(stageMismatches)];
+    console.warn("rd-import: stage mismatches (foram para primeira etapa):", uniq);
+  }
+
+  return { count: totalCount, stage_mismatches: [...new Set(stageMismatches)] };
 }
 
 Deno.serve(async (req) => {
@@ -377,7 +420,7 @@ Deno.serve(async (req) => {
       console.log(`rd-import: ${totalContacts} contacts imported`);
     }
 
-    const { count: totalDeals } = await importDeals(token, rdPipelineId, emailToAuthId);
+    const { count: totalDeals, stage_mismatches } = await importDeals(token, rdPipelineId, emailToAuthId);
     console.log(`rd-import: ${totalDeals} deals imported`);
 
     const importStats = {
@@ -385,6 +428,7 @@ Deno.serve(async (req) => {
       total_contacts: totalContacts,
       total_comments: 0,
       imported_at: new Date().toISOString(),
+      stage_mismatches,
     };
 
     await admin.from("rd_integration_config").update({

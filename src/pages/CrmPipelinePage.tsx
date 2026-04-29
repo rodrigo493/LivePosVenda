@@ -923,6 +923,7 @@ const TICKET_TYPE_LABELS: Record<string, { label: string; color: string }> = {
   garantia: { label: "Garantia", color: "bg-orange-100 text-orange-800" },
   assistencia: { label: "Assistência", color: "bg-purple-100 text-purple-800" },
   pos_venda: { label: "Pós Venda", color: "bg-green-100 text-green-800" },
+  negociacao: { label: "Negociação", color: "bg-indigo-100 text-indigo-800" },
   comprar_acessorios: { label: "Acessórios", color: "bg-pink-100 text-pink-800" },
 };
 
