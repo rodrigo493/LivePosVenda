@@ -5,8 +5,20 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+function normalizeStr(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[áàâãä]/g, "a")
+    .replace(/[éèêë]/g, "e")
+    .replace(/[íìîï]/g, "i")
+    .replace(/[óòôõö]/g, "o")
+    .replace(/[úùûü]/g, "u")
+    .replace(/[ç]/g, "c")
+    .replace(/[ñ]/g, "n")
+    .trim();
+}
+
 async function logSync(
-  admin: ReturnType<typeof createClient>,
   operation: string,
   eventType: string | null,
   rdId: string | null,
@@ -37,48 +49,69 @@ function mapStatus(deal: Record<string, unknown>): string {
   return "aberto";
 }
 
+// Busca auth.users id pelo email via REST API
+async function getAuthIdByEmail(email: string): Promise<string | null> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(
+      `${SUPABASE_URL}/auth/v1/admin/users?per_page=1000`,
+      {
+        signal: controller.signal,
+        headers: {
+          "apikey": SUPABASE_SERVICE_ROLE_KEY,
+          "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        },
+      },
+    );
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    const body = await res.json() as { users?: Array<{ id: string; email?: string }> };
+    const found = (body.users ?? []).find((u) => u.email === email);
+    return found?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function resolvePipelineAndStage(
-  admin: ReturnType<typeof createClient>,
   stageName: string | null,
 ): Promise<{ pipelineId: string | null; stageKey: string | null }> {
   const { data: pipeline } = await admin
     .from("pipelines")
     .select("id")
-    .eq("name", "Funil de Vendas")
+    .ilike("name", "%vendas%")
     .limit(1)
-    .single();
+    .maybeSingle();
 
   if (!pipeline) {
-    console.error("rd-webhook: pipeline 'Funil de Vendas' not found");
-    return { pipelineId: null, stageKey: null };
+    const { data: fallback } = await admin
+      .from("pipelines")
+      .select("id")
+      .limit(1)
+      .maybeSingle();
+    if (!fallback) return { pipelineId: null, stageKey: null };
+    return { pipelineId: fallback.id, stageKey: null };
   }
+
+  const { data: stages } = await admin
+    .from("pipeline_stages")
+    .select("key, label")
+    .eq("pipeline_id", pipeline.id)
+    .order("position", { ascending: true });
+
+  const firstKey = stages?.[0]?.key ?? null;
 
   if (stageName) {
-    const { data: stage } = await admin
-      .from("pipeline_stages")
-      .select("key")
-      .eq("pipeline_id", pipeline.id)
-      .eq("label", stageName)
-      .limit(1)
-      .single();
-
-    if (stage) return { pipelineId: pipeline.id, stageKey: stage.key };
+    const norm = normalizeStr(stageName);
+    const match = (stages ?? []).find((s) => normalizeStr(s.label) === norm);
+    if (match) return { pipelineId: pipeline.id, stageKey: match.key };
   }
 
-  // Fallback: first stage by position
-  const { data: firstStage } = await admin
-    .from("pipeline_stages")
-    .select("key")
-    .eq("pipeline_id", pipeline.id)
-    .order("position", { ascending: true })
-    .limit(1)
-    .single();
-
-  return { pipelineId: pipeline.id, stageKey: firstStage?.key ?? null };
+  return { pipelineId: pipeline.id, stageKey: firstKey };
 }
 
 async function resolveOrCreateClient(
-  admin: ReturnType<typeof createClient>,
   contacts: Record<string, unknown>[],
 ): Promise<string | null> {
   for (const contact of contacts) {
@@ -90,7 +123,7 @@ async function resolveOrCreateClient(
     const whatsapp = phones.find((p) => p.whatsapp_url_web)?.phone ?? null;
 
     if (email) {
-      const { data } = await admin.from("clients").select("id").eq("email", email).limit(1).single();
+      const { data } = await admin.from("clients").select("id").eq("email", email).limit(1).maybeSingle();
       if (data) return data.id;
     }
     if (phone && phone.length >= 8) {
@@ -99,92 +132,106 @@ async function resolveOrCreateClient(
         .select("id")
         .ilike("phone", `%${phone.slice(-8)}`)
         .limit(1)
-        .single();
+        .maybeSingle();
       if (data) return data.id;
     }
 
-    // Create new client
     const { data: newClient } = await admin
       .from("clients")
-      .insert({
-        name: (contact.name as string) || "Contato RD Station",
-        email: email ?? null,
-        phone: phone ?? null,
-        whatsapp: whatsapp ?? null,
-        rd_contact_id: (contact.id as string) ?? null,
-        status: "ativo",
-      })
+      .upsert(
+        {
+          name: (contact.name as string) || "Contato RD Station",
+          email: email ?? null,
+          phone: phone ?? null,
+          whatsapp: whatsapp ?? null,
+          rd_contact_id: (contact.id as string) ?? null,
+          status: "ativo",
+        },
+        { onConflict: "rd_contact_id" },
+      )
       .select("id")
-      .single();
+      .maybeSingle();
 
     if (newClient) return newClient.id;
   }
-
   return null;
 }
 
 async function upsertDeal(
-  admin: ReturnType<typeof createClient>,
   deal: Record<string, unknown>,
   eventName: string,
-  payload: unknown,
+  rawPayload: unknown,
 ): Promise<void> {
-  const rdDealId = deal._id as string;
+  // Webhook payload usa deal.id, import usa deal._id
+  const rdDealId = (deal.id ?? deal._id) as string;
+  if (!rdDealId) {
+    await logSync("webhook", eventName, null, null, "error", "no_deal_id", rawPayload);
+    return;
+  }
+
   const title = (deal.name as string) || "Negociação sem título";
   const amountTotal = Number(deal.amount_total ?? 0);
   const stageName = (deal.deal_stage as { name?: string } | null)?.name ?? null;
   const userEmail = (deal.user as { email?: string } | null)?.email ?? null;
   const contacts = (deal.contacts as Record<string, unknown>[] | undefined) ?? [];
 
-  const { pipelineId, stageKey } = await resolvePipelineAndStage(admin, stageName);
+  const { pipelineId, stageKey } = await resolvePipelineAndStage(stageName);
 
   let assignedTo: string | null = null;
   if (userEmail) {
-    const { data: profile } = await admin
-      .from("profiles")
-      .select("id")
-      .eq("email", userEmail)
-      .limit(1)
-      .single();
-    assignedTo = profile?.id ?? null;
+    assignedTo = await getAuthIdByEmail(userEmail);
     if (!assignedTo) {
-      await logSync(admin, "webhook", eventName, rdDealId, null, "success", `warning: user_not_found: ${userEmail}`, null);
+      console.warn(`rd-webhook: user not found in auth.users: ${userEmail}`);
     }
   }
 
-  const clientId = await resolveOrCreateClient(admin, contacts);
+  const clientId = await resolveOrCreateClient(contacts);
   const status = mapStatus(deal);
 
-  const { data: ticket, error } = await admin
+  const upsertPayload: Record<string, unknown> = {
+    rd_deal_id: rdDealId,
+    title,
+    ticket_type: "pos_venda",
+    status,
+    estimated_value: amountTotal,
+    pipeline_id: pipelineId,
+    pipeline_stage: stageKey,
+    assigned_to: assignedTo,
+    ticket_number: `RD-${rdDealId}`,
+    origin: "rd_station",
+    channel: "rd_station",
+  };
+
+  if (clientId) upsertPayload.client_id = clientId;
+  if (deal.created_at) upsertPayload.created_at = deal.created_at as string;
+
+  let { data: ticket, error } = await admin
     .from("tickets")
-    .upsert(
-      {
-        rd_deal_id: rdDealId,
-        title,
-        status,
-        estimated_value: amountTotal,
-        pipeline_id: pipelineId,
-        pipeline_stage: stageKey,
-        assigned_to: assignedTo,
-        client_id: clientId,
-        ticket_number: `RD-${rdDealId}`,
-        origin: "rd_station",
-        channel: "rd_station",
-      },
-      { onConflict: "rd_deal_id" },
-    )
+    .upsert(upsertPayload, { onConflict: "rd_deal_id" })
     .select("id")
-    .single();
+    .maybeSingle();
+
+  // FK violation on assigned_to → retry without it
+  if (error?.message?.includes("assigned_to_fkey")) {
+    const result = await admin
+      .from("tickets")
+      .upsert({ ...upsertPayload, assigned_to: null }, { onConflict: "rd_deal_id" })
+      .select("id")
+      .maybeSingle();
+    ticket = result.data;
+    error = result.error ?? null;
+  }
 
   if (error) {
-    await logSync(admin, "webhook", eventName, rdDealId, null, "error", error.message, payload);
+    await logSync("webhook", eventName, rdDealId, null, "error", error.message, rawPayload);
+    console.error(`rd-webhook upsert failed for ${rdDealId}:`, error.message);
   } else {
-    await logSync(admin, "webhook", eventName, rdDealId, ticket.id, "success", null, null);
+    await logSync("webhook", eventName, rdDealId, ticket?.id ?? null, "success", null, null);
+    console.log(`rd-webhook: deal ${rdDealId} upserted → ticket ${ticket?.id}`);
   }
 }
 
 Deno.serve(async (req) => {
-  // Always respond 200 to avoid unnecessary retries from RD Station
   const okResponse = () =>
     new Response(JSON.stringify({ ok: true }), {
       status: 200,
@@ -202,18 +249,17 @@ Deno.serve(async (req) => {
     }
 
     const eventName: string = (body.event_name as string) || (body.event_type as string) || "";
-    console.log("rd-webhook event:", eventName, JSON.stringify(body).slice(0, 500));
+    console.log("rd-webhook event:", eventName);
 
-    // Check for active config
     const { data: config } = await admin
       .from("rd_integration_config")
       .select("id")
       .eq("is_active", true)
       .limit(1)
-      .single();
+      .maybeSingle();
 
     if (!config) {
-      await logSync(admin, "webhook", eventName, null, null, "skipped", "no_active_config", body);
+      await logSync("webhook", eventName, null, null, "skipped", "no_active_config", body);
       return okResponse();
     }
 
@@ -222,32 +268,28 @@ Deno.serve(async (req) => {
       .update({ last_webhook_at: new Date().toISOString() })
       .eq("id", config.id);
 
-    const deal = (body.crm_deal ?? body.deal ?? null) as Record<string, unknown> | null;
+    // RD Station CRM webhook usa "document" como chave do deal
+    const deal = (body.document ?? body.crm_deal ?? body.deal ?? null) as Record<string, unknown> | null;
 
     if (eventName === "crm_deal_created" || eventName === "crm_deal_updated") {
       if (!deal) {
-        await logSync(admin, "webhook", eventName, null, null, "error", "no_deal_in_payload", body);
+        await logSync("webhook", eventName, null, null, "error", "no_deal_in_payload", body);
         return okResponse();
       }
-      await upsertDeal(admin, deal, eventName, body);
+      await upsertDeal(deal, eventName, body);
     } else if (eventName === "crm_deal_deleted") {
-      const rdDealId = (deal?._id ?? body.deal_id ?? null) as string | null;
+      const rdDealId = (deal?.id ?? deal?._id ?? body.deal_id ?? null) as string | null;
       if (rdDealId) {
         await admin.from("tickets").update({ status: "cancelado" }).eq("rd_deal_id", rdDealId);
-        await logSync(admin, "webhook", eventName, rdDealId, null, "success", null, null);
-      } else {
-        await logSync(admin, "webhook", eventName, null, null, "error", "no_rd_deal_id_in_delete_event", body);
+        await logSync("webhook", eventName, rdDealId, null, "success", null, null);
       }
     } else {
-      await logSync(admin, "webhook", eventName, null, null, "skipped", `unknown_event: ${eventName}`, body);
+      await logSync("webhook", eventName, null, null, "skipped", `unknown_event: ${eventName}`, body);
     }
 
     return okResponse();
   } catch (e) {
     console.error("rd-webhook unhandled error:", e);
-    return new Response(JSON.stringify({ ok: true }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
+    return okResponse();
   }
 });
