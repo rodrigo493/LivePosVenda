@@ -173,9 +173,12 @@ Deno.serve(async (req) => {
     }
 
     // Save the Uazapi message ID so we can match delivery/read receipts later
+    // Log full response to identify the correct field name in this Uazapi version
+    console.log("UAZAPI_SEND_RESPONSE keys:", Object.keys(sendData || {}).join(","), "| full:", JSON.stringify(sendData).slice(0, 400));
     const outboundMsgId: string | null =
-      sendData?.MessageID || sendData?.Id || sendData?.id || sendData?.messageId || null;
-    console.log("Uazapi send response:", JSON.stringify(sendData).slice(0, 200), "outboundMsgId:", outboundMsgId);
+      sendData?.MessageID || sendData?.Id || sendData?.id || sendData?.messageId ||
+      sendData?.message_id || sendData?.wamid || sendData?.key?.id || null;
+    console.log("outboundMsgId resolved:", outboundMsgId);
 
     const { error: insertErr } = await adminClient.from("whatsapp_messages").insert({
       client_id,

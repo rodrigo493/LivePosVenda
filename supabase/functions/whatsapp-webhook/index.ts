@@ -384,17 +384,20 @@ Deno.serve(async (req) => {
     const instanceBaseUrl: string = pipelineInstance?.base_url ?? UAZAPI_BASE_URL;
     const instanceToken: string = pipelineInstance?.instance_token ?? UAZAPI_INSTANCE_TOKEN;
 
-    console.log("Uazapi webhook:", JSON.stringify(body).slice(0, 500));
+    // Log all webhook events with EventType for debugging ack format
+    const bodyEventType = body?.EventType || body?.event || body?.type || "";
+    console.log("WEBHOOK_EVENT type:", bodyEventType, "| keys:", Object.keys(body || {}).join(","), "| body:", JSON.stringify(body).slice(0, 500));
 
     // Handle delivery/read receipts from Uazapi
     // Uazapi/WuzAPI sends ack events when contacts receive or read our messages.
     // Format: { EventType: "message_acks", data: { Key: { Id, FromMe }, Status } }
     // Status: 2=server_ack, 3=delivery_ack(delivered), 4=read, 5=played(read)
-    const ackEventType = (body?.EventType || "").toLowerCase();
-    if (ackEventType === "message_acks" || ackEventType === "chatmessage_status" || ackEventType === "message_status") {
-      const d = body?.data || {};
-      const msgId: string = d?.Key?.Id || d?.key?.id || d?.id || d?.messageId || d?.MessageID || "";
-      const fromMe: boolean = d?.Key?.FromMe ?? d?.key?.fromMe ?? false;
+    const ackEventType = (bodyEventType || "").toLowerCase().replace(/[^a-z_]/g, "");
+    if (ackEventType === "message_acks" || ackEventType === "chatmessage_status" || ackEventType === "message_status" || ackEventType === "messageack" || ackEventType === "msg_ack") {
+      const d = body?.data || body?.message || {};
+      console.log("ACK_EVENT d keys:", Object.keys(d).join(","), "| d:", JSON.stringify(d).slice(0, 300));
+      const msgId: string = d?.Key?.Id || d?.key?.id || d?.id || d?.messageId || d?.MessageID || d?.messageid || "";
+      const fromMe: boolean = d?.Key?.FromMe ?? d?.key?.fromMe ?? d?.fromMe ?? false;
       const rawStatus = d?.Status ?? d?.status ?? d?.Ack ?? d?.ack ?? 0;
       const statusNum = typeof rawStatus === "number" ? rawStatus : parseInt(String(rawStatus), 10);
 

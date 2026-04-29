@@ -380,6 +380,7 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const shouldSendRef = useRef(false);
+  const isSendingRef = useRef(false);
 
   // Realtime subscription
   useEffect(() => {
@@ -542,8 +543,10 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
   };
 
   const sendMessage = async () => {
+    if (isSendingRef.current) return;
     if (!mediaFile && !draft.trim()) return;
     if (!clientPhone) return;
+    isSendingRef.current = true;
     setSending(true);
     try {
       const { data: sessionData } = await supabase.auth.getSession();
@@ -565,12 +568,13 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
     } catch (err: any) {
       toast.error(err.message || "Erro ao enviar mensagem");
     } finally {
+      isSendingRef.current = false;
       setSending(false);
     }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey && !mediaFile) { e.preventDefault(); sendMessage(); }
+    if (e.key === "Enter" && !e.shiftKey && !mediaFile && !isSendingRef.current) { e.preventDefault(); sendMessage(); }
   };
 
   const formatTime = (dateStr: string) =>
