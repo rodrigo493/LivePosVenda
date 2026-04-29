@@ -10,7 +10,8 @@ import {
   FileSpreadsheet,
   Pencil,
   BarChart3,
-  Play,
+  AlertTriangle,
+  ExternalLink,
 } from "lucide-react";
 import {
   DndContext,
@@ -1136,20 +1137,10 @@ function PipelineCard({ ticket, onQuickTask, onClick, isAdmin }: { ticket: any; 
           <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide ${typeInfo.color}`}>
             {typeInfo.label}
           </span>
-          {lastOrderTag && (
+          {lastOrderTag && lastOrderTag !== "ORÇ" && (
             <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-900/60 text-blue-300 border border-blue-700/50">
               {lastOrderTag}
             </span>
-          )}
-          {lastOrderRoute && (
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); navigate(lastOrderRoute); }}
-              className="flex items-center justify-center h-4 w-4 rounded text-blue-400 hover:text-blue-200 hover:bg-blue-900/40 transition-colors animate-pulse"
-              title={`Abrir ${lastOrderTag}`}
-            >
-              <Play className="h-2.5 w-2.5 fill-current" />
-            </button>
           )}
           {isDelayed ? (
             <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-amber-900/60 text-amber-300 border border-amber-700/50 flex items-center gap-0.5">
@@ -1170,6 +1161,20 @@ function PipelineCard({ ticket, onQuickTask, onClick, isAdmin }: { ticket: any; 
         <p className="text-xs font-semibold line-clamp-1 text-zinc-100">
           {ticket.clients?.name || ticket.title || "—"}
         </p>
+
+        {/* Bloco PA/PG — triângulo proeminente */}
+        {lastOrderRoute && lastOrderTag && lastOrderTag !== "ORÇ" && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); navigate(lastOrderRoute); }}
+            className="w-full flex items-center gap-1.5 px-2 py-1 rounded border border-amber-700/50 bg-amber-900/20 hover:bg-amber-900/40 transition-colors group"
+            title={`Abrir ${lastOrderTag}`}
+          >
+            <AlertTriangle className="h-3.5 w-3.5 text-amber-400 animate-pulse shrink-0" />
+            <span className="text-[10px] font-bold text-amber-300 flex-1 text-left">{lastOrderTag}</span>
+            <ExternalLink className="h-3 w-3 text-amber-500 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+          </button>
+        )}
 
         {/* Linha 3: número + tag de problema */}
         <div className="flex items-center gap-1 flex-wrap">
