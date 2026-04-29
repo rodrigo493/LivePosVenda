@@ -54,63 +54,51 @@ async function fetchNomus(path: string, retries = 2): Promise<any> {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-  // 1. Buscar todas as páginas de produtos ativos
-  const allRaw: any[] = [];
-  let page = 1;
-  while (page <= 50) {
-    const data = await fetchNomus(`/rest/produtos?query=ativo=true&pagina=${page}`);
-    if (!Array.isArray(data) || data.length === 0) break;
-    allRaw.push(...data);
-    if (data.length < 20) break;
-    page++;
+  try {
+    // 1. Buscar todas as páginas de produtos ativos
+    const allRaw: any[] = [];
+    let page = 1;
+    while (page <= 50) {
+      const data = await fetchNomus(`/rest/produtos?query=ativo=true&pagina=${page}`);
+      if (!Array.isArray(data) || data.length === 0) break;
+      allRaw.push(...data);
+      if (data.length < 20) break;
+      page++;
+    }
+
+    console.log(`Total de produtos carregados: ${allRaw.length}`);
+
+    if (allRaw.length === 0) {
+      return json({ error: "Nenhum produto retornado pela API Nomus" }, 500);
+    }
+
+    // 2. Mapear produtos e agregar saldo por setor
+    const products: ProductRow[] = allRaw.map((p: any) => {
+      const setores: any[] = p.empresasSetoresEstoque || p.setoresEstoque || [];
+      const saldoTotal = setores.reduce(
+        (sum: number, e: any) =>
+          sum + (Number(e.saldoEstoqueAtualEmpresa ?? e.saldoEstoque ?? e.saldo ?? 0) || 0),
+        0,
+      );
+      return {
+        id: Number(p.id),
+        codigo: String(p.codigo || ""),
+        descricao: String(p.descricao || p.nome || ""),
+        siglaUnidadeMedida: String(p.siglaUnidadeMedida || p.unidadeMedida || ""),
+        saldoTotal,
+        custoMedioUnitario: null,
+        custoTotal: null,
+      };
+    });
+
+    // Custo removido: cada produto requer uma chamada extra à API (timeout).
+    // O saldo já está nos dados do produto via empresasSetoresEstoque.
+    products.sort((a, b) => b.saldoTotal - a.saldoTotal || a.descricao.localeCompare(b.descricao, "pt-BR"));
+
+    console.log(`Retornando ${products.length} produtos`);
+    return json(products);
+  } catch (err) {
+    console.error("Handler error:", String(err));
+    return json({ error: `Erro interno: ${String(err)}` }, 500);
   }
-
-  console.log(`Total de produtos carregados: ${allRaw.length}`);
-
-  if (allRaw.length === 0) {
-    return json({ error: "Nenhum produto retornado pela API Nomus" }, 500);
-  }
-
-  // 2. Mapear produtos e agregar saldo por setor
-  const products: ProductRow[] = allRaw.map((p: any) => {
-    const setores: any[] = p.empresasSetoresEstoque || p.setoresEstoque || [];
-    const saldoTotal = setores.reduce(
-      (sum: number, e: any) =>
-        sum + (Number(e.saldoEstoqueAtualEmpresa ?? e.saldoEstoque ?? e.saldo ?? 0) || 0),
-      0,
-    );
-    return {
-      id: Number(p.id),
-      codigo: String(p.codigo || ""),
-      descricao: String(p.descricao || p.nome || ""),
-      siglaUnidadeMedida: String(p.siglaUnidadeMedida || p.unidadeMedida || ""),
-      saldoTotal,
-      custoMedioUnitario: null,
-      custoTotal: null,
-    };
-  });
-
-  // 3. Buscar custo dos produtos com estoque (lotes de 5)
-  const withStock = products.filter((p) => p.saldoTotal > 0).slice(0, 100);
-
-  const fetchCost = async (p: ProductRow) => {
-    const data = await fetchNomus(`/rest/saldosEstoqueProduto/${p.id}`);
-    if (!data || !Array.isArray(data) && typeof data !== "object") return;
-    const items: any[] = Array.isArray(data) ? data : [data];
-    if (items.length === 0) return;
-    const totalSaldo = items.reduce((s, i) => s + (Number(i.saldoTotal) || 0), 0);
-    const totalCusto = items.reduce((s, i) => s + (Number(i.custoTotal) || 0), 0);
-    p.saldoTotal = totalSaldo || p.saldoTotal;
-    p.custoMedioUnitario = totalSaldo > 0 ? totalCusto / totalSaldo : (items[0]?.custoMedioUnitario ?? null);
-    p.custoTotal = totalCusto || null;
-  };
-
-  for (let i = 0; i < withStock.length; i += 5) {
-    await Promise.all(withStock.slice(i, i + 5).map(fetchCost));
-  }
-
-  products.sort((a, b) => b.saldoTotal - a.saldoTotal || a.descricao.localeCompare(b.descricao, "pt-BR"));
-
-  console.log(`Retornando ${products.length} produtos`);
-  return json(products);
 });

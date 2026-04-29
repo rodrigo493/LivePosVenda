@@ -55,6 +55,7 @@ function useNomusStock(enabled: boolean) {
     queryKey: ["nomus-stock"],
     enabled,
     staleTime: 5 * 60_000,
+    retry: false,
     queryFn: async () => {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token ?? "";
