@@ -172,13 +172,43 @@ Deno.serve(async (req) => {
       throw new Error(`Uazapi error [${sendRes.status}]: ${JSON.stringify(sendData)}`);
     }
 
-    // Save the Uazapi message ID so we can match delivery/read receipts later
-    // Log full response to identify the correct field name in this Uazapi version
-    console.log("UAZAPI_SEND_RESPONSE keys:", Object.keys(sendData || {}).join(","), "| full:", JSON.stringify(sendData).slice(0, 400));
-    const outboundMsgId: string | null =
-      sendData?.MessageID || sendData?.Id || sendData?.id || sendData?.messageId ||
-      sendData?.message_id || sendData?.wamid || sendData?.key?.id || null;
-    console.log("outboundMsgId resolved:", outboundMsgId);
+    // Log FULL response so we can identify the actual message ID field name
+    const fullJson = JSON.stringify(sendData);
+    console.log("UAZAPI_SEND_FULL:", fullJson.slice(0, 800));
+
+    // Recursive extractor — tries every known UazapiGO/Uazapi path
+    function extractMsgId(d: any): string | null {
+      if (!d || typeof d !== "object") return null;
+      // Direct scalar fields (various casings)
+      const candidates = [
+        d.MessageID, d.messageID, d.message_id, d.messageId, d.msgId, d.MsgId,
+        d.Id, d.id, d.ID, d.wamid, d.WAMID,
+        d.Key?.Id, d.Key?.ID, d.key?.id, d.key?.ID,
+        d.Info?.ID, d.Info?.Id, d.info?.id,
+        d.Message?.Key?.Id, d.Message?.Key?.ID, d.message?.key?.id,
+      ];
+      for (const v of candidates) {
+        if (v && typeof v === "string" && v.length > 4) return v;
+      }
+      // UazapiGO Results array format: { Results: [{ Message: { Key: { Id } } }] }
+      const results = d.Results ?? d.results ?? d.messages ?? d.Messages;
+      if (Array.isArray(results) && results.length > 0) {
+        const inner = results[0];
+        const fromArr = extractMsgId(inner?.Message ?? inner?.message ?? inner);
+        if (fromArr) return fromArr;
+      }
+      // Wrapper objects
+      for (const key of ["result", "data", "message", "Message", "response"]) {
+        if (d[key] && typeof d[key] === "object") {
+          const found = extractMsgId(d[key]);
+          if (found) return found;
+        }
+      }
+      return null;
+    }
+
+    const outboundMsgId = extractMsgId(sendData);
+    console.log("outboundMsgId resolved:", outboundMsgId, "| keys:", Object.keys(sendData || {}).join(","));
 
     const { error: insertErr } = await adminClient.from("whatsapp_messages").insert({
       client_id,

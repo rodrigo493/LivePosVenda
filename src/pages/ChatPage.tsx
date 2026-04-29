@@ -59,6 +59,10 @@ export default function ChatPage() {
 
   const handleCrmCard = async () => {
     if (!selectedChat) return;
+    if (clientTicket?.id) {
+      navigate(`/crm?open_ticket=${clientTicket.id}`);
+      return;
+    }
     setCreatingCard(true);
     try {
       const { data: sessionData } = await supabase.auth.getSession();
