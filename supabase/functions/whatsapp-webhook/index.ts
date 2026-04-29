@@ -386,6 +386,33 @@ Deno.serve(async (req) => {
 
     console.log("Uazapi webhook:", JSON.stringify(body).slice(0, 500));
 
+    // Handle delivery/read receipts from Uazapi
+    // Uazapi/WuzAPI sends ack events when contacts receive or read our messages.
+    // Format: { EventType: "message_acks", data: { Key: { Id, FromMe }, Status } }
+    // Status: 2=server_ack, 3=delivery_ack(delivered), 4=read, 5=played(read)
+    const ackEventType = (body?.EventType || "").toLowerCase();
+    if (ackEventType === "message_acks" || ackEventType === "chatmessage_status" || ackEventType === "message_status") {
+      const d = body?.data || {};
+      const msgId: string = d?.Key?.Id || d?.key?.id || d?.id || d?.messageId || d?.MessageID || "";
+      const fromMe: boolean = d?.Key?.FromMe ?? d?.key?.fromMe ?? false;
+      const rawStatus = d?.Status ?? d?.status ?? d?.Ack ?? d?.ack ?? 0;
+      const statusNum = typeof rawStatus === "number" ? rawStatus : parseInt(String(rawStatus), 10);
+
+      if (msgId && fromMe) {
+        const newStatus = statusNum >= 4 ? "read" : statusNum === 3 ? "delivered" : null;
+        if (newStatus) {
+          await admin
+            .from("whatsapp_messages")
+            .update({ status: newStatus })
+            .eq("manychat_message_id", msgId)
+            .eq("direction", "outbound");
+          console.log("Ack update:", msgId, "->", newStatus, "statusNum:", statusNum);
+        }
+      }
+
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+
     let senderPhone: string | null = null;
     let messageText: string | null = null;
     let senderName: string | null = null;

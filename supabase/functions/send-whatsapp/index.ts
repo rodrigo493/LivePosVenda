@@ -172,6 +172,11 @@ Deno.serve(async (req) => {
       throw new Error(`Uazapi error [${sendRes.status}]: ${JSON.stringify(sendData)}`);
     }
 
+    // Save the Uazapi message ID so we can match delivery/read receipts later
+    const outboundMsgId: string | null =
+      sendData?.MessageID || sendData?.Id || sendData?.id || sendData?.messageId || null;
+    console.log("Uazapi send response:", JSON.stringify(sendData).slice(0, 200), "outboundMsgId:", outboundMsgId);
+
     const { error: insertErr } = await adminClient.from("whatsapp_messages").insert({
       client_id,
       ticket_id: ticket_id || null,
@@ -180,6 +185,7 @@ Deno.serve(async (req) => {
       media_url: outboundMediaUrl || null,
       sender_phone: cleanPhone,
       status: "sent",
+      manychat_message_id: outboundMsgId || null,
       instance_id: useInstanceId,
     });
 

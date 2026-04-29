@@ -384,11 +384,11 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
   // Realtime subscription
   useEffect(() => {
     if (!clientId) return;
+    const invalidate = () => qc.invalidateQueries({ queryKey: ["whatsapp-messages", clientId] });
     const channel = supabase
       .channel(`whatsapp-${clientId}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "whatsapp_messages", filter: `client_id=eq.${clientId}` }, () => {
-        qc.invalidateQueries({ queryKey: ["whatsapp-messages", clientId] });
-      })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "whatsapp_messages", filter: `client_id=eq.${clientId}` }, invalidate)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "whatsapp_messages", filter: `client_id=eq.${clientId}` }, invalidate)
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [clientId, qc]);
