@@ -91,6 +91,27 @@ Deno.serve(async (req) => {
     return jsonRes({ ticket_id: existingTicket.id, created: false, ticket: existingTicket });
   }
 
+  // Look up default pipeline (Funil de Vendas), stage (Novo Lead) and assignee (Renata Siqueira) in parallel
+  const [pipelineRes, renataRes] = await Promise.all([
+    (sbAdmin as any).from("pipelines").select("id").ilike("name", "%vendas%").limit(1).maybeSingle(),
+    (sbAdmin as any).from("profiles").select("user_id").ilike("full_name", "%Renata Siqueira%").limit(1).maybeSingle(),
+  ]);
+
+  const defaultPipelineId: string | null = pipelineRes.data?.id ?? null;
+  const defaultAssignedTo: string | null = renataRes.data?.user_id ?? null;
+
+  let defaultStageKey = "sem_atendimento";
+  if (defaultPipelineId) {
+    const stageRes = await (sbAdmin as any)
+      .from("pipeline_stages")
+      .select("key")
+      .eq("pipeline_id", defaultPipelineId)
+      .ilike("label", "%novo lead%")
+      .limit(1)
+      .maybeSingle();
+    if (stageRes.data?.key) defaultStageKey = stageRes.data.key;
+  }
+
   // Create the CRM card using service role (bypasses all RLS)
   const { data: ticket, error: ticketErr } = await (sbAdmin as any)
     .from("tickets")
@@ -99,7 +120,9 @@ Deno.serve(async (req) => {
       ticket_type: "chamado_tecnico",
       title: `Atendimento - ${resolvedClientName}`,
       ticket_number: "",
-      pipeline_stage: "sem_atendimento",
+      pipeline_id: defaultPipelineId,
+      pipeline_stage: defaultStageKey,
+      assigned_to: defaultAssignedTo,
       created_by: user.id,
     })
     .select(SELECT)

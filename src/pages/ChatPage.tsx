@@ -41,26 +41,38 @@ export default function ChatPage() {
   const clientParam = searchParams.get("client");
   const navigate = useNavigate();
 
-  const { data: clientTicket, refetch: refetchClientTicket } = useQuery({
-    queryKey: ["client-crm-ticket", selectedChat?.client_id],
+  const { data: clientCards } = useQuery({
+    queryKey: ["client-cards", selectedChat?.client_id],
     enabled: !!selectedChat?.client_id,
     queryFn: async () => {
       const { data } = await (supabase as any)
         .from("tickets")
-        .select("id")
+        .select("id, pipeline_id, service_requests(id), warranty_claims(id)")
         .eq("client_id", selectedChat!.client_id)
-        .not("pipeline_id", "is", null)
         .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      return data as { id: string } | null;
+        .limit(30);
+
+      if (!data) return { crmTicketId: null, paId: null, pgId: null };
+
+      let crmTicketId: string | null = null;
+      let paId: string | null = null;
+      let pgId: string | null = null;
+
+      for (const ticket of data) {
+        if (!crmTicketId && ticket.pipeline_id) crmTicketId = ticket.id;
+        if (!paId && (ticket.service_requests as any[])?.length > 0) paId = (ticket.service_requests as any[])[0].id;
+        if (!pgId && (ticket.warranty_claims as any[])?.length > 0) pgId = (ticket.warranty_claims as any[])[0].id;
+        if (crmTicketId && paId && pgId) break;
+      }
+
+      return { crmTicketId, paId, pgId };
     },
   });
 
   const handleCrmCard = async () => {
     if (!selectedChat) return;
-    if (clientTicket?.id) {
-      navigate(`/crm?open_ticket=${clientTicket.id}`);
+    if (clientCards?.crmTicketId) {
+      navigate(`/crm?open_ticket=${clientCards.crmTicketId}`);
       return;
     }
     setCreatingCard(true);
@@ -272,17 +284,43 @@ export default function ChatPage() {
                   <p className="text-xs text-muted-foreground">{selectedChat.client_phone}</p>
                 )}
               </div>
-              <Button
-                size="sm"
-                variant="outline"
-                className="shrink-0 gap-1.5 text-xs h-7 px-2.5"
-                onClick={handleCrmCard}
-                disabled={creatingCard}
-                title={clientTicket?.id ? "Abrir card no CRM" : "Criar card no CRM"}
-              >
-                <LayoutGrid className="h-3.5 w-3.5" />
-                {creatingCard ? "Abrindo..." : clientTicket?.id ? "Card" : "Novo card"}
-              </Button>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {clientCards?.pgId && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 text-xs h-7 px-2.5"
+                    onClick={() => navigate(`/pedidos-garantia/${clientCards.pgId}`)}
+                    title="Abrir Pedido de Garantia"
+                  >
+                    <LayoutGrid className="h-3.5 w-3.5" />
+                    PG
+                  </Button>
+                )}
+                {clientCards?.paId && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 text-xs h-7 px-2.5"
+                    onClick={() => navigate(`/pedidos-acessorios/${clientCards.paId}`)}
+                    title="Abrir Pedido de Acessórios"
+                  >
+                    <LayoutGrid className="h-3.5 w-3.5" />
+                    PA
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 text-xs h-7 px-2.5"
+                  onClick={handleCrmCard}
+                  disabled={creatingCard}
+                  title={clientCards?.crmTicketId ? "Abrir card no CRM" : "Criar card no CRM"}
+                >
+                  <LayoutGrid className="h-3.5 w-3.5" />
+                  {creatingCard ? "Abrindo..." : clientCards?.crmTicketId ? "Card" : "Novo card"}
+                </Button>
+              </div>
             </div>
             <div className="flex-1 overflow-hidden flex flex-col">
               <WhatsAppChat
