@@ -50,6 +50,9 @@ interface NomusProduct {
 
 // ─── Nomus Stock Hook ─────────────────────────────────────────────────────────
 
+// Flag módulo-level: sobrevive à navegação (não reseta ao desmontar o componente)
+let _nomusTriggered = false;
+
 // Fetch com retry automático em caso de 429 (rate limit do Nomus)
 async function nomusFetch(path: string): Promise<any | null> {
   for (let attempt = 0; attempt <= 2; attempt++) {
@@ -66,11 +69,20 @@ async function nomusFetch(path: string): Promise<any | null> {
   return null;
 }
 
-function useNomusStock(enabled: boolean) {
-  return useQuery<NomusProduct[]>({
+function useNomusStock() {
+  // Inicializa com o valor atual da flag — se já disparou antes de navegar, continua
+  const [triggered, setTriggered] = useState(_nomusTriggered);
+
+  const trigger = () => {
+    _nomusTriggered = true;
+    setTriggered(true);
+  };
+
+  const query = useQuery<NomusProduct[]>({
     queryKey: ["nomus-stock"],
-    enabled,
-    staleTime: 5 * 60_000,
+    enabled: triggered,
+    staleTime: 30 * 60_000,
+    gcTime: Infinity, // mantém cache mesmo sem observadores (navegação)
     retry: false,
     queryFn: async () => {
       // Fase 1: buscar todos os produtos ativos
@@ -112,14 +124,15 @@ function useNomusStock(enabled: boolean) {
       return products.sort((a, b) => b.saldoTotal - a.saldoTotal || a.descricao.localeCompare(b.descricao, "pt-BR"));
     },
   });
+
+  return { ...query, triggered, trigger };
 }
 
 // ─── Nomus Stock Table ────────────────────────────────────────────────────────
 
 function NomusStockTab() {
   const [search, setSearch] = useState("");
-  const [loaded, setLoaded] = useState(false);
-  const { data, isLoading, isError, error, refetch, isFetching } = useNomusStock(loaded);
+  const { data, isLoading, isError, error, refetch, isFetching, triggered, trigger } = useNomusStock();
 
   const filtered = (data || []).filter((p) => {
     if (!search.trim()) return true;
@@ -133,7 +146,7 @@ function NomusStockTab() {
   const totalSaldo = filtered.reduce((s, p) => s + p.saldoTotal, 0);
   const totalValor = filtered.reduce((s, p) => s + (p.custoTotal ?? 0), 0);
 
-  if (!loaded) {
+  if (!triggered) {
     return (
       <div className="flex flex-col items-center justify-center gap-4 py-24 text-center">
         <Package2 className="h-10 w-10 text-muted-foreground/40" />
@@ -143,7 +156,7 @@ function NomusStockTab() {
             Busca todos os produtos ativos com saldo e custo médio unitário em tempo real.
           </p>
         </div>
-        <Button onClick={() => setLoaded(true)} className="gap-2">
+        <Button onClick={trigger} className="gap-2">
           <RefreshCw className="h-4 w-4" />
           Carregar estoque
         </Button>
