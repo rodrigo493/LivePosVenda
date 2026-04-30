@@ -68,12 +68,71 @@ function parseNomusBR(v: string | number | null | undefined): number {
   return Number(String(v).replace(/\./g, "").replace(",", ".")) || 0;
 }
 
-// ─── Nomus Catalog Hook (sem fetch extra — deriva do cache nomus-stock) ───────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+// Fetch com retry + backoff exponencial em caso de 429
+async function nomusFetch(path: string): Promise<any | null> {
+  for (let attempt = 0; attempt <= 4; attempt++) {
+    const res = await fetch(`/api/nomus${path}`, { headers: { Accept: "application/json" } });
+    if (res.status === 429) {
+      const body = await res.json().catch(() => ({}));
+      const fromApi = Number(body.tempoAteLiberar) * 1000 || 0;
+      const backoff = Math.pow(2, attempt) * 2000; // 2s, 4s, 8s, 16s, 32s
+      await sleep(Math.max(fromApi, backoff));
+      continue;
+    }
+    if (!res.ok) return null;
+    return await res.json().catch(() => null);
+  }
+  return null;
+}
+
+// ─── Nomus Products Hook (fase 1 — lista rápida, auto-carrega) ────────────────
+
+// Busca só a lista de produtos (sem saldo). Rápido: apenas N páginas.
+function useNomusProducts() {
+  return useQuery<Map<string, number>>({
+    queryKey: ["nomus-products"],
+    staleTime: 30 * 60_000,
+    gcTime: Infinity,
+    retry: false,
+    queryFn: async () => {
+      const map = new Map<string, number>();
+      let page = 1;
+      while (page <= 50) {
+        if (page > 1) await sleep(500);
+        const data = await nomusFetch(`/rest/produtos?query=ativo=true&pagina=${page}`);
+        if (!Array.isArray(data) || data.length === 0) break;
+        for (const p of data) {
+          const codigo = String(p.codigo || "").trim();
+          if (codigo) map.set(codigo, Number(p.id));
+        }
+        if (data.length < 20) break;
+        page++;
+      }
+      return map;
+    },
+  });
+}
+
+// ─── Nomus Stock Hook (fase 2 — saldo + custo, trigger manual) ───────────────
+
+// Flag e callbacks módulo-level: sobrevivem à navegação
+let _nomusTriggered = false;
+const _nomusTriggerCbs = new Set<() => void>();
+
+function triggerNomusAll() {
+  _nomusTriggered = true;
+  _nomusTriggerCbs.forEach((fn) => fn());
+}
+
+// Hook que lê do cache nomus-stock sem disparar fetch (para catálogo)
 function useNomusCatalog() {
   return useQuery<NomusProduct[], Error, Map<string, NomusCatalogInfo>>({
     queryKey: ["nomus-stock"],
-    enabled: false, // nunca dispara fetch próprio — só consome cache existente
+    enabled: false,
     select: (data) => {
       const map = new Map<string, NomusCatalogInfo>();
       for (const p of data) {
@@ -90,33 +149,6 @@ function useNomusCatalog() {
   });
 }
 
-// ─── Nomus Stock Hook ─────────────────────────────────────────────────────────
-
-// Flag e callbacks módulo-level: sobrevivem à navegação
-let _nomusTriggered = false;
-const _nomusTriggerCbs = new Set<() => void>();
-
-function triggerNomusAll() {
-  _nomusTriggered = true;
-  _nomusTriggerCbs.forEach((fn) => fn());
-}
-
-// Fetch com retry automático em caso de 429 (rate limit do Nomus)
-async function nomusFetch(path: string): Promise<any | null> {
-  for (let attempt = 0; attempt <= 4; attempt++) {
-    const res = await fetch(`/api/nomus${path}`, { headers: { Accept: "application/json" } });
-    if (res.status === 429) {
-      const body = await res.json().catch(() => ({}));
-      const wait = (Number(body.tempoAteLiberar) || 5) * 1000;
-      await new Promise((r) => setTimeout(r, wait));
-      continue;
-    }
-    if (!res.ok) return null;
-    return await res.json().catch(() => null);
-  }
-  return null;
-}
-
 function useNomusStock() {
   const [triggered, setTriggered] = useState(_nomusTriggered);
 
@@ -131,15 +163,14 @@ function useNomusStock() {
     queryKey: ["nomus-stock"],
     enabled: triggered,
     staleTime: 30 * 60_000,
-    gcTime: Infinity, // mantém cache mesmo sem observadores (navegação)
+    gcTime: Infinity,
     retry: false,
     queryFn: async () => {
-      // Fase 1: buscar todos os produtos ativos (400ms entre páginas para não bater rate limit)
-      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+      // Fase 1: lista de produtos
       const allRaw: any[] = [];
       let page = 1;
-      while (page <= 30) {
-        if (page > 1) await sleep(400);
+      while (page <= 50) {
+        if (page > 1) await sleep(500);
         const data = await nomusFetch(`/rest/produtos?query=ativo=true&pagina=${page}`);
         if (!Array.isArray(data) || data.length === 0) break;
         allRaw.push(...data);
@@ -159,11 +190,10 @@ function useNomusStock() {
         saldoPorSetor: [],
       }));
 
-      // Fase 2: saldo por produto — filtra empresa 2, parseia números BR
+      // Fase 2: saldo — empresa 2, lotes de 2 com 500ms entre lotes
       const fetchSaldo = async (p: NomusProduct) => {
         const data = await nomusFetch(`/rest/saldosEstoqueProduto/${p.id}`);
         if (!Array.isArray(data)) return;
-        // Prefere empresa 2; fallback para primeira disponível
         const empresa = data.find((e: any) => Number(e.idEmpresa) === 2) ?? data[0];
         if (!empresa) return;
         p.custoMedioUnitario = empresa.custoMedioUnitario != null
@@ -177,9 +207,8 @@ function useNomusStock() {
         p.custoTotal = p.custoMedioUnitario != null ? p.custoMedioUnitario * p.saldoTotal : null;
       };
 
-      // Lotes de 2 com 300ms de pausa entre lotes para respeitar rate limit
       for (let i = 0; i < products.length; i += 2) {
-        if (i > 0) await sleep(300);
+        if (i > 0) await sleep(500);
         await Promise.all(products.slice(i, i + 2).map(fetchSaldo));
       }
 
@@ -371,8 +400,9 @@ function NomusStockTab() {
 
 const ProductsPage = () => {
   const { data: products, isLoading } = useProducts();
-  const nomusCatalog = useNomusCatalog();
-  const { trigger: triggerNomus } = useNomusStock();
+  const nomusProducts = useNomusProducts();   // IDs — auto-carrega, rápido
+  const nomusCatalog = useNomusCatalog();     // saldo+custo — só se nomus-stock já carregado
+  const { trigger: triggerNomus } = useNomusStock(); // trigger manual para fase completa
   const [selectedSetor, setSelectedSetor] = useState<number | null>(null);
 
   const setoresDisponiveis = useMemo(() => {
@@ -440,18 +470,19 @@ const ProductsPage = () => {
         action={
           view === "catalogo" ? (
             <div className="flex gap-2">
-              {!nomusCatalog.data ? (
+              {!nomusCatalog.data && (
                 <Button
                   size="sm"
                   variant="outline"
                   className="gap-1.5 text-blue-600 border-blue-200 hover:bg-blue-50"
                   onClick={triggerNomus}
-                  disabled={nomusCatalog.isLoading}
+                  disabled={_nomusTriggered}
                 >
                   <Package2 className="h-3.5 w-3.5" />
-                  {nomusCatalog.isLoading ? "Carregando Nomus..." : "Carregar Estoque Nomus"}
+                  {_nomusTriggered ? "Carregando estoque..." : "Carregar Estoque + Custo"}
                 </Button>
-              ) : setoresDisponiveis.length > 0 ? (
+              )}
+              {setoresDisponiveis.length > 0 && (
                 <select
                   value={selectedSetor ?? ""}
                   onChange={(e) => setSelectedSetor(e.target.value ? Number(e.target.value) : null)}
@@ -462,7 +493,7 @@ const ProductsPage = () => {
                     <option key={s.id} value={s.id}>{s.nome}</option>
                   ))}
                 </select>
-              ) : null}
+              )}
               <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setImportOpen(true)}>
                 <Upload className="h-3.5 w-3.5" /> Importar CSV
               </Button>
@@ -538,9 +569,14 @@ const ProductsPage = () => {
                   </thead>
                   <tbody>
                     {filtered.map((product) => {
+                      const code = product.code.trim();
+                      const secCode = product.secondary_code?.trim() ?? "";
+                      const nomusId =
+                        nomusProducts.data?.get(code) ??
+                        (secCode ? nomusProducts.data?.get(secCode) : undefined);
                       const nomusInfo =
-                        nomusCatalog.data?.get(product.code.trim()) ??
-                        (product.secondary_code ? nomusCatalog.data?.get(product.secondary_code.trim()) : undefined);
+                        nomusCatalog.data?.get(code) ??
+                        (secCode ? nomusCatalog.data?.get(secCode) : undefined);
                       const saldoSetor = nomusInfo
                         ? selectedSetor != null
                           ? (nomusInfo.saldoPorSetor.find((s) => s.idSetorEstoque === selectedSetor)?.saldo ?? 0)
@@ -585,9 +621,11 @@ const ProductsPage = () => {
                           )}
                         </td>
                         <td className="px-4 py-3">
-                          {nomusInfo != null ? (
+                          {nomusProducts.isLoading ? (
+                            <span className="text-muted-foreground text-xs animate-pulse">...</span>
+                          ) : (nomusId ?? nomusInfo?.id) != null ? (
                             <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-mono font-semibold bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
-                              #{nomusInfo.id}
+                              #{nomusId ?? nomusInfo?.id}
                             </span>
                           ) : (
                             <span className="text-muted-foreground text-xs">—</span>
