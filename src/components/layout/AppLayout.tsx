@@ -1,5 +1,6 @@
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/layout/AppSidebar";
+import { HeaderAlerts } from "@/components/layout/HeaderAlerts";
 import { Bell, Search, LogOut, Shield } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useWhatsAppRealtimeSync } from "@/hooks/useWhatsAppRealtimeSync";
@@ -31,27 +32,38 @@ export function AppLayout({ children }: AppLayoutProps) {
       <div className="min-h-screen flex w-full">
         <AppSidebar />
         <div className="flex-1 flex flex-col min-w-0">
-          <header className="h-14 flex items-center justify-between border-b px-4 bg-card/50 backdrop-blur-sm sticky top-0 z-10">
-            <div className="flex items-center gap-3">
-              <SidebarTrigger className="md:hidden" />
-              <div className="hidden md:flex items-center gap-2 bg-muted rounded-lg px-3 py-1.5">
-                <Search className="h-3.5 w-3.5 text-muted-foreground" />
+
+          {/* ── Header preto: left | center | right ── */}
+          <header className="h-14 flex items-center gap-3 border-b border-zinc-800 px-4 bg-black sticky top-0 z-10">
+
+            {/* Esquerda: trigger mobile + busca */}
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              <SidebarTrigger className="md:hidden text-zinc-400 hover:text-zinc-100 shrink-0" />
+              <div className="hidden md:flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 min-w-0">
+                <Search className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
                 <input
                   placeholder="Buscar chamados, clientes, equipamentos..."
-                  className="bg-transparent border-none outline-none text-sm w-64 placeholder:text-muted-foreground"
+                  className="bg-transparent border-none outline-none text-sm w-56 text-zinc-100 placeholder:text-zinc-600"
                 />
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              <button className="relative p-2 rounded-lg hover:bg-muted transition-colors">
-                <Bell className="h-4 w-4 text-muted-foreground" />
+
+            {/* Centro: pílulas de alerta */}
+            <div className="flex items-center gap-2 shrink-0">
+              <HeaderAlerts />
+            </div>
+
+            {/* Direita: sino + avatar */}
+            <div className="flex items-center gap-3 flex-1 justify-end">
+              <button className="relative p-2 rounded-lg hover:bg-zinc-800 transition-colors">
+                <Bell className="h-4 w-4 text-zinc-400" />
                 <span className="absolute top-1.5 right-1.5 h-2 w-2 bg-primary rounded-full" />
               </button>
 
               <Popover>
                 <PopoverTrigger asChild>
-                  <button className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center hover:bg-primary/20 transition-colors">
-                    <span className="text-xs font-medium text-primary">{initials}</span>
+                  <button className="h-8 w-8 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center hover:bg-zinc-700 transition-colors shrink-0">
+                    <span className="text-xs font-medium text-orange-400">{initials}</span>
                   </button>
                 </PopoverTrigger>
                 <PopoverContent align="end" className="w-64 p-0">
@@ -89,6 +101,7 @@ export function AppLayout({ children }: AppLayoutProps) {
               </Popover>
             </div>
           </header>
+
           <main className="flex-1 p-4 md:p-6 overflow-auto">
             {children}
           </main>

@@ -12,6 +12,7 @@ import {
   TrendingUp,
   ChevronDown,
   CalendarClock,
+  MessageSquare,
 } from "lucide-react";
 import {
   DndContext,
@@ -372,65 +373,65 @@ const CrmPipelinePage = () => {
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
     const source = dragSourceRef.current;
+    dragSourceRef.current = null;
 
     if (!over || !source) {
       setActiveId(null);
       setColumns(grouped);
-      dragSourceRef.current = null;
       return;
     }
 
-    setColumns((currentColumns) => {
-      const ticketId = active.id as string;
-      const overId = over.id as string;
+    const ticketId = active.id as string;
+    const overId = over.id as string;
 
-      // Where is the card NOW? (dragOver may have already moved it)
-      const currentContainer = findContainer(currentColumns, ticketId);
-      if (!currentContainer) {
-        dragSourceRef.current = null;
-        setTimeout(() => setActiveId(null), 0);
-        return grouped;
-      }
+    // Read columns directly from closure — accurate because handleDragOver
+    // triggers a re-render (updating columns) before pointerup fires handleDragEnd.
+    const currentContainer = findContainer(columns, ticketId);
+    if (!currentContainer) {
+      setTimeout(() => setActiveId(null), 0);
+      setColumns(grouped);
+      return;
+    }
 
-      let finalColumns = currentColumns;
-      let targetStage = currentContainer;
-      const items = currentColumns[currentContainer];
-      let position = items.findIndex((t: any) => t.id === ticketId) + 1; // 1-indexed
+    let finalColumns = columns;
+    let targetStage = currentContainer;
+    const items = columns[currentContainer];
+    let position = items.findIndex((t: any) => t.id === ticketId) + 1; // 1-indexed
 
-      // Handle same-container reorder (only if over is another card in the same container)
-      if (!stageKeySet.has(overId) && overId !== ticketId) {
-        const overContainer = findContainer(currentColumns, overId);
-        if (overContainer === currentContainer) {
-          const oldIndex = items.findIndex((t: any) => t.id === ticketId);
-          const newIndex = items.findIndex((t: any) => t.id === overId);
-          if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
-            const reordered = arrayMove(items, oldIndex, newIndex);
-            finalColumns = { ...currentColumns, [currentContainer]: reordered };
-            position = newIndex + 1;
-          }
+    // Handle same-container reorder (only if over is another card in the same container)
+    if (!stageKeySet.has(overId) && overId !== ticketId) {
+      const overContainer = findContainer(columns, overId);
+      if (overContainer === currentContainer) {
+        const oldIndex = items.findIndex((t: any) => t.id === ticketId);
+        const newIndex = items.findIndex((t: any) => t.id === overId);
+        if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
+          const reordered = arrayMove(items, oldIndex, newIndex);
+          finalColumns = { ...columns, [currentContainer]: reordered };
+          position = newIndex + 1;
         }
       }
+    }
 
-      // Check if anything actually changed from original
-      const stageChanged = targetStage !== source.stage;
-      const positionChanged = position !== source.index + 1;
+    const stageChanged = targetStage !== source.stage;
+    const positionChanged = position !== source.index + 1;
 
-      if (stageChanged || positionChanged) {
-        isMutatingRef.current = true;
-        moveStage.mutate(
-          { id: ticketId, stage: targetStage, position, pipelineId: currentPipeline?.id ?? "" },
-          {
-            onSuccess: () => toast.success("Pipeline atualizado"),
-            onSettled: () => { isMutatingRef.current = false; },
-          }
-        );
-      }
+    // Fire mutation OUTSIDE any state setter — calling mutate() inside a state
+    // updater function violates React's pure-updater rule and triggers the ErrorBoundary
+    // because React Query's internal dispatch() runs during the render phase.
+    if (stageChanged || positionChanged) {
+      isMutatingRef.current = true;
+      moveStage.mutate(
+        { id: ticketId, stage: targetStage, position, pipelineId: currentPipeline?.id ?? "" },
+        {
+          onSuccess: () => toast.success("Pipeline atualizado"),
+          onSettled: () => { isMutatingRef.current = false; },
+        }
+      );
+    }
 
-      dragSourceRef.current = null;
-      setTimeout(() => setActiveId(null), 0);
-      return finalColumns;
-    });
-  }, [grouped, moveStage, stageKeySet, currentPipeline]);
+    setColumns(finalColumns);
+    setTimeout(() => setActiveId(null), 0);
+  }, [columns, grouped, moveStage, stageKeySet, currentPipeline]);
 
   const cardCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -587,6 +588,13 @@ const CrmPipelinePage = () => {
           />
         </div>
         <div className="flex items-center gap-1.5 flex-wrap justify-end">
+          <Button
+            size="sm"
+            className="gap-1.5 h-8 bg-[#25D366] hover:bg-[#1ebe5d] text-white border-0 font-semibold"
+            onClick={() => navigate("/chat")}
+          >
+            <MessageSquare className="h-3.5 w-3.5" /> WhatsApp
+          </Button>
           <Button size="sm" className="gap-1.5 h-8" onClick={() => setClientDialog(true)}>
             <UserPlus className="h-3.5 w-3.5" /> Novo Cliente
           </Button>

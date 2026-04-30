@@ -7,6 +7,7 @@ export interface Conversation {
   client_phone: string | null;
   last_message: string;
   last_message_at: string;
+  last_message_direction: "inbound" | "outbound";
   unread_count: number;
 }
 
@@ -41,6 +42,7 @@ export function useWhatsAppConversations() {
             client_phone: client?.whatsapp || client?.phone || null,
             last_message: msg.message_text,
             last_message_at: msg.created_at,
+            last_message_direction: (msg.direction as "inbound" | "outbound") ?? "outbound",
             unread_count: isUnread ? 1 : 0,
           });
         } else if (isUnread) {
@@ -66,6 +68,7 @@ export function useWhatsAppConversations() {
             existing.client_id = conv.client_id;
             existing.last_message = conv.last_message;
             existing.last_message_at = conv.last_message_at;
+            existing.last_message_direction = conv.last_message_direction;
           }
         }
       }
