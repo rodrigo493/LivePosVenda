@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Box, Plus, Upload, Search, RefreshCw, Package2, AlertTriangle } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -48,28 +48,17 @@ interface NomusProduct {
   custoTotal: number | null;
 }
 
-// ─── Nomus Catalog Hook (leve — só lista de produtos, sem saldo) ──────────────
+// ─── Nomus Catalog Hook (sem fetch extra — deriva do cache nomus-stock) ───────
 
 function useNomusCatalog() {
-  return useQuery<Map<string, number>>({
-    queryKey: ["nomus-catalog-ids"],
-    staleTime: 30 * 60_000,
-    gcTime: Infinity,
-    retry: false,
-    queryFn: async () => {
-      const allRaw: any[] = [];
-      let page = 1;
-      while (page <= 50) {
-        const data = await nomusFetch(`/rest/produtos?query=ativo=true&pagina=${page}`);
-        if (!Array.isArray(data) || data.length === 0) break;
-        allRaw.push(...data);
-        if (data.length < 20) break;
-        page++;
-      }
+  return useQuery<NomusProduct[], Error, Map<string, number>>({
+    queryKey: ["nomus-stock"],
+    enabled: false, // nunca dispara fetch próprio — só consome cache existente
+    select: (data) => {
       const map = new Map<string, number>();
-      for (const p of allRaw) {
-        const codigo = String(p.codigo || "").trim();
-        if (codigo) map.set(codigo, Number(p.id));
+      for (const p of data) {
+        const codigo = p.codigo.trim();
+        if (codigo) map.set(codigo, p.id);
       }
       return map;
     },
@@ -78,8 +67,14 @@ function useNomusCatalog() {
 
 // ─── Nomus Stock Hook ─────────────────────────────────────────────────────────
 
-// Flag módulo-level: sobrevive à navegação (não reseta ao desmontar o componente)
+// Flag e callbacks módulo-level: sobrevivem à navegação
 let _nomusTriggered = false;
+const _nomusTriggerCbs = new Set<() => void>();
+
+function triggerNomusAll() {
+  _nomusTriggered = true;
+  _nomusTriggerCbs.forEach((fn) => fn());
+}
 
 // Fetch com retry automático em caso de 429 (rate limit do Nomus)
 async function nomusFetch(path: string): Promise<any | null> {
@@ -98,13 +93,14 @@ async function nomusFetch(path: string): Promise<any | null> {
 }
 
 function useNomusStock() {
-  // Inicializa com o valor atual da flag — se já disparou antes de navegar, continua
   const [triggered, setTriggered] = useState(_nomusTriggered);
 
-  const trigger = () => {
-    _nomusTriggered = true;
-    setTriggered(true);
-  };
+  useEffect(() => {
+    _nomusTriggerCbs.add(setTriggered);
+    return () => { _nomusTriggerCbs.delete(setTriggered); };
+  }, []);
+
+  const trigger = triggerNomusAll;
 
   const query = useQuery<NomusProduct[]>({
     queryKey: ["nomus-stock"],
@@ -390,6 +386,17 @@ const ProductsPage = () => {
         action={
           view === "catalogo" ? (
             <div className="flex gap-2">
+              {!nomusCatalog.data && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 text-blue-600 border-blue-200 hover:bg-blue-50"
+                  onClick={triggerNomusAll}
+                >
+                  <Package2 className="h-3.5 w-3.5" />
+                  {nomusCatalog.isLoading ? "Carregando IDs..." : "Carregar IDs Nomus"}
+                </Button>
+              )}
               <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setImportOpen(true)}>
                 <Upload className="h-3.5 w-3.5" /> Importar CSV
               </Button>
