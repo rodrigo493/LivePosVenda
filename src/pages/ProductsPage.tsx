@@ -368,6 +368,7 @@ function NomusStockTab() {
 const ProductsPage = () => {
   const { data: products, isLoading } = useProducts();
   const nomusCatalog = useNomusCatalog();
+  const { trigger: triggerNomus } = useNomusStock();
   const [selectedSetor, setSelectedSetor] = useState<number | null>(null);
 
   const setoresDisponiveis = useMemo(() => {
@@ -440,7 +441,7 @@ const ProductsPage = () => {
                   size="sm"
                   variant="outline"
                   className="gap-1.5 text-blue-600 border-blue-200 hover:bg-blue-50"
-                  onClick={triggerNomusAll}
+                  onClick={triggerNomus}
                   disabled={nomusCatalog.isLoading}
                 >
                   <Package2 className="h-3.5 w-3.5" />
