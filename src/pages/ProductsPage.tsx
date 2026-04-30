@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Box, Plus, Upload, Search, RefreshCw, Package2, AlertTriangle } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,12 @@ const productFields = [
 
 // ─── Nomus Types ─────────────────────────────────────────────────────────────
 
+interface NomusSectorStock {
+  idSetorEstoque: number;
+  nomeSetorEstoque: string;
+  saldo: number;
+}
+
 interface NomusProduct {
   id: number;
   codigo: string;
@@ -46,19 +52,38 @@ interface NomusProduct {
   saldoTotal: number;
   custoMedioUnitario: number | null;
   custoTotal: number | null;
+  saldoPorSetor: NomusSectorStock[];
+}
+
+interface NomusCatalogInfo {
+  id: number;
+  custoMedioUnitario: number | null;
+  saldoTotal: number;
+  saldoPorSetor: NomusSectorStock[];
+}
+
+// Converte números no formato BR ("14,65" / "-6,00") para number
+function parseNomusBR(v: string | number | null | undefined): number {
+  if (v == null) return 0;
+  return Number(String(v).replace(/\./g, "").replace(",", ".")) || 0;
 }
 
 // ─── Nomus Catalog Hook (sem fetch extra — deriva do cache nomus-stock) ───────
 
 function useNomusCatalog() {
-  return useQuery<NomusProduct[], Error, Map<string, number>>({
+  return useQuery<NomusProduct[], Error, Map<string, NomusCatalogInfo>>({
     queryKey: ["nomus-stock"],
     enabled: false, // nunca dispara fetch próprio — só consome cache existente
     select: (data) => {
-      const map = new Map<string, number>();
+      const map = new Map<string, NomusCatalogInfo>();
       for (const p of data) {
         const codigo = p.codigo.trim();
-        if (codigo) map.set(codigo, p.id);
+        if (codigo) map.set(codigo, {
+          id: p.id,
+          custoMedioUnitario: p.custoMedioUnitario,
+          saldoTotal: p.saldoTotal,
+          saldoPorSetor: p.saldoPorSetor ?? [],
+        });
       }
       return map;
     },
@@ -129,16 +154,25 @@ function useNomusStock() {
         saldoTotal: 0,
         custoMedioUnitario: null,
         custoTotal: null,
+        saldoPorSetor: [],
       }));
 
-      // Fase 2: buscar saldo por produto em lotes de 5
-      // saldosEstoqueProduto retorna: [{idEmpresa, saldos:[{saldo: "N"}]}]
+      // Fase 2: saldo por produto — filtra empresa 2, parseia números BR
       const fetchSaldo = async (p: NomusProduct) => {
         const data = await nomusFetch(`/rest/saldosEstoqueProduto/${p.id}`);
         if (!Array.isArray(data)) return;
-        p.saldoTotal = data
-          .flatMap((e: any) => e.saldos || [])
-          .reduce((sum: number, s: any) => sum + (Number(s.saldo) || 0), 0);
+        // Prefere empresa 2; fallback para primeira disponível
+        const empresa = data.find((e: any) => Number(e.idEmpresa) === 2) ?? data[0];
+        if (!empresa) return;
+        p.custoMedioUnitario = empresa.custoMedioUnitario != null
+          ? parseNomusBR(empresa.custoMedioUnitario) : null;
+        p.saldoPorSetor = (empresa.saldos || []).map((s: any): NomusSectorStock => ({
+          idSetorEstoque: Number(s.idSetorEstoque),
+          nomeSetorEstoque: String(s.nomeSetorEstoque || ""),
+          saldo: parseNomusBR(s.saldo),
+        }));
+        p.saldoTotal = p.saldoPorSetor.reduce((sum, s) => sum + s.saldo, 0);
+        p.custoTotal = p.custoMedioUnitario != null ? p.custoMedioUnitario * p.saldoTotal : null;
       };
 
       for (let i = 0; i < products.length; i += 5) {
@@ -334,6 +368,21 @@ function NomusStockTab() {
 const ProductsPage = () => {
   const { data: products, isLoading } = useProducts();
   const nomusCatalog = useNomusCatalog();
+  const [selectedSetor, setSelectedSetor] = useState<number | null>(null);
+
+  const setoresDisponiveis = useMemo(() => {
+    if (!nomusCatalog.data) return [];
+    const map = new Map<number, string>();
+    for (const info of nomusCatalog.data.values()) {
+      for (const s of info.saldoPorSetor) {
+        if (!map.has(s.idSetorEstoque)) map.set(s.idSetorEstoque, s.nomeSetorEstoque);
+      }
+    }
+    return Array.from(map.entries())
+      .map(([id, nome]) => ({ id, nome }))
+      .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  }, [nomusCatalog.data]);
+
   const createProduct = useCreateProduct();
   const updateProduct = useUpdateProduct();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -386,17 +435,29 @@ const ProductsPage = () => {
         action={
           view === "catalogo" ? (
             <div className="flex gap-2">
-              {!nomusCatalog.data && (
+              {!nomusCatalog.data ? (
                 <Button
                   size="sm"
                   variant="outline"
                   className="gap-1.5 text-blue-600 border-blue-200 hover:bg-blue-50"
                   onClick={triggerNomusAll}
+                  disabled={nomusCatalog.isLoading}
                 >
                   <Package2 className="h-3.5 w-3.5" />
-                  {nomusCatalog.isLoading ? "Carregando IDs..." : "Carregar IDs Nomus"}
+                  {nomusCatalog.isLoading ? "Carregando Nomus..." : "Carregar Estoque Nomus"}
                 </Button>
-              )}
+              ) : setoresDisponiveis.length > 0 ? (
+                <select
+                  value={selectedSetor ?? ""}
+                  onChange={(e) => setSelectedSetor(e.target.value ? Number(e.target.value) : null)}
+                  className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                >
+                  <option value="">Todos os setores</option>
+                  {setoresDisponiveis.map((s) => (
+                    <option key={s.id} value={s.id}>{s.nome}</option>
+                  ))}
+                </select>
+              ) : null}
               <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setImportOpen(true)}>
                 <Upload className="h-3.5 w-3.5" /> Importar CSV
               </Button>
@@ -460,7 +521,7 @@ const ProductsPage = () => {
                 <table className="w-full">
                   <thead>
                     <tr className="border-b bg-muted/50">
-                      {["Código", "Nome", "Categoria", "Compatibilidade", "Custo Base", "Preço Sugerido", "Margem", "Status", "ID Nomus", ""].map((h) => (
+                      {["Código", "Nome", "Categoria", "Custo Base", "Preço Sugerido", "Margem", "Status", "Estoque Nomus", "Custo Médio", "ID Nomus", ""].map((h) => (
                         <th
                           key={h}
                           className="text-left text-[11px] uppercase tracking-wider text-muted-foreground font-medium px-4 py-3"
@@ -472,9 +533,14 @@ const ProductsPage = () => {
                   </thead>
                   <tbody>
                     {filtered.map((product) => {
-                      const nomusId =
+                      const nomusInfo =
                         nomusCatalog.data?.get(product.code.trim()) ??
                         (product.secondary_code ? nomusCatalog.data?.get(product.secondary_code.trim()) : undefined);
+                      const saldoSetor = nomusInfo
+                        ? selectedSetor != null
+                          ? (nomusInfo.saldoPorSetor.find((s) => s.idSetorEstoque === selectedSetor)?.saldo ?? 0)
+                          : nomusInfo.saldoTotal
+                        : null;
                       return (
                       <tr
                         key={product.id}
@@ -483,7 +549,6 @@ const ProductsPage = () => {
                         <td className="px-4 py-3 text-sm font-mono">{product.code}</td>
                         <td className="px-4 py-3 text-sm font-medium">{product.name}</td>
                         <td className="px-4 py-3 text-sm">{product.category || "—"}</td>
-                        <td className="px-4 py-3 text-sm">{product.compatibility || "—"}</td>
                         <td className="px-4 py-3 text-sm font-mono">
                           R$ {Number(product.base_cost).toFixed(2)}
                         </td>
@@ -497,9 +562,27 @@ const ProductsPage = () => {
                         <td className="px-4 py-3">
                           {nomusCatalog.isLoading ? (
                             <span className="text-muted-foreground text-xs animate-pulse">...</span>
-                          ) : nomusId != null ? (
+                          ) : saldoSetor != null ? (
+                            <span className={`text-sm font-mono font-semibold ${saldoSetor > 0 ? "text-emerald-600" : saldoSetor < 0 ? "text-red-500" : "text-muted-foreground"}`}>
+                              {saldoSetor.toLocaleString("pt-BR", { maximumFractionDigits: 3 })}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-sm font-mono">
+                          {nomusCatalog.isLoading ? (
+                            <span className="text-muted-foreground text-xs animate-pulse">...</span>
+                          ) : nomusInfo?.custoMedioUnitario != null ? (
+                            `R$ ${nomusInfo.custoMedioUnitario.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                          ) : (
+                            <span className="text-muted-foreground text-xs">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          {nomusInfo != null ? (
                             <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-mono font-semibold bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
-                              #{nomusId}
+                              #{nomusInfo.id}
                             </span>
                           ) : (
                             <span className="text-muted-foreground text-xs">—</span>
