@@ -41,10 +41,14 @@ type RdConfig = {
   last_import_at: string | null;
   last_webhook_at: string | null;
   import_stats: {
+    status?: string;
     total_deals?: number;
     total_contacts?: number;
-    total_comments?: number;
+    total_tasks?: number;
+    total_activities?: number;
     imported_at?: string;
+    started_at?: string;
+    error?: string;
   } | null;
   webhook_secret: string | null;
 };
@@ -200,21 +204,19 @@ export default function RdStationPage() {
       if (res.error) {
         throw new Error(res.error.message);
       }
-      const stats = res.data as {
-        ok: boolean;
-        error?: string;
-        total_deals: number;
-        total_contacts: number;
-        total_comments: number;
-      };
-      if (!stats?.ok) {
-        throw new Error(stats?.error || "Erro desconhecido na função");
+      const data = res.data as { ok: boolean; error?: string; message?: string };
+      if (!data?.ok) {
+        throw new Error(data?.error || "Erro desconhecido na função");
       }
       toast.success(
-        `Import concluído: ${stats.total_deals} deals, ${stats.total_contacts} contatos, ${stats.total_comments} anotações.`,
+        data.message ?? "Importação iniciada. Os resultados aparecerão em Última importação.",
         { duration: 8000 },
       );
+      // Revalida a cada 10s para exibir o progresso quando terminar
       qc.invalidateQueries({ queryKey: ["rd_integration_config"] });
+      setTimeout(() => qc.invalidateQueries({ queryKey: ["rd_integration_config"] }), 10000);
+      setTimeout(() => qc.invalidateQueries({ queryKey: ["rd_integration_config"] }), 30000);
+      setTimeout(() => qc.invalidateQueries({ queryKey: ["rd_integration_config"] }), 60000);
     } catch (e) {
       toast.error(`Erro no import: ${String(e)}`);
     } finally {
@@ -409,13 +411,22 @@ export default function RdStationPage() {
           </div>
           {config.import_stats && (
             <div className="col-span-2 bg-muted/50 rounded p-2 text-xs space-y-0.5">
-              <p>Deals: {config.import_stats.total_deals ?? 0}</p>
-              <p>Contatos: {config.import_stats.total_contacts ?? 0}</p>
-              <p>Anotações: {config.import_stats.total_comments ?? 0}</p>
-              {config.import_stats.imported_at && (
-                <p className="text-muted-foreground">
-                  em {fmtDate(config.import_stats.imported_at)}
-                </p>
+              {config.import_stats.status === "running" ? (
+                <p className="text-yellow-400 font-medium">⏳ Importação em andamento…</p>
+              ) : config.import_stats.status === "error" ? (
+                <p className="text-red-400 font-medium">❌ Erro: {config.import_stats.error}</p>
+              ) : (
+                <>
+                  <p>Negociações: {config.import_stats.total_deals ?? 0}</p>
+                  <p>Contatos: {config.import_stats.total_contacts ?? 0}</p>
+                  <p>Tarefas: {config.import_stats.total_tasks ?? 0}</p>
+                  <p>Anotações: {config.import_stats.total_activities ?? 0}</p>
+                  {config.import_stats.imported_at && (
+                    <p className="text-muted-foreground">
+                      em {fmtDate(config.import_stats.imported_at)}
+                    </p>
+                  )}
+                </>
               )}
             </div>
           )}

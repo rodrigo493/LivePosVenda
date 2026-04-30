@@ -124,50 +124,103 @@ function findStageKey(
 
 async function importContacts(token: string): Promise<number> {
   let count = 0;
-  let nextPage: string | null = null;
+  let page = 1;
 
-  do {
-    const params: Record<string, string> = { limit: "200" };
-    if (nextPage) params.page = nextPage;
-
-    const resp = await rdGet("/contacts", token, params) as {
-      contacts: Record<string, unknown>[];
-      has_more: boolean;
-      next_page?: string;
+  while (true) {
+    const resp = await rdGet("/contacts", token, { limit: "200", page: String(page) }) as {
+      contacts?: Record<string, unknown>[];
+      has_more?: boolean;
     };
 
-    for (const contact of resp.contacts ?? []) {
-      if (!contact.id) continue;
-      try {
+    const contacts = resp.contacts ?? [];
+    if (contacts.length === 0) break;
+
+    // Batch upsert — uma única chamada para a página inteira
+    const batch = contacts
+      .filter((c) => !!c.id)
+      .map((contact) => {
         const emails = (contact.emails as { email: string }[] | undefined) ?? [];
         const phones = (contact.phones as { phone: string; whatsapp_url_web?: string }[] | undefined) ?? [];
         const email = emails[0]?.email ?? null;
         const rawPhone = phones[0]?.phone ?? null;
         const phone = rawPhone ? rawPhone.replace(/\D/g, "") : null;
         const whatsapp = phones.find((p) => p.whatsapp_url_web)?.phone ?? null;
+        return {
+          rd_contact_id: contact.id as string,
+          name: (contact.name as string) || "Contato RD Station",
+          email: email ?? null,
+          phone: phone ?? null,
+          whatsapp: whatsapp ?? null,
+          status: "ativo",
+        };
+      });
 
-        await admin.from("clients").upsert(
-          {
-            rd_contact_id: contact.id as string,
-            name: (contact.name as string) || "Contato RD Station",
-            email: email ?? null,
-            phone: phone ?? null,
-            whatsapp: whatsapp ?? null,
-            status: "ativo",
-          },
-          { onConflict: "rd_contact_id" },
-        );
-        count++;
-      } catch (e) {
-        console.error(`import contact ${contact.id} failed:`, e);
-      }
+    if (batch.length > 0) {
+      const { error } = await admin.from("clients").upsert(batch, { onConflict: "rd_contact_id" });
+      if (error) console.error(`importContacts page ${page} batch failed:`, error.message);
+      else count += batch.length;
     }
 
-    await new Promise((r) => setTimeout(r, 300));
-    nextPage = resp.has_more ? (resp.next_page ?? null) : null;
-  } while (nextPage);
+    if (!resp.has_more || contacts.length < 200) break;
+    page++;
+    await new Promise((r) => setTimeout(r, 150));
+  }
 
   return count;
+}
+
+// Carrega todos os clientes em maps para matching local (zero queries durante o loop de deals)
+async function buildClientMaps(): Promise<{
+  byRdId: Map<string, string>;
+  byEmail: Map<string, string>;
+  byPhone: Map<string, string>;
+}> {
+  const byRdId = new Map<string, string>();
+  const byEmail = new Map<string, string>();
+  const byPhone = new Map<string, string>();
+
+  // Busca em páginas para cobrir bases grandes
+  let offset = 0;
+  while (true) {
+    const { data: clients } = await admin
+      .from("clients")
+      .select("id, email, phone, rd_contact_id")
+      .range(offset, offset + 999);
+    if (!clients || clients.length === 0) break;
+    for (const c of clients) {
+      if (c.rd_contact_id) byRdId.set(c.rd_contact_id, c.id);
+      if (c.email) byEmail.set(c.email.toLowerCase(), c.id);
+      if (c.phone) {
+        const p = c.phone.replace(/\D/g, "");
+        if (p.length >= 8) byPhone.set(p.slice(-8), c.id);
+      }
+    }
+    if (clients.length < 1000) break;
+    offset += 1000;
+  }
+  console.log(`rd-import: client maps built — rdId=${byRdId.size}, email=${byEmail.size}, phone=${byPhone.size}`);
+  return { byRdId, byEmail, byPhone };
+}
+
+function resolveClientFromContacts(
+  contacts: Record<string, unknown>[],
+  maps: { byRdId: Map<string, string>; byEmail: Map<string, string>; byPhone: Map<string, string> },
+): string | null {
+  for (const contact of contacts) {
+    const rdId = contact.id as string | null;
+    if (rdId && maps.byRdId.has(rdId)) return maps.byRdId.get(rdId)!;
+
+    const emails = (contact.emails as { email: string }[] | undefined) ?? [];
+    const email = emails[0]?.email?.toLowerCase() ?? null;
+    if (email && maps.byEmail.has(email)) return maps.byEmail.get(email)!;
+
+    const phones = (contact.phones as { phone: string }[] | undefined) ?? [];
+    const phone = phones[0]?.phone?.replace(/\D/g, "") ?? null;
+    if (phone && phone.length >= 8 && maps.byPhone.has(phone.slice(-8))) {
+      return maps.byPhone.get(phone.slice(-8))!;
+    }
+  }
+  return null;
 }
 
 async function importDeals(
@@ -175,7 +228,6 @@ async function importDeals(
   rdPipelineId: string | null,
   emailToAuthId: Map<string, string>,
 ): Promise<{ count: number; stage_mismatches: string[] }> {
-  // Use "Funil de Vendas" pipeline, fallback to first available
   const { data: salesPipeline } = await admin
     .from("pipelines")
     .select("id")
@@ -188,159 +240,264 @@ async function importDeals(
     : { data: null };
 
   const pipeline = salesPipeline ?? firstPipeline;
+  if (!pipeline?.id) return { count: 0, stage_mismatches: [] };
 
-  const { data: stages } = pipeline?.id
-    ? await admin
-        .from("pipeline_stages")
-        .select("key, label, position")
-        .eq("pipeline_id", pipeline.id)
-        .order("position", { ascending: true })
-    : { data: [] };
+  const { data: stages } = await admin
+    .from("pipeline_stages")
+    .select("key, label, position")
+    .eq("pipeline_id", pipeline.id)
+    .order("position", { ascending: true });
 
   const stageMap = new Map((stages ?? []).map((s) => [normalizeStr(s.label), s.key]));
   const firstStageKey = stages?.[0]?.key ?? null;
   const stagesArr = stages ?? [];
   console.log("rd-import: stageMap:", [...stageMap.keys()]);
 
+  // Pré-carrega todos os clientes em memória — elimina queries por deal
+  const clientMaps = await buildClientMaps();
+
   const stageMismatches: string[] = [];
-
+  const pageLog: { page: number; fetched: number; upserted: number; has_more: boolean; error?: string }[] = [];
   let totalCount = 0;
-  let nextPage: string | null = null;
-  let pageNum = 0;
+  let page = 1;
 
-  do {
-    pageNum++;
-    const params: Record<string, string> = { limit: "200" };
+  while (true) {
+    const params: Record<string, string> = { limit: "200", page: String(page) };
     if (rdPipelineId) params.deal_pipeline_id = rdPipelineId;
-    if (nextPage) params.page = nextPage;
 
     const resp = await rdGet("/deals", token, params) as {
-      deals: Record<string, unknown>[];
-      has_more: boolean;
-      next_page?: string;
+      deals?: Record<string, unknown>[];
+      has_more?: boolean;
     };
 
-    console.log(`rd-import: page ${pageNum}, ${resp.deals?.length ?? 0} deals, has_more=${resp.has_more}`);
+    const deals = resp.deals ?? [];
+    console.log(`rd-import deals: page ${page}, ${deals.length} deals, has_more=${resp.has_more}`);
+    if (deals.length === 0) break;
 
-    for (const deal of resp.deals ?? []) {
+    // Monta batch completo da página — sem queries individuais
+    const batch: Record<string, unknown>[] = [];
+
+    for (const deal of deals) {
+      const rdDealId = (deal._id ?? deal.id) as string;
+      if (!rdDealId) continue;
+
+      const rawStageName = (deal.deal_stage as { name?: string } | null)?.name ?? null;
+      const stageKey = findStageKey(rawStageName, stageMap, stagesArr) ?? firstStageKey;
+      if (rawStageName && stageKey === firstStageKey && findStageKey(rawStageName, stageMap, stagesArr) === null) {
+        stageMismatches.push(rawStageName);
+      }
+
+      const userEmail = (deal.user as { email?: string } | null)?.email ?? null;
+      const assignedTo = userEmail ? (emailToAuthId.get(userEmail.toLowerCase()) ?? null) : null;
+
+      const contacts = (deal.contacts as Record<string, unknown>[] | undefined) ?? [];
+      const clientId = resolveClientFromContacts(contacts, clientMaps);
+
+      let status = "aberto";
+      if (deal.win === true) status = "fechado";
+      else if (deal.win === false) status = "cancelado";
+      else if (deal.hold === true) status = "pausado";
+
+      const payload: Record<string, unknown> = {
+        rd_deal_id: rdDealId,
+        title: (deal.name as string) || "Negociação sem título",
+        ticket_type: "negociacao",
+        status,
+        estimated_value: Number(deal.amount_total ?? 0),
+        pipeline_id: pipeline.id,
+        pipeline_stage: stageKey ?? firstStageKey ?? "sem_atendimento",
+        assigned_to: assignedTo,
+        ticket_number: `RD-${rdDealId}`,
+        origin: "rd_station",
+        channel: "rd_station",
+        created_at: (deal.created_at as string) || new Date().toISOString(),
+      };
+      if (clientId) payload.client_id = clientId;
+
+      batch.push(payload);
+    }
+
+    // Upsert em lote — todos os deals da página numa única chamada
+    let { error: batchErr } = await admin.from("tickets")
+      .upsert(batch, { onConflict: "rd_deal_id" });
+
+    // Se algum assigned_to inválido, retry zerando todos
+    if (batchErr?.message?.includes("assigned_to_fkey")) {
+      const { error: err2 } = await admin.from("tickets")
+        .upsert(batch.map((p) => ({ ...p, assigned_to: null })), { onConflict: "rd_deal_id" });
+      batchErr = err2 ?? null;
+    }
+
+    if (batchErr) {
+      console.error(`rd-import deals page ${page} failed:`, batchErr.message);
+      pageLog.push({ page, fetched: deals.length, upserted: 0, has_more: resp.has_more ?? false, error: batchErr.message });
+    } else {
+      totalCount += batch.length;
+      pageLog.push({ page, fetched: deals.length, upserted: batch.length, has_more: resp.has_more ?? false });
+    }
+
+    if (!resp.has_more || deals.length < 200) break;
+    page++;
+    await new Promise((r) => setTimeout(r, 150));
+  }
+
+  if (stageMismatches.length > 0) {
+    console.warn("rd-import: stage mismatches:", [...new Set(stageMismatches)]);
+  }
+
+  return { count: totalCount, stage_mismatches: [...new Set(stageMismatches)], pageLog } as { count: number; stage_mismatches: string[]; pageLog: typeof pageLog };
+}
+
+async function importTasks(token: string): Promise<number> {
+  let count = 0;
+  let page = 1;
+
+  while (true) {
+    const resp = await rdGet("/tasks", token, { limit: "200", page: String(page) }) as {
+      tasks?: Record<string, unknown>[];
+      has_more?: boolean;
+    };
+
+    for (const task of resp.tasks ?? []) {
       try {
-        const rdDealId = deal._id as string;
-        const rawStageName = (deal.deal_stage as { name?: string } | null)?.name ?? null;
-        const stageKey = findStageKey(rawStageName, stageMap, stagesArr) ?? firstStageKey;
+        const rdTaskId = (task.id ?? task._id) as string | null;
+        if (!rdTaskId) continue;
 
-        // Log estágios que não encontraram match para diagnóstico
-        if (rawStageName && stageKey === firstStageKey && findStageKey(rawStageName, stageMap, stagesArr) === null) {
-          stageMismatches.push(rawStageName);
-          console.warn(`rd-import: stage sem match "${rawStageName}" → usando primeira etapa`);
-        }
+        // deal pode vir como objeto { _id } ou como campo direto deal_id
+        const rdDealId = (
+          (task.deal as { _id?: string; id?: string } | null)?._id ??
+          (task.deal as { _id?: string; id?: string } | null)?.id ??
+          (task.deal_id as string | null) ??
+          null
+        );
 
-        const userEmail = (deal.user as { email?: string } | null)?.email ?? null;
-        const contacts = (deal.contacts as Record<string, unknown>[] | undefined) ?? [];
-
-        // case-insensitive email lookup
-        const assignedTo = userEmail ? (emailToAuthId.get(userEmail.toLowerCase()) ?? null) : null;
-        if (userEmail && !assignedTo) {
-          console.warn(`rd-import: usuário não encontrado em auth.users: ${userEmail}`);
-        }
-
+        let ticketId: string | null = null;
         let clientId: string | null = null;
-        for (const contact of contacts) {
-          const emails = (contact.emails as { email: string }[] | undefined) ?? [];
-          const phones = (contact.phones as { phone: string }[] | undefined) ?? [];
-          const email = emails[0]?.email ?? null;
-          const phone = phones[0]?.phone?.replace(/\D/g, "") ?? null;
-
-          if (email) {
-            const { data } = await admin.from("clients").select("id").eq("email", email).limit(1).maybeSingle();
-            if (data) { clientId = data.id; break; }
-          }
-          if (phone && phone.length >= 8) {
-            const { data } = await admin
-              .from("clients")
-              .select("id")
-              .ilike("phone", `%${phone.slice(-8)}`)
-              .limit(1)
-              .maybeSingle();
-            if (data) { clientId = data.id; break; }
-          }
-          const whatsapp = (contact.phones as { phone: string; whatsapp_url_web?: string }[] | undefined)
-            ?.find((p) => p.whatsapp_url_web)?.phone ?? null;
-          const { data: newClient } = await admin
-            .from("clients")
-            .upsert(
-              {
-                name: (contact.name as string) || "Contato RD Station",
-                email: email ?? null,
-                phone: phone ?? null,
-                whatsapp: whatsapp ?? null,
-                rd_contact_id: (contact.id as string) ?? null,
-                status: "ativo",
-              },
-              { onConflict: "rd_contact_id" },
-            )
-            .select("id")
+        if (rdDealId) {
+          const { data: ticket } = await admin
+            .from("tickets")
+            .select("id, client_id")
+            .eq("rd_deal_id", rdDealId)
             .maybeSingle();
-          if (newClient) { clientId = newClient.id; break; }
+          if (ticket) { ticketId = ticket.id; clientId = ticket.client_id; }
         }
 
-        if (!pipeline?.id) {
-          await logSync("import", "deal", rdDealId, null, "skipped", "no_pipeline");
-          continue;
-        }
+        // RD CRM usa due_date; versão mais antiga usa date
+        const rawDue = (task.due_date ?? task.date ?? null) as string | null;
+        const dueDate = rawDue ? rawDue.slice(0, 10) : null;
+        const dueTime = rawDue && rawDue.length > 10 ? rawDue.slice(11, 16) : null;
 
-        let status = "aberto";
-        if (deal.win === true) status = "fechado";
-        else if (deal.win === false) status = "cancelado";
-        else if (deal.hold === true) status = "pausado";
+        // status: "open"/"done" (novo) ou situation: "pending"/"done" (legado)
+        const rdStatus = (task.status ?? task.situation ?? "open") as string;
+        const status = rdStatus === "done" || rdStatus === "closed" ? "concluida" : "pendente";
 
-        const payload: Record<string, unknown> = {
+        const taskPayload: Record<string, unknown> = {
+          rd_task_id: rdTaskId,
           rd_deal_id: rdDealId,
-          title: (deal.name as string) || "Negociação sem título",
-          ticket_type: "negociacao",
+          title: (task.name ?? task.subject ?? "Tarefa RD") as string,
+          description: (task.description ?? null) as string | null,
           status,
-          estimated_value: Number(deal.amount_total ?? 0),
-          pipeline_id: pipeline.id,
-          pipeline_stage: stageKey ?? firstStageKey ?? "sem_atendimento",
-          assigned_to: assignedTo,
-          ticket_number: `RD-${rdDealId}`,
-          origin: "rd_station",
-          channel: "rd_station",
-          created_at: (deal.created_at as string) || new Date().toISOString(),
+          due_date: dueDate,
+          due_time: dueTime,
+          assigned_to: null,
+          updated_at: new Date().toISOString(),
         };
+        if (ticketId) taskPayload.ticket_id = ticketId;
+        if (clientId) taskPayload.client_id = clientId;
 
-        if (clientId) payload.client_id = clientId;
-
-        let { error: upsertErr } = await admin.from("tickets").upsert(payload, { onConflict: "rd_deal_id" });
-
-        if (upsertErr?.message?.includes("assigned_to_fkey")) {
-          const { error: retryErr } = await admin.from("tickets").upsert(
-            { ...payload, assigned_to: null },
-            { onConflict: "rd_deal_id" },
-          );
-          upsertErr = retryErr ?? null;
-        }
-
-        if (upsertErr) throw new Error(upsertErr.message);
-
-        totalCount++;
-        await logSync("import", "deal", rdDealId, null, "success", null);
+        const { error } = await (admin as any)
+          .from("tasks")
+          .upsert(taskPayload, { onConflict: "rd_task_id" });
+        if (error) throw new Error(error.message);
+        count++;
       } catch (e) {
-        const rdDealId = deal._id as string;
-        await logSync("import", "deal", rdDealId, null, "error", String(e));
-        console.error(`import deal ${rdDealId} failed:`, e);
+        console.error(`import task ${task.id ?? task._id} failed:`, e);
+        await logSync("import", "task", String(task.id ?? task._id ?? "?"), null, "error", String(e));
       }
     }
 
-    await new Promise((r) => setTimeout(r, 300));
-    nextPage = resp.has_more ? (resp.next_page ?? null) : null;
-  } while (nextPage);
-
-  if (stageMismatches.length > 0) {
-    const uniq = [...new Set(stageMismatches)];
-    console.warn("rd-import: stage mismatches (foram para primeira etapa):", uniq);
+    if (!resp.has_more || (resp.tasks ?? []).length < 200) break;
+    page++;
+    await new Promise((r) => setTimeout(r, 150));
   }
 
-  return { count: totalCount, stage_mismatches: [...new Set(stageMismatches)] };
+  return count;
+}
+
+async function importActivities(token: string): Promise<number> {
+  let count = 0;
+  let page = 1;
+
+  while (true) {
+    const resp = await rdGet("/activities", token, { limit: "200", page: String(page) }) as {
+      activities?: Record<string, unknown>[];
+      has_more?: boolean;
+    };
+
+    for (const act of resp.activities ?? []) {
+      try {
+        const rdActivityId = (act.id ?? act._id) as string | null;
+        if (!rdActivityId) continue;
+
+        const text = (act.text ?? act.notes ?? act.content ?? "") as string;
+        if (!text.trim()) continue;
+
+        const rdDealId = (
+          (act.deal as { _id?: string; id?: string } | null)?._id ??
+          (act.deal as { _id?: string; id?: string } | null)?.id ??
+          (act.deal_id as string | null) ??
+          null
+        );
+
+        let clientId: string | null = null;
+        let ticketId: string | null = null;
+        if (rdDealId) {
+          const { data: ticket } = await admin
+            .from("tickets")
+            .select("id, client_id")
+            .eq("rd_deal_id", rdDealId)
+            .maybeSingle();
+          if (ticket) { ticketId = ticket.id; clientId = ticket.client_id; }
+        }
+
+        // client_service_history exige client_id NOT NULL
+        if (!clientId) {
+          await logSync("import", "activity", rdActivityId, null, "skipped", "no_client");
+          continue;
+        }
+
+        const serviceDate = (act.created_at ?? act.date ?? new Date().toISOString()) as string;
+
+        const { error } = await (admin as any)
+          .from("client_service_history")
+          .upsert(
+            {
+              rd_activity_id: rdActivityId,
+              client_id: clientId,
+              service_date: serviceDate,
+              problem_reported: text,
+              history_notes: ticketId
+                ? `[ticket:${ticketId}] [rd_activity:${rdActivityId}]`
+                : `[rd_activity:${rdActivityId}]`,
+              service_status: "em_andamento",
+            },
+            { onConflict: "rd_activity_id" },
+          );
+
+        if (error) throw new Error(error.message);
+        count++;
+      } catch (e) {
+        console.error(`import activity ${act.id ?? act._id} failed:`, e);
+        await logSync("import", "activity", String(act.id ?? act._id ?? "?"), null, "error", String(e));
+      }
+    }
+
+    if (!resp.has_more || (resp.activities ?? []).length < 200) break;
+    page++;
+    await new Promise((r) => setTimeout(r, 150));
+  }
+
+  return count;
 }
 
 Deno.serve(async (req) => {
@@ -408,10 +565,10 @@ Deno.serve(async (req) => {
 
     const token = config.api_token as string;
     const rdPipelineId = config.rd_pipeline_id as string | null;
+    const configId = config.id as string;
 
     console.log("rd-import: starting import, skip_contacts=", skipContacts);
 
-    // Build user email→id map before import
     const emailToAuthId = await buildEmailToAuthIdMap();
 
     let totalContacts = 0;
@@ -420,13 +577,19 @@ Deno.serve(async (req) => {
       console.log(`rd-import: ${totalContacts} contacts imported`);
     }
 
-    const { count: totalDeals, stage_mismatches } = await importDeals(token, rdPipelineId, emailToAuthId);
+    const { count: totalDeals, stage_mismatches, pageLog } = await importDeals(token, rdPipelineId, emailToAuthId);
     console.log(`rd-import: ${totalDeals} deals imported`);
 
+    // Tasks e activities importados separadamente para não afetar o timeout do import de deals
+    const totalTasks = 0;
+    const totalActivities = 0;
+
     const importStats = {
+      status: "done",
       total_deals: totalDeals,
       total_contacts: totalContacts,
-      total_comments: 0,
+      total_tasks: totalTasks,
+      total_activities: totalActivities,
       imported_at: new Date().toISOString(),
       stage_mismatches,
     };
@@ -434,9 +597,9 @@ Deno.serve(async (req) => {
     await admin.from("rd_integration_config").update({
       last_import_at: new Date().toISOString(),
       import_stats: importStats,
-    }).eq("id", config.id);
+    }).eq("id", configId);
 
-    return new Response(JSON.stringify({ ok: true, ...importStats }), {
+    return new Response(JSON.stringify({ ok: true, ...importStats, pageLog }), {
       status: 200,
       headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
     });

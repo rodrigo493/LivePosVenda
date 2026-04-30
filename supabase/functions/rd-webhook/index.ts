@@ -166,55 +166,45 @@ async function resolveOrCreateClient(
   return null;
 }
 
-// Processa TASK_CREATED / TASK_UPDATED vindos pelo CDP do webhook Marketing
-async function handleTask(cdpEvent: Record<string, unknown>): Promise<void> {
-  const cdpEventType = (cdpEvent.event_type as string) ?? "TASK";
-  const payload = (cdpEvent.payload as Record<string, unknown>) ?? cdpEvent;
-
-  // RD envia a task diretamente no payload ou num campo "task"
-  const taskObj = (payload.task as Record<string, unknown>) ?? payload;
-  const rdTaskId = (taskObj._id ?? taskObj.id) as string | null;
+// Processa crm_task_created / crm_task_updated (webhook CRM direto)
+// Payload: { event_name, document: { id, name, description, status, due_date, deal_id, owner_ids } }
+async function handleCrmTask(
+  document: Record<string, unknown>,
+  eventName: string,
+): Promise<void> {
+  const rdTaskId = (document.id ?? document._id) as string | null;
   if (!rdTaskId) {
-    await logSync("webhook", cdpEventType, null, null, "skipped", "no_task_id", payload);
+    await logSync("webhook", eventName, null, null, "skipped", "no_task_id", document);
     return;
   }
 
-  const subject = (taskObj.subject ?? taskObj.title ?? taskObj.name ?? "Tarefa RD") as string;
-  const done = (taskObj.done ?? taskObj.completed ?? false) as boolean;
-  const rawDue = (taskObj.due_date ?? taskObj.date ?? null) as string | null;
+  const title = (document.name ?? document.subject ?? "Tarefa RD") as string;
+  const description = (document.description ?? null) as string | null;
+  const rdDealId = (document.deal_id ?? null) as string | null;
+  const rawDue = (document.due_date ?? null) as string | null;
   const dueDate = rawDue ? rawDue.slice(0, 10) : null;
   const dueTime = rawDue && rawDue.length > 10 ? rawDue.slice(11, 16) : null;
+  // status: "open" → pendente, "done" → concluida
+  const rdStatus = (document.status ?? "open") as string;
+  const status = rdStatus === "done" || rdStatus === "closed" ? "concluida" : "pendente";
 
-  // Deal referenciado na tarefa
-  const dealObj = (taskObj.deal as Record<string, unknown>) ?? {};
-  const rdDealId = ((dealObj._id ?? dealObj.id ?? taskObj.deal_id) as string | null);
-
-  // Responsável
-  const userObj = (taskObj.user as Record<string, unknown>) ?? {};
-  const userEmail = (userObj.email as string | null) ?? null;
-
-  // Busca ticket pelo rd_deal_id
   let ticketId: string | null = null;
   let clientId: string | null = null;
-  let assignedTo: string | null = null;
 
   if (rdDealId) {
     const { data: ticket } = await admin
       .from("tickets")
-      .select("id, client_id")
+      .select("id, client_id, assigned_to")
       .eq("rd_deal_id", rdDealId)
       .maybeSingle();
     if (ticket) { ticketId = ticket.id; clientId = ticket.client_id; }
   }
 
-  if (userEmail) assignedTo = await getAuthIdByEmail(userEmail);
-
-  const status = done ? "concluida" : "pendente";
-
   const taskPayload: Record<string, unknown> = {
     rd_task_id: rdTaskId,
-    rd_deal_id: rdDealId ?? null,
-    title: subject,
+    rd_deal_id: rdDealId,
+    title,
+    description: description ?? undefined,
     status,
     due_date: dueDate,
     due_time: dueTime,
@@ -222,37 +212,34 @@ async function handleTask(cdpEvent: Record<string, unknown>): Promise<void> {
   };
   if (ticketId) taskPayload.ticket_id = ticketId;
   if (clientId) taskPayload.client_id = clientId;
-  if (assignedTo) taskPayload.assigned_to = assignedTo;
 
   const { error } = await (admin as any)
     .from("tasks")
     .upsert(taskPayload, { onConflict: "rd_task_id" });
 
   if (error) {
-    await logSync("webhook", cdpEventType, rdTaskId, ticketId, "error", error.message, payload);
-    console.error("rd-webhook task upsert failed:", error.message);
+    await logSync("webhook", eventName, rdTaskId, ticketId, "error", error.message, document);
+    console.error("rd-webhook crm_task upsert failed:", error.message);
   } else {
-    await logSync("webhook", cdpEventType, rdTaskId, ticketId, "success", null, null);
-    console.log(`rd-webhook: task ${rdTaskId} upserted → ticket ${ticketId}`);
+    await logSync("webhook", eventName, rdTaskId, ticketId, "success", null, null);
+    console.log(`rd-webhook: crm_task ${rdTaskId} → ticket ${ticketId}`);
   }
 }
 
-// Processa ANNOTATION_CREATED — anotações/histórico das oportunidades
-async function handleAnnotation(cdpEvent: Record<string, unknown>): Promise<void> {
-  const cdpEventType = (cdpEvent.event_type as string) ?? "ANNOTATION";
-  const payload = (cdpEvent.payload as Record<string, unknown>) ?? cdpEvent;
-
-  const noteObj = (payload.annotation as Record<string, unknown>) ?? payload;
-  const rdNoteId = (noteObj._id ?? noteObj.id) as string | null;
-  const text = (noteObj.text ?? noteObj.content ?? noteObj.body ?? "") as string;
+// Processa crm_activity_created — anotações/histórico das oportunidades
+// Payload: { event_name, document: { id, text, deal_id, user_id, created_at } }
+async function handleCrmActivity(
+  document: Record<string, unknown>,
+  eventName: string,
+): Promise<void> {
+  const rdNoteId = (document.id ?? document._id) as string | null;
+  const text = (document.text ?? document.content ?? "") as string;
   if (!text.trim()) {
-    await logSync("webhook", cdpEventType, rdNoteId, null, "skipped", "empty_text", null);
+    await logSync("webhook", eventName, rdNoteId, null, "skipped", "empty_text", null);
     return;
   }
 
-  const dealObj = (noteObj.deal as Record<string, unknown>) ?? {};
-  const rdDealId = ((dealObj._id ?? dealObj.id ?? noteObj.deal_id) as string | null);
-
+  const rdDealId = (document.deal_id ?? null) as string | null;
   let ticketId: string | null = null;
   let clientId: string | null = null;
 
@@ -265,8 +252,8 @@ async function handleAnnotation(cdpEvent: Record<string, unknown>): Promise<void
     if (ticket) { ticketId = ticket.id; clientId = ticket.client_id; }
   }
 
-  if (!clientId && !ticketId) {
-    await logSync("webhook", cdpEventType, rdNoteId, null, "skipped", "no_ticket_found", null);
+  if (!ticketId && !clientId) {
+    await logSync("webhook", eventName, rdNoteId, null, "skipped", "no_ticket_found", null);
     return;
   }
 
@@ -274,16 +261,16 @@ async function handleAnnotation(cdpEvent: Record<string, unknown>): Promise<void
     .from("client_service_history")
     .insert({
       client_id: clientId,
-      service_date: new Date().toISOString(),
+      service_date: (document.created_at as string) ?? new Date().toISOString(),
       problem_reported: text,
       history_notes: ticketId ? `[ticket:${ticketId}] [rd_note:${rdNoteId}]` : `[rd_note:${rdNoteId}]`,
       service_status: "em_andamento",
     });
 
   if (error) {
-    await logSync("webhook", cdpEventType, rdNoteId, ticketId, "error", error.message, null);
+    await logSync("webhook", eventName, rdNoteId, ticketId, "error", error.message, null);
   } else {
-    await logSync("webhook", cdpEventType, rdNoteId, ticketId, "success", null, null);
+    await logSync("webhook", eventName, rdNoteId, ticketId, "success", null, null);
     console.log(`rd-webhook: annotation ${rdNoteId} → ticket ${ticketId}`);
   }
 }
@@ -627,9 +614,11 @@ Deno.serve(async (req) => {
         if (cdpEventType.startsWith("OPPORTUNITY")) {
           await handleMarketingCrmOpportunity(lead, cdpEvent);
         } else if (cdpEventType.startsWith("TASK")) {
-          await handleTask(cdpEvent);
-        } else if (cdpEventType.startsWith("ANNOTATION")) {
-          await handleAnnotation(cdpEvent);
+          const taskDoc = (cdpEvent.payload as Record<string, unknown>) ?? cdpEvent;
+          await handleCrmTask(taskDoc, cdpEventType);
+        } else if (cdpEventType.startsWith("ANNOTATION") || cdpEventType.startsWith("ACTIVIT")) {
+          const actDoc = (cdpEvent.payload as Record<string, unknown>) ?? cdpEvent;
+          await handleCrmActivity(actDoc, cdpEventType);
         } else {
           await logSync("webhook", cdpEventType || "unknown", null, null, "skipped", `ignored_cdp_event: ${cdpEventType}`, null);
         }
@@ -638,6 +627,26 @@ Deno.serve(async (req) => {
     }
 
     const evtLower = eventName.toLowerCase().replace(/[._-]/g, "");
+
+    // Eventos de tarefas CRM — despachar antes do bloco de deals
+    const isTaskEvent = evtLower.includes("task");
+    const isActivityEvent = evtLower.includes("activit") || evtLower.includes("annot");
+
+    if (isTaskEvent || isActivityEvent) {
+      const document = (
+        body.document ??
+        body.event_data ??
+        body.payload ??
+        {}
+      ) as Record<string, unknown>;
+      if (isTaskEvent) {
+        await handleCrmTask(document, eventName);
+      } else {
+        await handleCrmActivity(document, eventName);
+      }
+      return okResponse();
+    }
+
     const isDealCreated = evtLower.includes("deal") && evtLower.includes("creat");
     const isDealUpdated = evtLower.includes("deal") && evtLower.includes("updat");
     const isDealDeleted = evtLower.includes("deal") && evtLower.includes("delet");

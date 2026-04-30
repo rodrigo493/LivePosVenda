@@ -36,7 +36,7 @@ const productFields = [
   { name: "technical_notes", label: "Observações Técnicas", type: "textarea" as const },
 ];
 
-// ─── Nomus Stock Types ────────────────────────────────────────────────────────
+// ─── Nomus Types ─────────────────────────────────────────────────────────────
 
 interface NomusProduct {
   id: number;
@@ -46,6 +46,34 @@ interface NomusProduct {
   saldoTotal: number;
   custoMedioUnitario: number | null;
   custoTotal: number | null;
+}
+
+// ─── Nomus Catalog Hook (leve — só lista de produtos, sem saldo) ──────────────
+
+function useNomusCatalog() {
+  return useQuery<Map<string, number>>({
+    queryKey: ["nomus-catalog-ids"],
+    staleTime: 30 * 60_000,
+    gcTime: Infinity,
+    retry: false,
+    queryFn: async () => {
+      const allRaw: any[] = [];
+      let page = 1;
+      while (page <= 50) {
+        const data = await nomusFetch(`/rest/produtos?query=ativo=true&pagina=${page}`);
+        if (!Array.isArray(data) || data.length === 0) break;
+        allRaw.push(...data);
+        if (data.length < 20) break;
+        page++;
+      }
+      const map = new Map<string, number>();
+      for (const p of allRaw) {
+        const codigo = String(p.codigo || "").trim();
+        if (codigo) map.set(codigo, Number(p.id));
+      }
+      return map;
+    },
+  });
 }
 
 // ─── Nomus Stock Hook ─────────────────────────────────────────────────────────
@@ -309,6 +337,7 @@ function NomusStockTab() {
 
 const ProductsPage = () => {
   const { data: products, isLoading } = useProducts();
+  const nomusCatalog = useNomusCatalog();
   const createProduct = useCreateProduct();
   const updateProduct = useUpdateProduct();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -424,7 +453,7 @@ const ProductsPage = () => {
                 <table className="w-full">
                   <thead>
                     <tr className="border-b bg-muted/50">
-                      {["Código", "Nome", "Categoria", "Compatibilidade", "Custo Base", "Preço Sugerido", "Margem", "Status", ""].map((h) => (
+                      {["Código", "Nome", "Categoria", "Compatibilidade", "Custo Base", "Preço Sugerido", "Margem", "Status", "ID Nomus", ""].map((h) => (
                         <th
                           key={h}
                           className="text-left text-[11px] uppercase tracking-wider text-muted-foreground font-medium px-4 py-3"
@@ -435,7 +464,11 @@ const ProductsPage = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {filtered.map((product) => (
+                    {filtered.map((product) => {
+                      const nomusId =
+                        nomusCatalog.data?.get(product.code.trim()) ??
+                        (product.secondary_code ? nomusCatalog.data?.get(product.secondary_code.trim()) : undefined);
+                      return (
                       <tr
                         key={product.id}
                         className="border-b last:border-0 hover:bg-muted/30 transition-colors"
@@ -455,6 +488,17 @@ const ProductsPage = () => {
                           <StatusBadge status={product.status} />
                         </td>
                         <td className="px-4 py-3">
+                          {nomusCatalog.isLoading ? (
+                            <span className="text-muted-foreground text-xs animate-pulse">...</span>
+                          ) : nomusId != null ? (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-mono font-semibold bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
+                              #{nomusId}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
                           <Button
                             variant="outline"
                             size="sm"
@@ -465,7 +509,8 @@ const ProductsPage = () => {
                           </Button>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
