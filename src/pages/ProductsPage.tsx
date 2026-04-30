@@ -103,7 +103,7 @@ function triggerNomusAll() {
 
 // Fetch com retry automático em caso de 429 (rate limit do Nomus)
 async function nomusFetch(path: string): Promise<any | null> {
-  for (let attempt = 0; attempt <= 2; attempt++) {
+  for (let attempt = 0; attempt <= 4; attempt++) {
     const res = await fetch(`/api/nomus${path}`, { headers: { Accept: "application/json" } });
     if (res.status === 429) {
       const body = await res.json().catch(() => ({}));
@@ -134,10 +134,12 @@ function useNomusStock() {
     gcTime: Infinity, // mantém cache mesmo sem observadores (navegação)
     retry: false,
     queryFn: async () => {
-      // Fase 1: buscar todos os produtos ativos
+      // Fase 1: buscar todos os produtos ativos (400ms entre páginas para não bater rate limit)
+      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
       const allRaw: any[] = [];
       let page = 1;
       while (page <= 30) {
+        if (page > 1) await sleep(400);
         const data = await nomusFetch(`/rest/produtos?query=ativo=true&pagina=${page}`);
         if (!Array.isArray(data) || data.length === 0) break;
         allRaw.push(...data);
@@ -175,8 +177,10 @@ function useNomusStock() {
         p.custoTotal = p.custoMedioUnitario != null ? p.custoMedioUnitario * p.saldoTotal : null;
       };
 
-      for (let i = 0; i < products.length; i += 5) {
-        await Promise.all(products.slice(i, i + 5).map(fetchSaldo));
+      // Lotes de 2 com 300ms de pausa entre lotes para respeitar rate limit
+      for (let i = 0; i < products.length; i += 2) {
+        if (i > 0) await sleep(300);
+        await Promise.all(products.slice(i, i + 2).map(fetchSaldo));
       }
 
       return products.sort((a, b) => b.saldoTotal - a.saldoTotal || a.descricao.localeCompare(b.descricao, "pt-BR"));
