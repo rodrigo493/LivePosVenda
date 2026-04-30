@@ -49,6 +49,7 @@ type RdConfig = {
     imported_at?: string;
     started_at?: string;
     error?: string;
+    stage_mismatches?: string[];
   } | null;
   webhook_secret: string | null;
 };
@@ -167,16 +168,22 @@ export default function RdStationPage() {
         body: { token },
       });
       if (res.error) throw new Error(res.error.message);
-      const data = res.data as { ok: boolean; status?: number; pipeline?: { id: string; name: string } | null };
+      const data = res.data as {
+        ok: boolean;
+        status?: number;
+        pipeline?: { id: string; name: string } | null;
+        pipelines?: { id: string; name: string }[];
+        total_deals?: number | null;
+      };
       if (data.ok) {
-        if (data.pipeline?.id && !config?.rd_pipeline_id) {
-          await saveMutation.mutateAsync({ rdPipelineId: data.pipeline.id });
-          toast.success(
-            `Conexão OK! Pipeline detectado: ${data.pipeline.name} (${data.pipeline.id})`,
-          );
-        } else {
-          toast.success("Conexão com RD Station OK!");
-        }
+        const pipelineNames = (data.pipelines ?? (data.pipeline ? [data.pipeline] : []))
+          .map((p) => p.name)
+          .join(", ");
+        const dealInfo = data.total_deals != null ? ` · ${data.total_deals} negociações no RD` : "";
+        toast.success(
+          `Conexão OK! ${pipelineNames ? `Pipelines: ${pipelineNames}` : "Sem pipelines detectados"}${dealInfo}`,
+          { duration: 8000 },
+        );
       } else {
         toast.error(`Falha na conexão: HTTP ${data.status ?? "?"} — verifique o token.`);
       }
@@ -417,10 +424,15 @@ export default function RdStationPage() {
                 <p className="text-red-400 font-medium">❌ Erro: {config.import_stats.error}</p>
               ) : (
                 <>
-                  <p>Negociações: {config.import_stats.total_deals ?? 0}</p>
+                  <p>Negociações importadas: <strong>{config.import_stats.total_deals ?? 0}</strong></p>
                   <p>Contatos: {config.import_stats.total_contacts ?? 0}</p>
                   <p>Tarefas: {config.import_stats.total_tasks ?? 0}</p>
                   <p>Anotações: {config.import_stats.total_activities ?? 0}</p>
+                  {(config.import_stats.stage_mismatches?.length ?? 0) > 0 && (
+                    <p className="text-amber-500 mt-1">
+                      ⚠ Etapas sem correspondência ({config.import_stats.stage_mismatches!.length}): {config.import_stats.stage_mismatches!.join(", ")}
+                    </p>
+                  )}
                   {config.import_stats.imported_at && (
                     <p className="text-muted-foreground">
                       em {fmtDate(config.import_stats.imported_at)}

@@ -225,7 +225,7 @@ function resolveClientFromContacts(
 
 async function importDeals(
   token: string,
-  rdPipelineId: string | null,
+  _rdPipelineId: string | null,
   emailToAuthId: Map<string, string>,
 ): Promise<{ count: number; stage_mismatches: string[] }> {
   const { data: salesPipeline } = await admin
@@ -262,8 +262,8 @@ async function importDeals(
   let page = 1;
 
   while (true) {
+    // Sem filtro de pipeline — importa deals de TODOS os pipelines do RD Station
     const params: Record<string, string> = { limit: "200", page: String(page) };
-    if (rdPipelineId) params.deal_pipeline_id = rdPipelineId;
 
     const resp = await rdGet("/deals", token, params) as {
       deals?: Record<string, unknown>[];
