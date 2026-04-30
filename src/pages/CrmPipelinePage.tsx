@@ -56,7 +56,7 @@ import { useWhatsAppConversations } from "@/hooks/useWhatsAppConversations";
 import { useAuth } from "@/hooks/useAuth";
 import { useCreateClient } from "@/hooks/useClients";
 import { useCreateTicket } from "@/hooks/useTickets";
-import { useEquipments } from "@/hooks/useEquipments";
+import { useEquipments, useEquipmentModels } from "@/hooks/useEquipments";
 import { useAllUsers } from "@/hooks/useUserAccess";
 import { CrudDialog } from "@/components/shared/CrudDialog";
 import { TaskCreateDialog } from "@/components/tasks/TaskCreateDialog";
@@ -148,6 +148,7 @@ const CrmPipelinePage = () => {
   const createClient = useCreateClient();
   const createTicket = useCreateTicket();
   const { data: equipments } = useEquipments();
+  const { data: equipmentModels } = useEquipmentModels();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [taskCreate, setTaskCreate] = useState<{ open: boolean; ticketId?: string; clientId?: string }>({ open: false });
   const [clientDialog, setClientDialog] = useState(false);
@@ -923,15 +924,11 @@ const CrmPipelinePage = () => {
             options: stages.map((s) => ({ value: s.key, label: s.label })),
           },
           {
-            name: "equipment_id",
+            name: "model_id",
             label: "Equipamento",
             type: "select" as const,
             required: true,
-            options:
-              equipments?.map((e: any) => ({
-                value: e.id,
-                label: e.equipment_models?.name || "Equipamento",
-              })) || [],
+            options: equipmentModels?.map((m: any) => ({ value: m.id, label: m.name })) || [],
           },
           { name: "serial_number", label: "Número de Série", placeholder: "Ex: RF-2024-00001" },
           { name: "title", label: "Título do Atendimento", placeholder: "Descrição breve do atendimento" },
@@ -942,9 +939,9 @@ const CrmPipelinePage = () => {
           { name: "notes", label: "Observações", type: "textarea" as const },
         ]}
         onSubmit={async (values) => {
-          const { pipeline_stage, equipment_id, title, serial_number, ...clientData } = values;
+          const { pipeline_stage, model_id, title, serial_number, ...clientData } = values;
 
-          if (!equipment_id) {
+          if (!model_id) {
             toast.error("Selecione um equipamento para criar o card no pipeline");
             return;
           }
@@ -977,9 +974,16 @@ const CrmPipelinePage = () => {
             client = await createClient.mutateAsync({ ...clientData, created_by: user?.id } as any);
           }
 
+          const { data: newEquipment, error: eqError } = await supabase
+            .from("equipments")
+            .insert({ model_id, client_id: client.id, serial_number: serial_number || "" })
+            .select("*, equipment_models(name)")
+            .single();
+          if (eqError) throw eqError;
+
           const newTicket = await createTicket.mutateAsync({
             client_id: client.id,
-            equipment_id,
+            equipment_id: newEquipment.id,
             ticket_type: "chamado_tecnico",
             title: title || `Atendimento - ${clientData.name}`,
             ticket_number: "",
@@ -989,17 +993,14 @@ const CrmPipelinePage = () => {
           } as any);
 
           await qc.refetchQueries({ queryKey: ["pipeline-tickets"] });
+          await qc.invalidateQueries({ queryKey: ["equipments"] });
           toast.success(client.name === clientData.name ? "Card adicionado ao pipeline" : `Card vinculado ao cliente existente: ${client.name}`);
-
-          if (serial_number && equipment_id) {
-            await supabase.from("equipments").update({ serial_number }).eq("id", equipment_id);
-          }
 
           if (newTicket) {
             setDetailTicket({
               ...newTicket,
               clients: { name: client.name || clientData.name },
-              equipments: equipments?.find((e: any) => e.id === equipment_id) || null,
+              equipments: newEquipment,
             });
           }
         }}
