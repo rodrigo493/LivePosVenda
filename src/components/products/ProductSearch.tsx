@@ -18,7 +18,7 @@ interface ProductSearchProps {
 
 type StockEntry = { loading: boolean; qty: number | null };
 
-// Fila global: serializa requests Nomus com 300ms entre eles para evitar 429
+// Fila global: serializa requests Nomus com 400ms entre eles para evitar 429
 let _nomusQueue: Promise<void> = Promise.resolve();
 
 const _nomusGet = (url: string): Promise<Response> => {
@@ -30,11 +30,16 @@ const _nomusGet = (url: string): Promise<Response> => {
       setTimeout(async () => {
         try { resolve(await fetch(url, { headers: { Accept: "application/json" } })); } catch (e) { reject(e); }
         done();
-      }, 300)
+      }, 400)
     )
   );
   return promise;
 };
+
+function parseNomusBR(v: string | number | null | undefined): number {
+  if (v == null) return 0;
+  return parseFloat(String(v).replace(/\./g, "").replace(",", ".")) || 0;
+}
 
 const defaultItemTypes = [
   { value: "peca_cobrada", label: "Peça (Cobrada)" },
@@ -87,24 +92,19 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
         return tokens.every((t) => searchable.includes(t));
       })
       .sort((a, b) => {
-        // 1. Exact code match
         if (a.code.toLowerCase() === q) return -1;
         if (b.code.toLowerCase() === q) return 1;
-        // 2. Compatible with current model (real compatibility)
         if (modelFilter && compatMap) {
           const aCompat = compatMap[a.id]?.some((m) => m.toLowerCase().includes(modelFilter.toLowerCase())) ? 0 : 1;
           const bCompat = compatMap[b.id]?.some((m) => m.toLowerCase().includes(modelFilter.toLowerCase())) ? 0 : 1;
           if (aCompat !== bCompat) return aCompat - bCompat;
         }
-        // 3. Code starts with query
         const aCodeStart = a.code.toLowerCase().startsWith(q) ? 0 : 1;
         const bCodeStart = b.code.toLowerCase().startsWith(q) ? 0 : 1;
         if (aCodeStart !== bCodeStart) return aCodeStart - bCodeStart;
-        // 4. Name starts with query
         const aNameStart = a.name.toLowerCase().startsWith(q) ? 0 : 1;
         const bNameStart = b.name.toLowerCase().startsWith(q) ? 0 : 1;
         if (aNameStart !== bNameStart) return aNameStart - bNameStart;
-        // 5. Legacy compatibility field
         if (modelFilter) {
           const aCompat = a.compatibility?.toLowerCase().includes(modelFilter.toLowerCase()) ? 0 : 1;
           const bCompat = b.compatibility?.toLowerCase().includes(modelFilter.toLowerCase()) ? 0 : 1;
@@ -115,50 +115,46 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
       .slice(0, SEARCH_RESULTS_LIMIT);
   }, [products, query, modelFilter, compatMap]);
 
-  useEffect(() => {
-    if (!showNomusStock || !filtered.length) return;
+  // Busca estoque sob demanda ao passar o mouse — usa proxy nginx (/api/nomus) com auth
+  const handleMouseEnter = async (code: string) => {
+    if (!code || fetchedRef.current.has(code)) return;
+    fetchedRef.current.add(code);
+    setStockMap(prev => ({ ...prev, [code]: { loading: true, qty: null } }));
+    try {
+      // 1. Busca ID Nomus pelo código
+      const pr = await _nomusGet(`/api/nomus/rest/produtos?query=${encodeURIComponent(code)}`);
+      if (!pr.ok) throw new Error("produtos não ok");
+      const prData = await pr.json();
+      const produto = Array.isArray(prData) ? prData.find((p: any) => p.codigo === code) : null;
+      if (!produto) throw new Error("código não encontrado");
 
-    const fetchStock = async (code: string) => {
-      if (!code || fetchedRef.current.has(code)) return;
-      fetchedRef.current.add(code);
-      setStockMap(prev => ({ ...prev, [code]: { loading: true, qty: null } }));
-      try {
-        // 1. Busca o ID Nomus do produto pelo código (FIQL no endpoint de produtos)
-        const pr = await _nomusGet(`/api/nomus/rest/produtos?query=codigo==${encodeURIComponent(code)}`);
-        if (!pr.ok) throw new Error();
-        const prData = await pr.json();
-        const nomusId = Array.isArray(prData) && prData.length > 0 ? Number(prData[0].id) : null;
-        if (!nomusId) throw new Error("not found");
-
-        // 2. Busca saldo de estoque pelo ID Nomus
-        const sr = await _nomusGet(`/api/nomus/rest/saldosEstoqueProduto/${nomusId}`);
-        if (!sr.ok) throw new Error();
-        const stockData = await sr.json();
-        const total = Array.isArray(stockData)
-          ? stockData.reduce((sum: number, s: any) => {
-              const v = parseFloat((s.saldoTotal || "0").replace(",", "."));
-              return sum + (isNaN(v) ? 0 : v);
-            }, 0)
-          : 0;
-        setStockMap(prev => ({ ...prev, [code]: { loading: false, qty: Math.max(0, total) } }));
-      } catch {
-        setStockMap(prev => ({ ...prev, [code]: { loading: false, qty: null } }));
-      }
-    };
-
-    filtered.forEach(p => fetchStock(p.code));
-  }, [filtered, showNomusStock]);
+      // 2. Busca saldo pelo ID — soma saldos[] da empresa 2
+      const sr = await _nomusGet(`/api/nomus/rest/saldosEstoqueProduto/${produto.id}`);
+      if (!sr.ok) throw new Error("saldo não ok");
+      const saldos = await sr.json();
+      const empresa = Array.isArray(saldos) ? saldos.find((s: any) => String(s.idEmpresa) === "2") : null;
+      const qty = empresa?.saldos?.reduce(
+        (acc: number, s: any) => acc + parseNomusBR(s.saldo), 0
+      ) ?? 0;
+      setStockMap(prev => ({ ...prev, [code]: { loading: false, qty } }));
+    } catch {
+      setStockMap(prev => ({ ...prev, [code]: { loading: false, qty: null } }));
+    }
+  };
 
   const renderStock = (code: string) => {
     const s = stockMap[code];
-    if (!s || s.loading) {
+    if (!s) return null;
+    if (s.loading) {
       return <span className="text-[10px] text-muted-foreground animate-pulse whitespace-nowrap">estoque…</span>;
     }
     if (s.qty === null) return null;
     return (
       <span className={cn(
         "text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap",
-        s.qty > 0 ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400"
+        s.qty > 0
+          ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+          : "bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400"
       )}>
         {Math.round(s.qty)} em estoque
       </span>
@@ -196,7 +192,11 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
           {filtered.map((p) => {
             const compat = getCompatLabel(p.id);
             return (
-              <div key={p.id} className="px-3 py-2.5 hover:bg-muted/50 border-b last:border-0 transition-colors">
+              <div
+                key={p.id}
+                className="px-3 py-2.5 hover:bg-muted/50 border-b last:border-0 transition-colors"
+                onMouseEnter={() => handleMouseEnter(p.code)}
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
@@ -238,17 +238,8 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
                   <div className="text-right shrink-0 mr-1">
                     <p className="text-xs font-mono font-medium">R$ {Number(p.base_cost).toFixed(2)}</p>
                     <p className="text-[10px] text-muted-foreground">{p.unit || "un"}</p>
-                    {p.stock_current != null && (
-                      <p className="text-[10px] font-semibold" style={{ color: p.stock_current > 0 ? '#16a34a' : '#ea580c' }}>
-                        {p.stock_current} em estoque
-                      </p>
-                    )}
+                    {renderStock(p.code)}
                   </div>
-                  {showNomusStock && (
-                    <div className="shrink-0 self-center text-center min-w-[72px]">
-                      {renderStock(p.code)}
-                    </div>
-                  )}
                   <div className="flex gap-1 shrink-0 flex-wrap max-w-[220px]">
                     {itemTypes.slice(0, 4).map((t) => (
                       <Button
