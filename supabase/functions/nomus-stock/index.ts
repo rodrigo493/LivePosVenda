@@ -79,30 +79,32 @@ async function fetchSaldo(nomusId: number): Promise<{
     return { saldoTotal: 0, custoMedioUnitario: null, custoTotal: null, saldoPorSetor: [] };
   }
 
-  // Preferir empresa 2 (Live Equipamentos), fallback para a primeira disponível
-  const empresa = data.find((e: any) => Number(e.idEmpresa) === 2) ?? data[0];
+  // Filtrar empresa 2 (Live Equipamentos) — idEmpresa pode ser string ou número
+  const empresa = data.find((e: any) => String(e.idEmpresa) === "2") ?? null;
   if (!empresa) {
+    console.log(`Produto ${nomusId}: empresa 2 não encontrada. Empresas disponíveis: ${data.map((e: any) => e.idEmpresa).join(", ")}`);
     return { saldoTotal: 0, custoMedioUnitario: null, custoTotal: null, saldoPorSetor: [] };
   }
 
-  const custoMedioUnitario = empresa.custoMedioUnitario != null
-    ? parseNomusBR(empresa.custoMedioUnitario)
-    : null;
+  // saldos[] é a única fonte de estoque — saldoTotal não existe na resposta
+  const rawSaldos: any[] = Array.isArray(empresa.saldos) ? empresa.saldos : [];
 
-  // Setores: campo "saldos" conforme documentação oficial
-  const saldoPorSetor: NomusSectorStock[] = (empresa.saldos || []).map((s: any) => ({
+  const saldoPorSetor: NomusSectorStock[] = rawSaldos.map((s: any) => ({
     idSetorEstoque: Number(s.idSetorEstoque || 0),
     nomeSetorEstoque: String(s.nomeSetorEstoque || ""),
     saldo: parseNomusBR(s.saldo),
   }));
 
-  // Saldo total: prefere soma dos setores (mais preciso), fallback para campo saldoTotal
-  const saldoPorSetorTotal = saldoPorSetor.reduce((sum, s) => sum + s.saldo, 0);
-  const saldoTotal = saldoPorSetorTotal !== 0
-    ? saldoPorSetorTotal
-    : parseNomusBR(empresa.saldoTotal);
+  const saldoTotal = saldoPorSetor.reduce((sum, s) => sum + s.saldo, 0);
 
-  const custoTotal = custoMedioUnitario != null ? custoMedioUnitario * saldoTotal : null;
+  // custoMedioUnitario pode não existir — só aparece para produtos com custo registrado
+  const custoMedioUnitario = empresa.custoMedioUnitario != null
+    ? parseNomusBR(empresa.custoMedioUnitario)
+    : null;
+
+  const custoTotal = custoMedioUnitario != null && saldoTotal > 0
+    ? custoMedioUnitario * saldoTotal
+    : null;
 
   return { saldoTotal, custoMedioUnitario, custoTotal, saldoPorSetor };
 }
