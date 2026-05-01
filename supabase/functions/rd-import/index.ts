@@ -223,37 +223,56 @@ function resolveClientFromContacts(
   return null;
 }
 
-// Carrega pipeline e estágios — reutilizado por importDeals e importDealsPage
-async function loadPipelineContext(): Promise<{
-  pipelineId: string | null;
+type PipelineCtx = {
+  pipelineId: string;
   stageMap: Map<string, string>;
   firstStageKey: string | null;
   stagesArr: { key: string; label: string }[];
+};
+
+// Carrega TODOS os pipelines locais com seus estágios.
+// Retorna: mapa (nome normalizado → contexto) + fallback (pipeline de vendas ou primeiro).
+async function loadAllPipelineContexts(): Promise<{
+  byName: Map<string, PipelineCtx>;
+  fallback: PipelineCtx | null;
 }> {
-  const { data: salesPipeline } = await admin
-    .from("pipelines").select("id").ilike("name", "%vendas%").limit(1).maybeSingle();
-  const { data: firstPipeline } = !salesPipeline
-    ? await admin.from("pipelines").select("id").limit(1).maybeSingle()
-    : { data: null };
-  const pipeline = salesPipeline ?? firstPipeline;
-  if (!pipeline?.id) return { pipelineId: null, stageMap: new Map(), firstStageKey: null, stagesArr: [] };
+  const { data: allPipelines } = await admin.from("pipelines").select("id, name");
+  if (!allPipelines?.length) return { byName: new Map(), fallback: null };
 
-  const { data: stages } = await admin
-    .from("pipeline_stages").select("key, label, position")
-    .eq("pipeline_id", pipeline.id).order("position", { ascending: true });
+  const { data: allStages } = await admin
+    .from("pipeline_stages").select("pipeline_id, key, label, position")
+    .order("position", { ascending: true });
 
-  const stageMap = new Map((stages ?? []).map((s) => [normalizeStr(s.label), s.key]));
-  const firstStageKey = stages?.[0]?.key ?? null;
-  console.log("rd-import: stageMap:", [...stageMap.keys()]);
-  return { pipelineId: pipeline.id, stageMap, firstStageKey, stagesArr: stages ?? [] };
+  const stagesByPipeline = new Map<string, { key: string; label: string }[]>();
+  for (const s of allStages ?? []) {
+    const arr = stagesByPipeline.get(s.pipeline_id) ?? [];
+    arr.push({ key: s.key, label: s.label });
+    stagesByPipeline.set(s.pipeline_id, arr);
+  }
+
+  const byName = new Map<string, PipelineCtx>();
+  let fallback: PipelineCtx | null = null;
+
+  for (const p of allPipelines) {
+    const stages = stagesByPipeline.get(p.id) ?? [];
+    const ctx: PipelineCtx = {
+      pipelineId: p.id,
+      stageMap: new Map(stages.map((s) => [normalizeStr(s.label), s.key])),
+      firstStageKey: stages[0]?.key ?? null,
+      stagesArr: stages,
+    };
+    byName.set(normalizeStr(p.name), ctx);
+    // Fallback = pipeline cujo nome contém "vendas", ou o primeiro da lista
+    if (!fallback || normalizeStr(p.name).includes("vendas")) fallback = ctx;
+  }
+
+  console.log("rd-import: pipelines loaded:", [...byName.keys()]);
+  return { byName, fallback };
 }
 
 function buildDealPayload(
   deal: Record<string, unknown>,
-  pipelineId: string,
-  stageMap: Map<string, string>,
-  firstStageKey: string | null,
-  stagesArr: { key: string; label: string }[],
+  pipelineContexts: { byName: Map<string, PipelineCtx>; fallback: PipelineCtx | null },
   emailToAuthId: Map<string, string>,
   clientMaps: { byRdId: Map<string, string>; byEmail: Map<string, string>; byPhone: Map<string, string> },
   stageMismatches: string[],
@@ -261,9 +280,29 @@ function buildDealPayload(
   const rdDealId = (deal._id ?? deal.id) as string;
   if (!rdDealId) return null;
 
+  // Resolve qual pipeline local usar baseado no pipeline do RD Station
+  const rdPipelineName = (deal.deal_pipeline as { name?: string } | null)?.name ?? null;
+  const normRdPipeline = rdPipelineName ? normalizeStr(rdPipelineName) : null;
+
+  let ctx: PipelineCtx | null = null;
+  if (normRdPipeline) {
+    // 1. Match exato
+    ctx = pipelineContexts.byName.get(normRdPipeline) ?? null;
+    // 2. Parcial: nome local contém o do RD
+    if (!ctx) {
+      for (const [k, v] of pipelineContexts.byName) {
+        if (k.includes(normRdPipeline) || normRdPipeline.includes(k)) { ctx = v; break; }
+      }
+    }
+  }
+  ctx = ctx ?? pipelineContexts.fallback;
+  if (!ctx) return null;
+
+  const { pipelineId, stageMap, firstStageKey, stagesArr } = ctx;
+
   const rawStageName = (deal.deal_stage as { name?: string } | null)?.name ?? null;
   const stageKey = findStageKey(rawStageName, stageMap, stagesArr) ?? firstStageKey;
-  if (rawStageName && stageKey === firstStageKey && findStageKey(rawStageName, stageMap, stagesArr) === null) {
+  if (rawStageName && findStageKey(rawStageName, stageMap, stagesArr) === null) {
     stageMismatches.push(rawStageName);
   }
 
@@ -301,8 +340,8 @@ async function importDealsPage(
   page: number,
   emailToAuthId: Map<string, string>,
 ): Promise<{ imported: number; has_more: boolean; stage_mismatches: string[] }> {
-  const { pipelineId, stageMap, firstStageKey, stagesArr } = await loadPipelineContext();
-  if (!pipelineId) return { imported: 0, has_more: false, stage_mismatches: [] };
+  const pipelineContexts = await loadAllPipelineContexts();
+  if (!pipelineContexts.fallback) return { imported: 0, has_more: false, stage_mismatches: [] };
 
   const clientMaps = await buildClientMaps();
 
@@ -317,7 +356,7 @@ async function importDealsPage(
   const stageMismatches: string[] = [];
   const batch: Record<string, unknown>[] = [];
   for (const deal of deals) {
-    const p = buildDealPayload(deal, pipelineId, stageMap, firstStageKey, stagesArr, emailToAuthId, clientMaps, stageMismatches);
+    const p = buildDealPayload(deal, pipelineContexts, emailToAuthId, clientMaps, stageMismatches);
     if (p) batch.push(p);
   }
 
@@ -344,8 +383,8 @@ async function importDeals(
   _rdPipelineId: string | null,
   emailToAuthId: Map<string, string>,
 ): Promise<{ count: number; stage_mismatches: string[] }> {
-  const { pipelineId, stageMap, firstStageKey, stagesArr } = await loadPipelineContext();
-  if (!pipelineId) return { count: 0, stage_mismatches: [] };
+  const pipelineContexts = await loadAllPipelineContexts();
+  if (!pipelineContexts.fallback) return { count: 0, stage_mismatches: [] };
 
   const clientMaps = await buildClientMaps();
   const stageMismatches: string[] = [];
@@ -364,7 +403,7 @@ async function importDeals(
 
     const batch: Record<string, unknown>[] = [];
     for (const deal of deals) {
-      const p = buildDealPayload(deal, pipelineId, stageMap, firstStageKey, stagesArr, emailToAuthId, clientMaps, stageMismatches);
+      const p = buildDealPayload(deal, pipelineContexts, emailToAuthId, clientMaps, stageMismatches);
       if (p) batch.push(p);
     }
 
