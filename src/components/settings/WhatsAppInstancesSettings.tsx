@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -31,7 +31,7 @@ const EMPTY_FORM = {
   active: true,
 };
 
-function DistributionBar({ instances }: { instances: Instance[] }) {
+function DistributionBar({ instances, onDistributeEqually }: { instances: Instance[]; onDistributeEqually?: () => void }) {
   const active = instances.filter(i => i.active);
   const total = active.reduce((s, i) => s + i.distribution_pct, 0);
   const ok = total === 100;
@@ -39,9 +39,20 @@ function DistributionBar({ instances }: { instances: Instance[] }) {
     <div className="mt-2 space-y-1">
       <div className="flex items-center justify-between text-xs">
         <span className="text-muted-foreground">Total de distribuição</span>
-        <span className={ok ? "text-emerald-600 font-medium" : "text-amber-500 font-medium"}>
-          {total}% {ok ? "✓" : `— faltam ${100 - total}%`}
-        </span>
+        <div className="flex items-center gap-2">
+          {onDistributeEqually && active.length > 0 && (
+            <button
+              onClick={onDistributeEqually}
+              className="rounded px-2 py-0.5 text-[10px] font-medium bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground transition-colors"
+              title="Divide 100% igualmente entre os números ativos"
+            >
+              Distribuir por igual
+            </button>
+          )}
+          <span className={ok ? "text-emerald-600 font-medium" : "text-amber-500 font-medium"}>
+            {total}% {ok ? "✓" : `— faltam ${100 - total}%`}
+          </span>
+        </div>
       </div>
       <div className="h-2 rounded-full bg-muted overflow-hidden flex">
         {active.map((inst, idx) => (
@@ -62,14 +73,26 @@ function InstanceRow({
   onDelete,
   onToggleActive,
   onChangePct,
+  onUpdate,
 }: {
   inst: Instance;
   onDelete: (id: string) => void;
   onToggleActive: (id: string, active: boolean) => void;
   onChangePct: (id: string, pct: number) => void;
+  onUpdate: (id: string, data: Partial<Omit<Instance, "id" | "pipeline_id">>) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
+  const [editingFull, setEditingFull] = useState(false);
   const [pct, setPct] = useState(String(inst.distribution_pct));
+  const [form, setForm] = useState({
+    instance_name: inst.instance_name,
+    phone_number: inst.phone_number ?? "",
+    uazapi_instance_name: inst.uazapi_instance_name,
+    instance_token: inst.instance_token,
+    base_url: inst.base_url,
+    distribution_pct: inst.distribution_pct,
+    active: inst.active,
+  });
 
   const savePct = () => {
     const n = parseInt(pct, 10);
@@ -77,6 +100,57 @@ function InstanceRow({
     onChangePct(inst.id, n);
     setEditing(false);
   };
+
+  const saveFull = async () => {
+    if (!form.instance_name.trim() || !form.uazapi_instance_name.trim() || !form.instance_token.trim()) {
+      toast.error("Preencha nome, instanceName e token");
+      return;
+    }
+    await onUpdate(inst.id, { ...form, distribution_pct: Number(form.distribution_pct) || 0 });
+    setEditingFull(false);
+  };
+
+  const field = (label: string, key: keyof typeof form, placeholder?: string) => (
+    <div className="space-y-1">
+      <Label className="text-xs">{label}</Label>
+      <Input
+        className="h-8 text-xs"
+        placeholder={placeholder}
+        value={String(form[key])}
+        onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
+      />
+    </div>
+  );
+
+  if (editingFull) {
+    return (
+      <div className="rounded-lg border border-primary/30 p-3 space-y-3 bg-muted/20">
+        <p className="text-xs font-medium text-muted-foreground">Editar número WhatsApp</p>
+        <div className="grid grid-cols-2 gap-2">
+          {field("Nome de exibição *", "instance_name", "ex: Vendas #1")}
+          {field("Número (display)", "phone_number", "ex: 48996068686")}
+          {field("instanceName Uazapi *", "uazapi_instance_name", "ex: RODRIGO")}
+          {field("Token da instância *", "instance_token", "c6a355b6-...")}
+          {field("Base URL", "base_url")}
+          <div className="space-y-1">
+            <Label className="text-xs">Distribuição %</Label>
+            <Input
+              className="h-8 text-xs"
+              type="number"
+              min={0}
+              max={100}
+              value={form.distribution_pct}
+              onChange={e => setForm(f => ({ ...f, distribution_pct: Number(e.target.value) }))}
+            />
+          </div>
+        </div>
+        <div className="flex gap-2 justify-end">
+          <Button variant="ghost" size="sm" onClick={() => setEditingFull(false)}>Cancelar</Button>
+          <Button size="sm" onClick={saveFull}>Salvar alterações</Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-sm ${inst.active ? "bg-background" : "bg-muted/40 opacity-60"}`}>
@@ -119,6 +193,14 @@ function InstanceRow({
         className={`text-[10px] rounded-full px-2 py-0.5 font-medium border transition-colors ${inst.active ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100" : "bg-muted text-muted-foreground border-border hover:bg-muted/60"}`}
       >
         {inst.active ? "Ativo" : "Inativo"}
+      </button>
+
+      <button
+        onClick={() => { setForm({ instance_name: inst.instance_name, phone_number: inst.phone_number ?? "", uazapi_instance_name: inst.uazapi_instance_name, instance_token: inst.instance_token, base_url: inst.base_url, distribution_pct: inst.distribution_pct, active: inst.active }); setEditingFull(true); }}
+        className="text-muted-foreground hover:text-foreground transition-colors"
+        title="Editar"
+      >
+        <Pencil className="h-3.5 w-3.5" />
       </button>
 
       <button onClick={() => onDelete(inst.id)} className="text-muted-foreground hover:text-destructive transition-colors">
@@ -221,6 +303,30 @@ function PipelineSection({ pipeline, instances }: { pipeline: Pipeline; instance
     qc.invalidateQueries({ queryKey: ["pipeline_whatsapp_instances"] });
   };
 
+  const updateInstance = async (id: string, data: Partial<Omit<Instance, "id" | "pipeline_id">>) => {
+    const { error } = await supabase.from("pipeline_whatsapp_instances").update(data).eq("id", id);
+    if (error) { toast.error(error.message); return; }
+    toast.success("Número atualizado");
+    qc.invalidateQueries({ queryKey: ["pipeline_whatsapp_instances"] });
+  };
+
+  const distributeEqually = async () => {
+    const active = instances.filter(i => i.active);
+    if (active.length === 0) return;
+    const base = Math.floor(100 / active.length);
+    const remainder = 100 % active.length;
+    const updates = active.map((inst, idx) =>
+      supabase.from("pipeline_whatsapp_instances")
+        .update({ distribution_pct: base + (idx < remainder ? 1 : 0) })
+        .eq("id", inst.id)
+    );
+    const results = await Promise.all(updates);
+    const firstError = results.find(r => r.error);
+    if (firstError?.error) { toast.error(firstError.error.message); return; }
+    toast.success("Distribuição igualada");
+    qc.invalidateQueries({ queryKey: ["pipeline_whatsapp_instances"] });
+  };
+
   return (
     <div className="rounded-xl border bg-card">
       <button
@@ -237,7 +343,7 @@ function PipelineSection({ pipeline, instances }: { pipeline: Pipeline; instance
 
       {open && (
         <div className="px-4 pb-4 space-y-2">
-          {instances.length > 0 && <DistributionBar instances={instances} />}
+          {instances.length > 0 && <DistributionBar instances={instances} onDistributeEqually={distributeEqually} />}
 
           <div className="space-y-1.5 mt-2">
             {instances.map(inst => (
@@ -247,6 +353,7 @@ function PipelineSection({ pipeline, instances }: { pipeline: Pipeline; instance
                 onDelete={deleteInstance}
                 onToggleActive={toggleActive}
                 onChangePct={changePct}
+                onUpdate={updateInstance}
               />
             ))}
           </div>
