@@ -32,3 +32,6 @@ verify_jwt = false
 
 [functions.rd-import]
 verify_jwt = false
+
+[functions.daily-unanswered-report]
+verify_jwt = false

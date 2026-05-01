@@ -52,6 +52,7 @@ type RdConfig = {
     stage_mismatches?: string[];
   } | null;
   webhook_secret: string | null;
+  notification_phone: string | null;
 };
 
 type SyncLog = {
@@ -100,6 +101,8 @@ export default function RdStationPage() {
   const [logsOpen, setLogsOpen] = useState(false);
   const [importing, setImporting] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [notifPhone, setNotifPhone] = useState("");
+  const [editingNotifPhone, setEditingNotifPhone] = useState(false);
 
   const isRunning = config?.import_stats?.status === "running";
 
@@ -135,16 +138,19 @@ export default function RdStationPage() {
       token,
       rdPipelineId,
       isActive,
+      notificationPhone,
     }: {
       token?: string;
       rdPipelineId?: string;
       isActive?: boolean;
+      notificationPhone?: string;
     }) => {
       if (config) {
         const patch: Record<string, unknown> = {};
         if (token !== undefined) patch.api_token = token;
         if (rdPipelineId !== undefined) patch.rd_pipeline_id = rdPipelineId;
         if (isActive !== undefined) patch.is_active = isActive;
+        if (notificationPhone !== undefined) patch.notification_phone = notificationPhone || null;
         const { error } = await supabase
           .from("rd_integration_config")
           .update(patch)
@@ -163,6 +169,7 @@ export default function RdStationPage() {
       qc.invalidateQueries({ queryKey: ["rd_integration_config"] });
       toast.success("Configuração salva.");
       setEditingToken(false);
+      setEditingNotifPhone(false);
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -343,6 +350,72 @@ export default function RdStationPage() {
           >
             {config.is_active ? "Desativar" : "Ativar"}
           </Button>
+        </div>
+      )}
+
+      {/* Notificação diária de cards sem resposta */}
+      {config && (
+        <div className="border rounded-lg p-4 space-y-3">
+          <div>
+            <h2 className="font-semibold text-sm">Aviso diário — Cards sem resposta</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Seg–Sex às 8h, um resumo será enviado por WhatsApp listando clientes sem resposta há 12+ horas úteis.
+            </p>
+          </div>
+          {editingNotifPhone ? (
+            <div className="flex gap-2">
+              <Input
+                type="tel"
+                placeholder="Ex: 11 91234-5678"
+                value={notifPhone}
+                onChange={(e) => setNotifPhone(e.target.value)}
+                className="flex-1 h-8 text-sm"
+              />
+              <Button
+                size="sm"
+                className="h-8"
+                disabled={saveMutation.isPending}
+                onClick={() => saveMutation.mutate({ notificationPhone: notifPhone })}
+              >
+                Salvar
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8"
+                onClick={() => setEditingNotifPhone(false)}
+              >
+                Cancelar
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground flex-1 font-mono">
+                {config.notification_phone || "Não configurado"}
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                onClick={() => {
+                  setNotifPhone(config.notification_phone || "");
+                  setEditingNotifPhone(true);
+                }}
+              >
+                {config.notification_phone ? "Alterar" : "Configurar"}
+              </Button>
+              {config.notification_phone && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 text-xs text-muted-foreground"
+                  onClick={() => saveMutation.mutate({ notificationPhone: "" })}
+                >
+                  Remover
+                </Button>
+              )}
+            </div>
+          )}
         </div>
       )}
 
