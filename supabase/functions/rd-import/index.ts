@@ -445,7 +445,6 @@ async function importTasks(token: string): Promise<number> {
           status,
           due_date: dueDate,
           due_time: dueTime,
-          assigned_to: null,
           updated_at: new Date().toISOString(),
         };
         if (ticketId) taskPayload.ticket_id = ticketId;
