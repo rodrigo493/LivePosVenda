@@ -37,7 +37,7 @@ Deno.serve(async (req) => {
     // Busca configuração com notification_phone
     const { data: config } = await admin
       .from("rd_integration_config")
-      .select("id, is_active, notification_phone, worker_token")
+      .select("id, is_active, notification_phone, worker_token, unanswered_ack_at")
       .eq("is_active", true)
       .not("notification_phone", "is", null)
       .limit(1)
@@ -80,11 +80,15 @@ Deno.serve(async (req) => {
       }
     }
 
+    const ackAt = config.unanswered_ack_at ? new Date(config.unanswered_ack_at) : null;
+
     // Filtra: última mensagem é inbound, dentro dos últimos 30 dias, ≥ 12h úteis sem resposta
+    // e chegou APÓS o último "zerar"
     const unanswered: { name: string; hours: number }[] = [];
     for (const conv of lastByClient.values()) {
       if (conv.direction !== "inbound") continue;
       if (conv.last_at < cutoff30d) continue;
+      if (ackAt && conv.last_at <= ackAt) continue;
       const bh = calcBusinessHours(conv.last_at, now);
       if (bh >= 12) {
         unanswered.push({ name: conv.name, hours: Math.floor(bh) });
@@ -118,6 +122,12 @@ Deno.serve(async (req) => {
 
     const result = await resp.json().catch(() => ({}));
     console.log("daily-unanswered-report sent:", total, "clients, status:", resp.status, JSON.stringify(result).slice(0, 200));
+
+    // Zera o ack após enviar — novos cards só aparecem se chegarem mensagens depois deste instante
+    await admin
+      .from("rd_integration_config")
+      .update({ unanswered_ack_at: now.toISOString() } as any)
+      .eq("id", config.id);
 
     return new Response(
       JSON.stringify({ ok: true, sent: true, total, status: resp.status }),
