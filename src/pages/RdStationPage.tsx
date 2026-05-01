@@ -28,7 +28,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Copy, Plug, Unplug, RefreshCw, ScrollText, Zap, AlertTriangle, CheckCircle2, ChevronDown, ChevronRight } from "lucide-react";
+import { Copy, Plug, Unplug, RefreshCw, ScrollText, Zap, AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, UploadCloud } from "lucide-react";
+import Papa from "papaparse";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const RD_WEBHOOK_URL = `${SUPABASE_URL}/functions/v1/rd-webhook`;
@@ -90,9 +91,218 @@ function fmtDate(iso: string | null) {
   }).format(new Date(iso));
 }
 
+// ─── CSV Import helpers ──────────────────────────────────────────────────────
+
+type CsvDeal = {
+  title: string; contact_name: string; email: string | null; phone: string | null;
+  stage: string; estado: string; valor: number; created_date: string;
+  campanha: string | null; fonte: string | null;
+};
+
+const STAGE_MAP: Record<string, string> = {
+  "lead novo": "novo_lead_moh0ffnk",
+  "diagnostico": "diagnostico_moj3atvl",
+  "propostas enviada": "propostas_enviada_moj3au2w",
+  "negociacao": "negociacao_moj3au9d",
+  "fechamento": "fechamento_moj3aug5",
+};
+
+function normStr(s: string): string {
+  return s.toLowerCase()
+    .replace(/[áàâãä]/g, "a").replace(/[éèêë]/g, "e")
+    .replace(/[íìîï]/g, "i").replace(/[óòôõö]/g, "o")
+    .replace(/[úùûü]/g, "u").replace(/[ç]/g, "c").trim();
+}
+
+function cleanSurrogates(s: string): string {
+  return [...s].map(c => { const cp = c.codePointAt(0)!; return (cp >= 0xD800 && cp <= 0xDFFF) || cp > 0xFFFF ? "?" : c; }).join("");
+}
+
+function resolveStageKey(name: string): string {
+  const n = normStr(name);
+  for (const [k, v] of Object.entries(STAGE_MAP)) {
+    if (k === n || k.includes(n) || n.includes(k)) return v;
+  }
+  return "novo_lead_moh0ffnk";
+}
+
+function findCol(row: Record<string, string>, ...names: string[]): string {
+  for (const n of names) {
+    const key = Object.keys(row).find(k => normStr(k) === normStr(n));
+    if (key !== undefined) return row[key] ?? "";
+  }
+  return "";
+}
+
+function parseCsvRdStation(text: string): CsvDeal[] {
+  let csvText = text;
+  const firstLine = text.split("\n")[0].trim();
+  if (firstLine.toLowerCase().startsWith("sep=")) {
+    csvText = text.slice(firstLine.length + 1);
+  }
+  const { data } = Papa.parse<Record<string, string>>(csvText, { header: true, skipEmptyLines: true });
+  const deals: CsvDeal[] = [];
+  for (const row of data) {
+    const nome = (row["Nome"] ?? "").trim();
+    if (!nome) continue;
+    const etapa = (row["Etapa"] ?? "").trim();
+    const estado = (row["Estado"] ?? "").trim();
+    const valorStr = findCol(row, "Valor Único", "Valor Unico", "Valor Único");
+    const valor = parseFloat(valorStr) || 0;
+    const emailRaw = (row["Email"] ?? "").trim();
+    const email = emailRaw.includes("@") ? emailRaw : null;
+    let phone: string | null = (row["Telefone"] ?? "").replace(/\D/g, "");
+    if (phone.length > 15) phone = phone.slice(-11);
+    if (!phone) phone = null;
+    const dataCri = findCol(row, "Data de criação", "Data de criacao", "Data de criação");
+    const campanha = (row["Campanha"] ?? "").trim() || null;
+    const fonte = (row["Fonte"] ?? "").trim() || null;
+    const contato = (row["Contatos"] ?? nome).trim();
+    deals.push({
+      title: cleanSurrogates(nome),
+      contact_name: cleanSurrogates(contato),
+      email,
+      phone,
+      stage: resolveStageKey(etapa),
+      estado,
+      valor,
+      created_date: dataCri,
+      campanha: campanha ? cleanSurrogates(campanha) : null,
+      fonte,
+    });
+  }
+  return deals;
+}
+
+// ─── CSV Import Dialog ────────────────────────────────────────────────────────
+
+function CsvImportDialog({ defaultEmail }: { defaultEmail: string }) {
+  const [open, setOpen] = useState(false);
+  const [assignedEmail, setAssignedEmail] = useState(defaultEmail);
+  const [deals, setDeals] = useState<CsvDeal[] | null>(null);
+  const [fileName, setFileName] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [result, setResult] = useState<{ created: number; new_clients: number } | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  function reset() { setDeals(null); setFileName(""); setResult(null); }
+
+  function handleFile(file: File) {
+    reset();
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result as string;
+      const parsed = parseCsvRdStation(text);
+      setDeals(parsed);
+      setFileName(file.name);
+    };
+    reader.readAsText(file, "utf-8");
+  }
+
+  async function handleImport() {
+    if (!deals?.length) return;
+    setImporting(true);
+    setResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("csv-import-ariane", {
+        body: { deals, assigned_email: assignedEmail },
+      });
+      if (error) throw new Error(error.message);
+      if (!data?.ok) throw new Error(data?.error ?? "Erro desconhecido");
+      setResult({ created: data.created, new_clients: data.new_clients });
+      toast.success(`${data.created} cards criados com sucesso!`);
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) reset(); }}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline" className="h-8 gap-1.5">
+          <UploadCloud className="h-3.5 w-3.5" />
+          Importar CSV
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Importar deals via CSV do RD Station</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 pt-1">
+          {/* File drop zone */}
+          <div
+            className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:bg-muted/30 transition-colors"
+            onClick={() => fileRef.current?.click()}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
+          >
+            <UploadCloud className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+            {fileName ? (
+              <p className="text-sm font-medium">{fileName}</p>
+            ) : (
+              <p className="text-sm text-muted-foreground">Clique ou arraste o arquivo CSV exportado do RD Station</p>
+            )}
+            {deals && (
+              <p className="text-xs text-green-600 mt-1">{deals.length} deals detectados</p>
+            )}
+            <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
+          </div>
+
+          {/* Responsible email */}
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">Responsável (e-mail)</label>
+            <Input
+              value={assignedEmail}
+              onChange={(e) => setAssignedEmail(e.target.value)}
+              placeholder="email@empresa.com"
+              className="h-8 text-sm"
+            />
+          </div>
+
+          {/* Stage preview */}
+          {deals && deals.length > 0 && !result && (
+            <div className="bg-muted/50 rounded p-2 text-xs space-y-0.5">
+              {Object.entries(
+                deals.reduce<Record<string, number>>((acc, d) => { acc[d.stage] = (acc[d.stage] ?? 0) + 1; return acc; }, {})
+              ).sort((a, b) => b[1] - a[1]).map(([stage, count]) => {
+                const label = { novo_lead_moh0ffnk: "Lead novo", diagnostico_moj3atvl: "Diagnóstico", propostas_enviada_moj3au2w: "Propostas enviada", negociacao_moj3au9d: "Negociação", fechamento_moj3aug5: "Fechamento" }[stage] ?? stage;
+                return <p key={stage}>{label}: <strong>{count}</strong></p>;
+              })}
+            </div>
+          )}
+
+          {/* Result */}
+          {result && (
+            <div className="bg-green-500/10 border border-green-500/30 rounded p-3 text-sm">
+              <p className="font-semibold text-green-600">✓ Importação concluída</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{result.created} cards criados · {result.new_clients} novos clientes</p>
+            </div>
+          )}
+
+          <div className="flex gap-2 justify-end">
+            <Button size="sm" variant="ghost" className="h-8" onClick={() => setOpen(false)}>Fechar</Button>
+            <Button
+              size="sm"
+              className="h-8"
+              disabled={!deals?.length || !assignedEmail || importing || !!result}
+              onClick={handleImport}
+            >
+              {importing ? "Importando..." : `Importar ${deals?.length ?? 0} deals`}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function RdStationPage() {
   const qc = useQueryClient();
-  const { hasRole } = useAuth();
+  const { hasRole, user } = useAuth();
   const isAdmin = hasRole("admin");
 
   const { data: config, isLoading } = useRdConfig();
@@ -104,6 +314,7 @@ export default function RdStationPage() {
   const [testing, setTesting] = useState(false);
   const [notifPhone, setNotifPhone] = useState("");
   const [editingNotifPhone, setEditingNotifPhone] = useState(false);
+  const userEmail = user?.email ?? "";
 
   const isRunning = config?.import_stats?.status === "running";
   const advancingRef = useRef(false);
@@ -561,6 +772,8 @@ export default function RdStationPage() {
             </p>
           )}
         </div>
+
+        <CsvImportDialog defaultEmail={userEmail} />
 
         <Dialog open={logsOpen} onOpenChange={setLogsOpen}>
           <DialogTrigger asChild>
