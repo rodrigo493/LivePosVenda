@@ -1,3 +1,5 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -65,11 +67,70 @@ async function fetchNomus(path: string, retries = 2): Promise<any> {
   return null;
 }
 
+async function fetchSaldo(nomusId: number): Promise<{
+  saldoTotal: number;
+  custoMedioUnitario: number | null;
+  custoTotal: number | null;
+  saldoPorSetor: NomusSectorStock[];
+}> {
+  const data = await fetchNomus(`/rest/saldosEstoqueProduto/${nomusId}`);
+
+  if (!Array.isArray(data) || data.length === 0) {
+    return { saldoTotal: 0, custoMedioUnitario: null, custoTotal: null, saldoPorSetor: [] };
+  }
+
+  // Preferir empresa 2 (Live Equipamentos), fallback para a primeira disponível
+  const empresa = data.find((e: any) => Number(e.idEmpresa) === 2) ?? data[0];
+  if (!empresa) {
+    return { saldoTotal: 0, custoMedioUnitario: null, custoTotal: null, saldoPorSetor: [] };
+  }
+
+  const custoMedioUnitario = empresa.custoMedioUnitario != null
+    ? parseNomusBR(empresa.custoMedioUnitario)
+    : null;
+
+  // Setores: campo "saldos" conforme documentação oficial
+  const saldoPorSetor: NomusSectorStock[] = (empresa.saldos || []).map((s: any) => ({
+    idSetorEstoque: Number(s.idSetorEstoque || 0),
+    nomeSetorEstoque: String(s.nomeSetorEstoque || ""),
+    saldo: parseNomusBR(s.saldo),
+  }));
+
+  // Saldo total: prefere soma dos setores (mais preciso), fallback para campo saldoTotal
+  const saldoPorSetorTotal = saldoPorSetor.reduce((sum, s) => sum + s.saldo, 0);
+  const saldoTotal = saldoPorSetorTotal !== 0
+    ? saldoPorSetorTotal
+    : parseNomusBR(empresa.saldoTotal);
+
+  const custoTotal = custoMedioUnitario != null ? custoMedioUnitario * saldoTotal : null;
+
+  return { saldoTotal, custoMedioUnitario, custoTotal, saldoPorSetor };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    // 1. Buscar todas as páginas de produtos ativos
+    // 1. Buscar códigos do catálogo interno no Supabase
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+
+    const { data: internalProducts } = await supabase
+      .from("products")
+      .select("code, secondary_code")
+      .eq("status", "ativo");
+
+    const catalogCodes = new Set<string>();
+    for (const p of internalProducts || []) {
+      if (p.code) catalogCodes.add(p.code.trim().toUpperCase());
+      if (p.secondary_code) catalogCodes.add(p.secondary_code.trim().toUpperCase());
+    }
+
+    console.log(`Catálogo interno: ${catalogCodes.size} códigos ativos`);
+
+    // 2. Buscar todas as páginas de produtos Nomus
     const allRaw: any[] = [];
     let page = 1;
     while (page <= 50) {
@@ -80,76 +141,52 @@ Deno.serve(async (req) => {
       page++;
     }
 
-    console.log(`Total de produtos carregados: ${allRaw.length}`);
+    console.log(`Nomus: ${allRaw.length} produtos ativos`);
 
     if (allRaw.length === 0) {
       return json({ error: "Nenhum produto retornado pela API Nomus" }, 500);
     }
 
-    // 2. Mapear produtos — saldo, custo e setores vindos de empresasSetoresEstoque
+    // 3. Identificar quais produtos Nomus estão no catálogo interno
+    const catalogMatches = allRaw.filter((p) =>
+      catalogCodes.has(String(p.codigo || "").trim().toUpperCase())
+    );
+
+    console.log(`${catalogMatches.length} produtos Nomus correspondem ao catálogo interno`);
+
+    // 4. Buscar saldo apenas para os produtos do catálogo (sequencial, 300ms entre chamadas)
+    const saldoMap = new Map<number, Awaited<ReturnType<typeof fetchSaldo>>>();
+
+    for (const p of catalogMatches) {
+      const nomusId = Number(p.id);
+      await new Promise((r) => setTimeout(r, 300));
+      saldoMap.set(nomusId, await fetchSaldo(nomusId));
+    }
+
+    const comSaldo = [...saldoMap.values()].filter((s) => s.saldoTotal !== 0).length;
+    console.log(`Saldos buscados: ${saldoMap.size} produtos, ${comSaldo} com saldo não-zero`);
+
+    // 5. Montar response final com todos os produtos Nomus
     const products: ProductRow[] = allRaw.map((p: any) => {
-      const empresas: any[] = p.empresasSetoresEstoque || p.setoresEstoque || [];
-
-      // Preferir empresa 2 (Live Equipamentos), fallback para a primeira disponível
-      const empresa = empresas.find((e: any) => Number(e.idEmpresa) === 2) ?? empresas[0];
-
-      let saldoTotal = 0;
-      let custoMedioUnitario: number | null = null;
-      let custoTotal: number | null = null;
-      const saldoPorSetor: NomusSectorStock[] = [];
-
-      if (empresa) {
-        saldoTotal = parseNomusBR(
-          empresa.saldoTotal ?? empresa.saldoEstoqueAtualEmpresa ?? empresa.saldoEstoque ?? empresa.saldo ?? 0,
-        );
-
-        if (empresa.custoMedioUnitario != null) {
-          custoMedioUnitario = parseNomusBR(empresa.custoMedioUnitario);
-        }
-
-        // Extrair setores aninhados (campo pode variar conforme versão da API)
-        const rawSetores = empresa.saldos || empresa.setores || empresa.saldosPorSetor || empresa.setoresEstoque || [];
-        if (Array.isArray(rawSetores)) {
-          for (const s of rawSetores) {
-            saldoPorSetor.push({
-              idSetorEstoque: Number(s.idSetorEstoque || s.id || 0),
-              nomeSetorEstoque: String(s.nomeSetorEstoque || s.nome || s.descricao || ""),
-              saldo: parseNomusBR(s.saldo ?? s.saldoEstoque ?? 0),
-            });
-          }
-          // Se há setores com dados, recalcular total por eles
-          if (saldoPorSetor.length > 0) {
-            const totalSetor = saldoPorSetor.reduce((sum, s) => sum + s.saldo, 0);
-            if (totalSetor !== 0) saldoTotal = totalSetor;
-          }
-        }
-
-        custoTotal = custoMedioUnitario != null ? custoMedioUnitario * saldoTotal : null;
-      } else {
-        // Fallback: somar todas as empresas com parse BR correto
-        saldoTotal = empresas.reduce(
-          (sum: number, e: any) =>
-            sum + parseNomusBR(e.saldoTotal ?? e.saldoEstoqueAtualEmpresa ?? e.saldoEstoque ?? e.saldo ?? 0),
-          0,
-        );
-      }
+      const nomusId = Number(p.id);
+      const saldo = saldoMap.get(nomusId) ?? {
+        saldoTotal: 0,
+        custoMedioUnitario: null,
+        custoTotal: null,
+        saldoPorSetor: [],
+      };
 
       return {
-        id: Number(p.id),
+        id: nomusId,
         codigo: String(p.codigo || ""),
         descricao: String(p.descricao || p.nome || ""),
         siglaUnidadeMedida: String(p.siglaUnidadeMedida || p.unidadeMedida || ""),
-        saldoTotal,
-        custoMedioUnitario,
-        custoTotal,
-        saldoPorSetor,
+        ...saldo,
       };
     });
 
     products.sort((a, b) => b.saldoTotal - a.saldoTotal || a.descricao.localeCompare(b.descricao, "pt-BR"));
 
-    const comEstoque = products.filter((p) => p.saldoTotal > 0).length;
-    console.log(`Retornando ${products.length} produtos (${comEstoque} com estoque positivo)`);
     return json(products);
   } catch (err) {
     console.error("Handler error:", String(err));
