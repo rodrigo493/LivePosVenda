@@ -99,6 +99,7 @@ export default function RdStationPage() {
   const [logStatus, setLogStatus] = useState<string>("all");
   const [logsOpen, setLogsOpen] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
 
   const [expandedLog, setExpandedLog] = useState<string | null>(null);
@@ -200,34 +201,50 @@ export default function RdStationPage() {
       return;
     }
     setImporting(true);
+    setImportProgress("Iniciando importação...");
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const res = await supabase.functions.invoke("rd-import", {
-        body: { skip_contacts: true },
-        headers: { Authorization: `Bearer ${session?.access_token}` },
-      });
-      if (res.error) {
-        throw new Error(res.error.message);
+      const { data: { session } } = await supabase.auth.getSession();
+      const headers = { Authorization: `Bearer ${session?.access_token}` };
+
+      let page = 1;
+      let totalSoFar = 0;
+
+      while (true) {
+        setImportProgress(`Importando página ${page}… (${totalSoFar} deals)`);
+
+        const res = await supabase.functions.invoke("rd-import", {
+          body: { page, cumulative: totalSoFar, skip_contacts: true },
+          headers,
+        });
+
+        if (res.error) throw new Error(res.error.message);
+
+        const data = res.data as {
+          ok: boolean;
+          imported: number;
+          total_so_far: number;
+          has_more: boolean;
+          error?: string;
+        };
+
+        if (!data?.ok) throw new Error(data?.error || "Erro desconhecido na função");
+
+        totalSoFar = data.total_so_far;
+        qc.invalidateQueries({ queryKey: ["rd_integration_config"] });
+
+        if (!data.has_more) {
+          toast.success(`Importação concluída! ${totalSoFar} negociações importadas.`, { duration: 8000 });
+          break;
+        }
+
+        page++;
       }
-      const data = res.data as { ok: boolean; error?: string; message?: string };
-      if (!data?.ok) {
-        throw new Error(data?.error || "Erro desconhecido na função");
-      }
-      toast.success(
-        data.message ?? "Importação iniciada. Os resultados aparecerão em Última importação.",
-        { duration: 8000 },
-      );
-      // Revalida a cada 10s para exibir o progresso quando terminar
-      qc.invalidateQueries({ queryKey: ["rd_integration_config"] });
-      setTimeout(() => qc.invalidateQueries({ queryKey: ["rd_integration_config"] }), 10000);
-      setTimeout(() => qc.invalidateQueries({ queryKey: ["rd_integration_config"] }), 30000);
-      setTimeout(() => qc.invalidateQueries({ queryKey: ["rd_integration_config"] }), 60000);
     } catch (e) {
       toast.error(`Erro no import: ${String(e)}`);
     } finally {
       setImporting(false);
+      setImportProgress(null);
+      qc.invalidateQueries({ queryKey: ["rd_integration_config"] });
     }
   }
 
@@ -457,15 +474,20 @@ export default function RdStationPage() {
           {testing ? "Testando..." : "Testar conexão"}
         </Button>
 
-        <Button
-          size="sm"
-          className="h-8 gap-1.5"
-          disabled={importing || !config?.is_active}
-          onClick={handleImport}
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${importing ? "animate-spin" : ""}`} />
-          {importing ? "Importando..." : "Importar Histórico Completo"}
-        </Button>
+        <div className="flex flex-col gap-1">
+          <Button
+            size="sm"
+            className="h-8 gap-1.5"
+            disabled={importing || !config?.is_active}
+            onClick={handleImport}
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${importing ? "animate-spin" : ""}`} />
+            {importing ? "Importando..." : "Importar Histórico Completo"}
+          </Button>
+          {importProgress && (
+            <p className="text-xs text-muted-foreground animate-pulse">{importProgress}</p>
+          )}
+        </div>
 
         <Dialog open={logsOpen} onOpenChange={setLogsOpen}>
           <DialogTrigger asChild>

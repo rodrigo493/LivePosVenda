@@ -223,105 +223,152 @@ function resolveClientFromContacts(
   return null;
 }
 
+// Carrega pipeline e estágios — reutilizado por importDeals e importDealsPage
+async function loadPipelineContext(): Promise<{
+  pipelineId: string | null;
+  stageMap: Map<string, string>;
+  firstStageKey: string | null;
+  stagesArr: { key: string; label: string }[];
+}> {
+  const { data: salesPipeline } = await admin
+    .from("pipelines").select("id").ilike("name", "%vendas%").limit(1).maybeSingle();
+  const { data: firstPipeline } = !salesPipeline
+    ? await admin.from("pipelines").select("id").limit(1).maybeSingle()
+    : { data: null };
+  const pipeline = salesPipeline ?? firstPipeline;
+  if (!pipeline?.id) return { pipelineId: null, stageMap: new Map(), firstStageKey: null, stagesArr: [] };
+
+  const { data: stages } = await admin
+    .from("pipeline_stages").select("key, label, position")
+    .eq("pipeline_id", pipeline.id).order("position", { ascending: true });
+
+  const stageMap = new Map((stages ?? []).map((s) => [normalizeStr(s.label), s.key]));
+  const firstStageKey = stages?.[0]?.key ?? null;
+  console.log("rd-import: stageMap:", [...stageMap.keys()]);
+  return { pipelineId: pipeline.id, stageMap, firstStageKey, stagesArr: stages ?? [] };
+}
+
+function buildDealPayload(
+  deal: Record<string, unknown>,
+  pipelineId: string,
+  stageMap: Map<string, string>,
+  firstStageKey: string | null,
+  stagesArr: { key: string; label: string }[],
+  emailToAuthId: Map<string, string>,
+  clientMaps: { byRdId: Map<string, string>; byEmail: Map<string, string>; byPhone: Map<string, string> },
+  stageMismatches: string[],
+): Record<string, unknown> | null {
+  const rdDealId = (deal._id ?? deal.id) as string;
+  if (!rdDealId) return null;
+
+  const rawStageName = (deal.deal_stage as { name?: string } | null)?.name ?? null;
+  const stageKey = findStageKey(rawStageName, stageMap, stagesArr) ?? firstStageKey;
+  if (rawStageName && stageKey === firstStageKey && findStageKey(rawStageName, stageMap, stagesArr) === null) {
+    stageMismatches.push(rawStageName);
+  }
+
+  const userEmail = (deal.user as { email?: string } | null)?.email ?? null;
+  const assignedTo = userEmail ? (emailToAuthId.get(userEmail.toLowerCase()) ?? null) : null;
+  const contacts = (deal.contacts as Record<string, unknown>[] | undefined) ?? [];
+  const clientId = resolveClientFromContacts(contacts, clientMaps);
+
+  let status = "aberto";
+  if (deal.win === true) status = "fechado";
+  else if (deal.win === false) status = "cancelado";
+  else if (deal.hold === true) status = "pausado";
+
+  const payload: Record<string, unknown> = {
+    rd_deal_id: rdDealId,
+    title: (deal.name as string) || "Negociação sem título",
+    ticket_type: "negociacao",
+    status,
+    estimated_value: Number(deal.amount_total ?? 0),
+    pipeline_id: pipelineId,
+    pipeline_stage: stageKey ?? firstStageKey ?? "sem_atendimento",
+    assigned_to: assignedTo,
+    ticket_number: `RD-${rdDealId}`,
+    origin: "rd_station",
+    channel: "rd_station",
+    created_at: (deal.created_at as string) || new Date().toISOString(),
+  };
+  if (clientId) payload.client_id = clientId;
+  return payload;
+}
+
+// Importa UMA página — chamado pelo modo paginado (frontend em loop)
+async function importDealsPage(
+  token: string,
+  page: number,
+  emailToAuthId: Map<string, string>,
+): Promise<{ imported: number; has_more: boolean; stage_mismatches: string[] }> {
+  const { pipelineId, stageMap, firstStageKey, stagesArr } = await loadPipelineContext();
+  if (!pipelineId) return { imported: 0, has_more: false, stage_mismatches: [] };
+
+  const clientMaps = await buildClientMaps();
+
+  const resp = await rdGet("/deals", token, { limit: "200", page: String(page) }) as {
+    deals?: Record<string, unknown>[];
+    has_more?: boolean;
+  };
+  const deals = resp.deals ?? [];
+  console.log(`rd-import page ${page}: ${deals.length} deals, has_more=${resp.has_more}`);
+  if (deals.length === 0) return { imported: 0, has_more: false, stage_mismatches: [] };
+
+  const stageMismatches: string[] = [];
+  const batch: Record<string, unknown>[] = [];
+  for (const deal of deals) {
+    const p = buildDealPayload(deal, pipelineId, stageMap, firstStageKey, stagesArr, emailToAuthId, clientMaps, stageMismatches);
+    if (p) batch.push(p);
+  }
+
+  let { error: batchErr } = await admin.from("tickets").upsert(batch, { onConflict: "rd_deal_id" });
+  if (batchErr?.message?.includes("assigned_to_fkey")) {
+    const { error: err2 } = await admin.from("tickets")
+      .upsert(batch.map((p) => ({ ...p, assigned_to: null })), { onConflict: "rd_deal_id" });
+    batchErr = err2 ?? null;
+  }
+
+  if (batchErr) console.error(`rd-import page ${page} upsert failed:`, batchErr.message);
+
+  const has_more = !!(resp.has_more) && deals.length >= 200;
+  return {
+    imported: batchErr ? 0 : batch.length,
+    has_more,
+    stage_mismatches: [...new Set(stageMismatches)],
+  };
+}
+
+// Importa TODOS os deals de uma vez (modo legado — pode dar timeout com >600 deals)
 async function importDeals(
   token: string,
   _rdPipelineId: string | null,
   emailToAuthId: Map<string, string>,
 ): Promise<{ count: number; stage_mismatches: string[] }> {
-  const { data: salesPipeline } = await admin
-    .from("pipelines")
-    .select("id")
-    .ilike("name", "%vendas%")
-    .limit(1)
-    .maybeSingle();
+  const { pipelineId, stageMap, firstStageKey, stagesArr } = await loadPipelineContext();
+  if (!pipelineId) return { count: 0, stage_mismatches: [] };
 
-  const { data: firstPipeline } = !salesPipeline
-    ? await admin.from("pipelines").select("id").limit(1).maybeSingle()
-    : { data: null };
-
-  const pipeline = salesPipeline ?? firstPipeline;
-  if (!pipeline?.id) return { count: 0, stage_mismatches: [] };
-
-  const { data: stages } = await admin
-    .from("pipeline_stages")
-    .select("key, label, position")
-    .eq("pipeline_id", pipeline.id)
-    .order("position", { ascending: true });
-
-  const stageMap = new Map((stages ?? []).map((s) => [normalizeStr(s.label), s.key]));
-  const firstStageKey = stages?.[0]?.key ?? null;
-  const stagesArr = stages ?? [];
-  console.log("rd-import: stageMap:", [...stageMap.keys()]);
-
-  // Pré-carrega todos os clientes em memória — elimina queries por deal
   const clientMaps = await buildClientMaps();
-
   const stageMismatches: string[] = [];
   const pageLog: { page: number; fetched: number; upserted: number; has_more: boolean; error?: string }[] = [];
   let totalCount = 0;
   let page = 1;
 
   while (true) {
-    // Sem filtro de pipeline — importa deals de TODOS os pipelines do RD Station
-    const params: Record<string, string> = { limit: "200", page: String(page) };
-
-    const resp = await rdGet("/deals", token, params) as {
+    const resp = await rdGet("/deals", token, { limit: "200", page: String(page) }) as {
       deals?: Record<string, unknown>[];
       has_more?: boolean;
     };
-
     const deals = resp.deals ?? [];
     console.log(`rd-import deals: page ${page}, ${deals.length} deals, has_more=${resp.has_more}`);
     if (deals.length === 0) break;
 
-    // Monta batch completo da página — sem queries individuais
     const batch: Record<string, unknown>[] = [];
-
     for (const deal of deals) {
-      const rdDealId = (deal._id ?? deal.id) as string;
-      if (!rdDealId) continue;
-
-      const rawStageName = (deal.deal_stage as { name?: string } | null)?.name ?? null;
-      const stageKey = findStageKey(rawStageName, stageMap, stagesArr) ?? firstStageKey;
-      if (rawStageName && stageKey === firstStageKey && findStageKey(rawStageName, stageMap, stagesArr) === null) {
-        stageMismatches.push(rawStageName);
-      }
-
-      const userEmail = (deal.user as { email?: string } | null)?.email ?? null;
-      const assignedTo = userEmail ? (emailToAuthId.get(userEmail.toLowerCase()) ?? null) : null;
-
-      const contacts = (deal.contacts as Record<string, unknown>[] | undefined) ?? [];
-      const clientId = resolveClientFromContacts(contacts, clientMaps);
-
-      let status = "aberto";
-      if (deal.win === true) status = "fechado";
-      else if (deal.win === false) status = "cancelado";
-      else if (deal.hold === true) status = "pausado";
-
-      const payload: Record<string, unknown> = {
-        rd_deal_id: rdDealId,
-        title: (deal.name as string) || "Negociação sem título",
-        ticket_type: "negociacao",
-        status,
-        estimated_value: Number(deal.amount_total ?? 0),
-        pipeline_id: pipeline.id,
-        pipeline_stage: stageKey ?? firstStageKey ?? "sem_atendimento",
-        assigned_to: assignedTo,
-        ticket_number: `RD-${rdDealId}`,
-        origin: "rd_station",
-        channel: "rd_station",
-        created_at: (deal.created_at as string) || new Date().toISOString(),
-      };
-      if (clientId) payload.client_id = clientId;
-
-      batch.push(payload);
+      const p = buildDealPayload(deal, pipelineId, stageMap, firstStageKey, stagesArr, emailToAuthId, clientMaps, stageMismatches);
+      if (p) batch.push(p);
     }
 
-    // Upsert em lote — todos os deals da página numa única chamada
-    let { error: batchErr } = await admin.from("tickets")
-      .upsert(batch, { onConflict: "rd_deal_id" });
-
-    // Se algum assigned_to inválido, retry zerando todos
+    let { error: batchErr } = await admin.from("tickets").upsert(batch, { onConflict: "rd_deal_id" });
     if (batchErr?.message?.includes("assigned_to_fkey")) {
       const { error: err2 } = await admin.from("tickets")
         .upsert(batch.map((p) => ({ ...p, assigned_to: null })), { onConflict: "rd_deal_id" });
@@ -344,7 +391,6 @@ async function importDeals(
   if (stageMismatches.length > 0) {
     console.warn("rd-import: stage mismatches:", [...new Set(stageMismatches)]);
   }
-
   return { count: totalCount, stage_mismatches: [...new Set(stageMismatches)], pageLog } as { count: number; stage_mismatches: string[]; pageLog: typeof pageLog };
 }
 
@@ -560,15 +606,49 @@ Deno.serve(async (req) => {
       });
     }
 
-    const body = await req.json().catch(() => ({})) as { skip_contacts?: boolean };
+    const body = await req.json().catch(() => ({})) as {
+      skip_contacts?: boolean;
+      page?: number;
+      cumulative?: number;
+    };
     const skipContacts = body.skip_contacts === true;
-
     const token = config.api_token as string;
     const rdPipelineId = config.rd_pipeline_id as string | null;
     const configId = config.id as string;
 
-    console.log("rd-import: starting import, skip_contacts=", skipContacts);
+    // ── Modo paginado: importa UMA página por chamada ──────────────────────
+    if (typeof body.page === "number") {
+      const page = body.page;
+      const cumulativeBefore = typeof body.cumulative === "number" ? body.cumulative : 0;
 
+      console.log(`rd-import: paginated mode page=${page}, cumulative=${cumulativeBefore}`);
+      const emailToAuthId = await buildEmailToAuthIdMap();
+      const { imported, has_more, stage_mismatches } = await importDealsPage(token, page, emailToAuthId);
+      const totalSoFar = cumulativeBefore + imported;
+
+      const importStats = {
+        status: has_more ? "running" : "done",
+        total_deals: totalSoFar,
+        total_contacts: 0,
+        total_tasks: 0,
+        total_activities: 0,
+        started_at: page === 1 ? new Date().toISOString() : undefined,
+        ...(has_more ? {} : { imported_at: new Date().toISOString(), stage_mismatches }),
+      };
+
+      await admin.from("rd_integration_config").update({
+        last_import_at: new Date().toISOString(),
+        import_stats: importStats,
+      }).eq("id", configId);
+
+      return new Response(
+        JSON.stringify({ ok: true, imported, total_so_far: totalSoFar, has_more, page }),
+        { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+      );
+    }
+
+    // ── Modo legado: importa tudo de uma vez (pode dar timeout com >600 deals) ─
+    console.log("rd-import: legacy full import, skip_contacts=", skipContacts);
     const emailToAuthId = await buildEmailToAuthIdMap();
 
     let totalContacts = 0;
@@ -580,16 +660,12 @@ Deno.serve(async (req) => {
     const { count: totalDeals, stage_mismatches, pageLog } = await importDeals(token, rdPipelineId, emailToAuthId);
     console.log(`rd-import: ${totalDeals} deals imported`);
 
-    // Tasks e activities importados separadamente para não afetar o timeout do import de deals
-    const totalTasks = 0;
-    const totalActivities = 0;
-
     const importStats = {
       status: "done",
       total_deals: totalDeals,
       total_contacts: totalContacts,
-      total_tasks: totalTasks,
-      total_activities: totalActivities,
+      total_tasks: 0,
+      total_activities: 0,
       imported_at: new Date().toISOString(),
       stage_mismatches,
     };
