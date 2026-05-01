@@ -50,8 +50,9 @@ Deno.serve(async (req) => {
       const toNum = (v: string = '0') => parseFloat(v.replace(/\./g, '').replace(',', '.')) || 0;
       const saldo = empresa?.saldos?.reduce((acc: number, s: any) => acc + toNum(String(s.saldo ?? '0')), 0) ?? 0;
       const custoMedio = empresa?.custoMedioUnitario ? toNum(String(empresa.custoMedioUnitario)) : 0;
+      const preco = toNum(String(produto.preco ?? '0'));
 
-      return new Response(JSON.stringify({ saldo, idNomus: produto.id, custoMedio }), {
+      return new Response(JSON.stringify({ saldo, idNomus: produto.id, custoMedio, preco }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
 

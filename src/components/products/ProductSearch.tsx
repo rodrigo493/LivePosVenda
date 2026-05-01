@@ -17,7 +17,7 @@ interface ProductSearchProps {
   showNomusStock?: boolean;
 }
 
-type StockEntry = { loading: boolean; qty: number | null; custoMedio: number | null };
+type StockEntry = { loading: boolean; qty: number | null; custoMedio: number | null; preco: number | null };
 
 // Fila global: serializa chamadas à edge function nomus-search com 400ms de intervalo
 let _nomusQueue: Promise<void> = Promise.resolve();
@@ -115,7 +115,7 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
   const handleMouseEnter = async (code: string) => {
     if (!code || fetchedRef.current.has(code)) return;
     fetchedRef.current.add(code);
-    setStockMap(prev => ({ ...prev, [code]: { loading: true, qty: null, custoMedio: null } }));
+    setStockMap(prev => ({ ...prev, [code]: { loading: true, qty: null, custoMedio: null, preco: null } }));
     try {
       const { data, error } = await _nomusEnqueue(() =>
         supabase.functions.invoke("nomus-search", {
@@ -125,9 +125,10 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
       if (error) throw error;
       const qty = typeof data?.saldo === "number" ? data.saldo : null;
       const custoMedio = typeof data?.custoMedio === "number" && data.custoMedio > 0 ? data.custoMedio : null;
-      setStockMap(prev => ({ ...prev, [code]: { loading: false, qty, custoMedio } }));
+      const preco = typeof data?.preco === "number" && data.preco > 0 ? data.preco : null;
+      setStockMap(prev => ({ ...prev, [code]: { loading: false, qty, custoMedio, preco } }));
     } catch {
-      setStockMap(prev => ({ ...prev, [code]: { loading: false, qty: null, custoMedio: null } }));
+      setStockMap(prev => ({ ...prev, [code]: { loading: false, qty: null, custoMedio: null, preco: null } }));
     }
   };
 
@@ -227,14 +228,14 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
                   <div className="text-right shrink-0 mr-1">
                     {(() => {
                       const entry = stockMap[p.code];
-                      const preco = Number(p.base_cost) > 0
-                        ? Number(p.base_cost)
-                        : (entry?.custoMedio ?? 0);
+                      const baseCost = Number(p.base_cost);
+                      const nomusPreco = entry?.preco ?? entry?.custoMedio ?? null;
+                      const preco = baseCost > 0 ? baseCost : (nomusPreco ?? 0);
                       return (
                         <p className="text-xs font-mono font-medium">
                           R$ {preco.toFixed(2)}
-                          {Number(p.base_cost) === 0 && entry?.custoMedio && (
-                            <span className="text-[9px] text-muted-foreground ml-1">(custo)</span>
+                          {baseCost === 0 && nomusPreco && (
+                            <span className="text-[9px] text-muted-foreground ml-1">(Nomus)</span>
                           )}
                         </p>
                       );
