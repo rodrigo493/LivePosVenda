@@ -238,6 +238,11 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
                   <div className="text-right shrink-0 mr-1">
                     <p className="text-xs font-mono font-medium">R$ {Number(p.base_cost).toFixed(2)}</p>
                     <p className="text-[10px] text-muted-foreground">{p.unit || "un"}</p>
+                    {p.stock_current != null && (
+                      <p className="text-[10px] font-semibold" style={{ color: p.stock_current > 0 ? '#16a34a' : '#ea580c' }}>
+                        {p.stock_current} em estoque
+                      </p>
+                    )}
                   </div>
                   {showNomusStock && (
                     <div className="shrink-0 self-center text-center min-w-[72px]">
