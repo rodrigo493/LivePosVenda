@@ -17,7 +17,7 @@ interface ProductSearchProps {
   showNomusStock?: boolean;
 }
 
-type StockEntry = { loading: boolean; qty: number | null };
+type StockEntry = { loading: boolean; qty: number | null; custoMedio: number | null };
 
 // Fila global: serializa chamadas à edge function nomus-search com 400ms de intervalo
 let _nomusQueue: Promise<void> = Promise.resolve();
@@ -115,7 +115,7 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
   const handleMouseEnter = async (code: string) => {
     if (!code || fetchedRef.current.has(code)) return;
     fetchedRef.current.add(code);
-    setStockMap(prev => ({ ...prev, [code]: { loading: true, qty: null } }));
+    setStockMap(prev => ({ ...prev, [code]: { loading: true, qty: null, custoMedio: null } }));
     try {
       const { data, error } = await _nomusEnqueue(() =>
         supabase.functions.invoke("nomus-search", {
@@ -124,9 +124,10 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
       );
       if (error) throw error;
       const qty = typeof data?.saldo === "number" ? data.saldo : null;
-      setStockMap(prev => ({ ...prev, [code]: { loading: false, qty } }));
+      const custoMedio = typeof data?.custoMedio === "number" && data.custoMedio > 0 ? data.custoMedio : null;
+      setStockMap(prev => ({ ...prev, [code]: { loading: false, qty, custoMedio } }));
     } catch {
-      setStockMap(prev => ({ ...prev, [code]: { loading: false, qty: null } }));
+      setStockMap(prev => ({ ...prev, [code]: { loading: false, qty: null, custoMedio: null } }));
     }
   };
 
@@ -224,7 +225,20 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
                     </div>
                   </div>
                   <div className="text-right shrink-0 mr-1">
-                    <p className="text-xs font-mono font-medium">R$ {Number(p.base_cost).toFixed(2)}</p>
+                    {(() => {
+                      const entry = stockMap[p.code];
+                      const preco = Number(p.base_cost) > 0
+                        ? Number(p.base_cost)
+                        : (entry?.custoMedio ?? 0);
+                      return (
+                        <p className="text-xs font-mono font-medium">
+                          R$ {preco.toFixed(2)}
+                          {Number(p.base_cost) === 0 && entry?.custoMedio && (
+                            <span className="text-[9px] text-muted-foreground ml-1">(custo)</span>
+                          )}
+                        </p>
+                      );
+                    })()}
                     <p className="text-[10px] text-muted-foreground">{p.unit || "un"}</p>
                     {renderStock(p.code)}
                   </div>

@@ -49,8 +49,9 @@ Deno.serve(async (req) => {
       const empresa = Array.isArray(saldos) ? saldos.find((s: any) => String(s.idEmpresa) === '2') : null;
       const toNum = (v: string = '0') => parseFloat(v.replace(/\./g, '').replace(',', '.')) || 0;
       const saldo = empresa?.saldos?.reduce((acc: number, s: any) => acc + toNum(String(s.saldo ?? '0')), 0) ?? 0;
+      const custoMedio = empresa?.custoMedioUnitario ? toNum(String(empresa.custoMedioUnitario)) : 0;
 
-      return new Response(JSON.stringify({ saldo, idNomus: produto.id }), {
+      return new Response(JSON.stringify({ saldo, idNomus: produto.id, custoMedio }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
 
