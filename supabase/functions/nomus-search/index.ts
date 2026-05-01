@@ -26,10 +26,13 @@ Deno.serve(async (req) => {
     } else if (type === 'produtos') {
       url = `${NOMUS_API_URL}/rest/produtos?query=codigo==*${encodeURIComponent(query)}*`;
     } else if (type === 'estoque') {
+      // Proxy nginx já adiciona Authorization — não enviar header aqui (TLS Deno/Rustls incompatível com Nomus direto)
+      const nomusHeaders = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
+
       // 1. Buscar ID do produto pelo código exato
       const resProd = await fetch(
         `${NOMUS_API_URL}/rest/produtos?query=codigo==${encodeURIComponent(query)}`,
-        { headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'Authorization': `Basic ${NOMUS_API_KEY}` } }
+        { headers: nomusHeaders }
       );
       const produtos = await resProd.json();
       const produto = Array.isArray(produtos) ? produtos.find((p: any) => p.codigo === query) : null;
@@ -37,10 +40,10 @@ Deno.serve(async (req) => {
         return new Response(JSON.stringify({ saldo: 0 }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
 
-      // 2. Buscar saldo de estoque
+      // 2. Buscar saldo de estoque — soma saldos[] da empresa 2
       const resSaldo = await fetch(
         `${NOMUS_API_URL}/rest/saldosEstoqueProduto/${produto.id}`,
-        { headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'Authorization': `Basic ${NOMUS_API_KEY}` } }
+        { headers: nomusHeaders }
       );
       const saldos = await resSaldo.json();
       const empresa = Array.isArray(saldos) ? saldos.find((s: any) => String(s.idEmpresa) === '2') : null;
