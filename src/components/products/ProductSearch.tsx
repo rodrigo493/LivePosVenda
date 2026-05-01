@@ -6,7 +6,8 @@ import { useProducts } from "@/hooks/useProducts";
 import { useAllCompatibility } from "@/hooks/useProductCompatibility";
 import { SEARCH_RESULTS_LIMIT } from "@/constants/limits";
 import { cn } from "@/lib/utils";
-import { supabase } from "@/integrations/supabase/client";
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+const ANON_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY) as string;
 
 interface ProductSearchProps {
   modelFilter?: string;
@@ -117,12 +118,19 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
     fetchedRef.current.add(code);
     setStockMap(prev => ({ ...prev, [code]: { loading: true, qty: null, custoMedio: null, preco: null } }));
     try {
-      const { data, error } = await _nomusEnqueue(() =>
-        supabase.functions.invoke("nomus-search", {
-          body: { type: "estoque", query: code },
+      const res = await _nomusEnqueue(() =>
+        fetch(`${SUPABASE_URL}/functions/v1/nomus-search`, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${ANON_KEY}`,
+            "apikey": ANON_KEY,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ type: "estoque", query: code }),
         })
       );
-      if (error) throw error;
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
       const qty = typeof data?.saldo === "number" ? data.saldo : null;
       const custoMedio = typeof data?.custoMedio === "number" && data.custoMedio > 0 ? data.custoMedio : null;
       const preco = typeof data?.preco === "number" && data.preco > 0 ? data.preco : null;
