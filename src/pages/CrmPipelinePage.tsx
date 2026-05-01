@@ -13,7 +13,15 @@ import {
   ChevronDown,
   CalendarClock,
   MessageSquare,
+  X,
+  ArrowRightLeft,
+  FileDown,
+  Tag,
+  MoveRight,
+  Layers,
+  CheckSquare2,
 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
   DndContext,
   DragOverlay,
@@ -183,6 +191,18 @@ const CrmPipelinePage = () => {
   const [isGrabbing, setIsGrabbing] = useState(false);
   const [viewMode, setViewMode] = useState<"kanban" | "list">("kanban");
   const grabState = useRef({ isDown: false, startX: 0, scrollLeft: 0 });
+
+  // ── Seleção em massa (modo lista) ───────────────────────────────
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  type BulkModal = "transfer" | "status" | "stage" | "pipeline" | "addAlter" | "export" | null;
+  const [bulkModal, setBulkModal] = useState<BulkModal>(null);
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkTransferTo, setBulkTransferTo] = useState("");
+  const [bulkStatus, setBulkStatus] = useState("");
+  const [bulkStage, setBulkStage] = useState("");
+  const [bulkPipelineId, setBulkPipelineId] = useState("");
+  const [bulkAddField, setBulkAddField] = useState<"qualificacao" | "campanha" | "fonte" | "canal">("qualificacao");
+  const [bulkAddValue, setBulkAddValue] = useState("");
 
   // Local columns state for smooth drag — synced from server data
   const [columns, setColumns] = useState<Record<string, any[]>>({});
@@ -557,6 +577,71 @@ const CrmPipelinePage = () => {
     setTaskCreate({ open: true, ticketId, clientId });
   };
 
+  // ── Helpers de seleção em massa ─────────────────────────────────
+  const allVisibleIds = useMemo(
+    () => stages.flatMap((s) => (columns[s.key] || []).map((t: any) => t.id)),
+    [stages, columns]
+  );
+  const allSelected = allVisibleIds.length > 0 && allVisibleIds.every((id) => selectedIds.has(id));
+  const someSelected = !allSelected && allVisibleIds.some((id) => selectedIds.has(id));
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleSelectAll = useCallback(() => {
+    if (allSelected || someSelected) setSelectedIds(new Set());
+    else setSelectedIds(new Set(allVisibleIds));
+  }, [allSelected, someSelected, allVisibleIds]);
+
+  const bulkUpdate = useCallback(async (updates: Record<string, any>) => {
+    setBulkLoading(true);
+    try {
+      const ids = Array.from(selectedIds);
+      const { error } = await (supabase as any).from("tickets").update(updates).in("id", ids);
+      if (error) throw error;
+      await qc.invalidateQueries({ queryKey: ["pipeline-tickets"] });
+      setSelectedIds(new Set());
+      setBulkModal(null);
+      toast.success(`${ids.length} negociação${ids.length > 1 ? "ões" : ""} atualizada${ids.length > 1 ? "s" : ""}`);
+    } catch (err: any) {
+      toast.error(err.message || "Erro ao atualizar");
+    } finally {
+      setBulkLoading(false);
+    }
+  }, [selectedIds, qc]);
+
+  const exportSelectedCsv = useCallback(() => {
+    const ids = new Set(selectedIds);
+    const rows = stages.flatMap((s) => (columns[s.key] || []).filter((t: any) => ids.has(t.id)));
+    const headers = ["Número", "Cliente", "Etapa", "Valor", "Status", "Prioridade", "Criado em"];
+    const csvRows = rows.map((t: any) => [
+      t.ticket_number,
+      t.clients?.name || "",
+      stages.find((s) => s.key === t.pipeline_stage)?.label || t.pipeline_stage,
+      t.estimated_value || 0,
+      t.status,
+      t.priority || "",
+      t.created_at ? new Date(t.created_at).toLocaleDateString("pt-BR") : "",
+    ]);
+    const csv = [headers, ...csvRows]
+      .map((r) => r.map((v: any) => `"${String(v).replace(/"/g, '""')}"`).join(";"))
+      .join("\n");
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `negociacoes-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setSelectedIds(new Set());
+    setBulkModal(null);
+  }, [selectedIds, stages, columns]);
+
   return (
     <div className="-mx-6 -mt-6 -mb-6 flex flex-col bg-zinc-950">
 
@@ -755,9 +840,52 @@ const CrmPipelinePage = () => {
         <div className="p-8 text-center text-zinc-500 text-sm">Carregando pipeline...</div>
       ) : viewMode === "list" ? (
         <div className="rounded-xl border border-zinc-800 overflow-hidden bg-zinc-900">
+          {/* ── Barra de ações em massa ── */}
+          {selectedIds.size > 0 && (
+            <div className="flex items-center gap-2 px-4 py-2.5 bg-primary/10 border-b border-primary/20 flex-wrap">
+              <span className="text-xs font-bold text-primary">{selectedIds.size} selecionados</span>
+              <button
+                onClick={() => setSelectedIds(new Set())}
+                className="text-xs text-zinc-400 hover:text-zinc-100 flex items-center gap-1 ml-1"
+              >
+                <X className="h-3 w-3" /> Limpar seleção
+              </button>
+              <div className="h-4 w-px bg-zinc-600 mx-1" />
+              <button onClick={() => { setBulkTransferTo(""); setBulkModal("transfer"); }} className="text-xs text-zinc-300 hover:text-white flex items-center gap-1.5 px-2 py-1 rounded hover:bg-zinc-700 transition-colors">
+                <ArrowRightLeft className="h-3 w-3" /> Transferir
+              </button>
+              <button onClick={() => { setBulkStatus(""); setBulkModal("status"); }} className="text-xs text-zinc-300 hover:text-white flex items-center gap-1.5 px-2 py-1 rounded hover:bg-zinc-700 transition-colors">
+                <CheckSquare2 className="h-3 w-3" /> Alterar status
+              </button>
+              <button onClick={() => setTaskCreate({ open: true })} className="text-xs text-zinc-300 hover:text-white flex items-center gap-1.5 px-2 py-1 rounded hover:bg-zinc-700 transition-colors">
+                <CalendarClock className="h-3 w-3" /> Criar tarefa
+              </button>
+              <button onClick={() => { setBulkStage(""); setBulkModal("stage"); }} className="text-xs text-zinc-300 hover:text-white flex items-center gap-1.5 px-2 py-1 rounded hover:bg-zinc-700 transition-colors">
+                <MoveRight className="h-3 w-3" /> Mover para etapa
+              </button>
+              <button onClick={() => { setBulkPipelineId(""); setBulkModal("pipeline"); }} className="text-xs text-zinc-300 hover:text-white flex items-center gap-1.5 px-2 py-1 rounded hover:bg-zinc-700 transition-colors">
+                <Layers className="h-3 w-3" /> Mover para fluxo
+              </button>
+              <button onClick={() => setBulkModal("export")} className="text-xs text-zinc-300 hover:text-white flex items-center gap-1.5 px-2 py-1 rounded hover:bg-zinc-700 transition-colors">
+                <FileDown className="h-3 w-3" /> Exportar
+              </button>
+              <button onClick={() => { setBulkAddField("qualificacao"); setBulkAddValue(""); setBulkModal("addAlter"); }} className="text-xs text-zinc-300 hover:text-white flex items-center gap-1.5 px-2 py-1 rounded hover:bg-zinc-700 transition-colors">
+                <Tag className="h-3 w-3" /> Adicionar ou Alterar
+              </button>
+            </div>
+          )}
           <table className="w-full text-xs text-zinc-100">
             <thead>
               <tr className="bg-zinc-800 border-b border-zinc-700">
+                <th className="px-3 py-2 w-8">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    ref={(el) => { if (el) el.indeterminate = someSelected; }}
+                    onChange={toggleSelectAll}
+                    className="cursor-pointer accent-primary h-3.5 w-3.5"
+                  />
+                </th>
                 <th className="text-left px-3 py-2 font-semibold text-zinc-400 whitespace-nowrap">Etapa</th>
                 <th className="text-left px-3 py-2 font-semibold text-zinc-400">Cliente</th>
                 <th className="text-left px-3 py-2 font-semibold text-zinc-400">Nº</th>
@@ -778,12 +906,21 @@ const CrmPipelinePage = () => {
                   const nextTask = pending.length > 0
                     ? pending.sort((a: any, b: any) => (a.due_date + (a.due_time || "")).localeCompare(b.due_date + (b.due_time || "")))[0]
                     : null;
+                  const isChecked = selectedIds.has(ticket.id);
                   return (
                     <tr
                       key={ticket.id}
-                      className="border-b border-zinc-800 last:border-0 hover:bg-zinc-800/60 cursor-pointer transition-colors"
+                      className={`border-b border-zinc-800 last:border-0 hover:bg-zinc-800/60 cursor-pointer transition-colors ${isChecked ? "bg-primary/5" : ""}`}
                       onClick={() => setDetailTicket(ticket)}
                     >
+                      <td className="px-3 py-2 w-8" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => toggleSelect(ticket.id)}
+                          className="cursor-pointer accent-primary h-3.5 w-3.5"
+                        />
+                      </td>
                       <td className="px-3 py-2 whitespace-nowrap">
                         <span className="flex items-center gap-1.5">
                           <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: stageColor }} />
@@ -821,7 +958,7 @@ const CrmPipelinePage = () => {
               )}
               {stages.every((s) => (columns[s.key] || []).length === 0) && (
                 <tr>
-                  <td colSpan={8} className="px-3 py-10 text-center text-zinc-500">Nenhum ticket neste funil</td>
+                  <td colSpan={9} className="px-3 py-10 text-center text-zinc-500">Nenhum ticket neste funil</td>
                 </tr>
               )}
             </tbody>
@@ -903,6 +1040,212 @@ const CrmPipelinePage = () => {
       <CrmBatchSyncDialog open={batchOpen} onOpenChange={setBatchOpen} />
       <PipelineExcelImportDialog open={excelImportOpen} onOpenChange={setExcelImportOpen} />
       <TicketDetailDialog ticket={detailTicket} open={!!detailTicket} onOpenChange={(o) => !o && setDetailTicket(null)} />
+
+      {/* ── Modal: Transferir responsável ── */}
+      <Dialog open={bulkModal === "transfer"} onOpenChange={(o) => !o && setBulkModal(null)}>
+        <DialogContent className="bg-zinc-900 border-zinc-700 text-zinc-100 max-w-sm">
+          <DialogHeader><DialogTitle className="text-sm">Transferir {selectedIds.size} negociação{selectedIds.size > 1 ? "ões" : ""}</DialogTitle></DialogHeader>
+          <div className="py-2">
+            <label className="text-xs text-zinc-400 block mb-1">Novo responsável</label>
+            <select
+              value={bulkTransferTo}
+              onChange={(e) => setBulkTransferTo(e.target.value)}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-md text-xs text-zinc-100 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/50"
+            >
+              <option value="">Selecione um responsável...</option>
+              {allUsers.map((u) => (
+                <option key={u.user_id} value={u.user_id}>{u.full_name || u.email}</option>
+              ))}
+            </select>
+          </div>
+          <DialogFooter>
+            <button onClick={() => setBulkModal(null)} className="text-xs px-3 py-1.5 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-800">Cancelar</button>
+            <button
+              disabled={!bulkTransferTo || bulkLoading}
+              onClick={() => bulkUpdate({ assigned_to: bulkTransferTo })}
+              className="text-xs px-3 py-1.5 rounded bg-primary text-white hover:bg-primary/90 disabled:opacity-50"
+            >
+              {bulkLoading ? "Transferindo..." : "Transferir"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Modal: Alterar status ── */}
+      <Dialog open={bulkModal === "status"} onOpenChange={(o) => !o && setBulkModal(null)}>
+        <DialogContent className="bg-zinc-900 border-zinc-700 text-zinc-100 max-w-sm">
+          <DialogHeader><DialogTitle className="text-sm">Alterar status de {selectedIds.size} negociação{selectedIds.size > 1 ? "ões" : ""}</DialogTitle></DialogHeader>
+          <div className="py-2 flex flex-col gap-2">
+            {[
+              { value: "aberto", label: "Em andamento", dot: "#3b82f6" },
+              { value: "fechado", label: "Vendida", dot: "#22c55e" },
+              { value: "cancelado", label: "Perdida", dot: "#ef4444" },
+              { value: "pausado", label: "Pausado", dot: "#f97316" },
+            ].map((s) => (
+              <label key={s.value} className={`flex items-center gap-2.5 px-3 py-2 rounded-lg cursor-pointer border transition-colors ${bulkStatus === s.value ? "border-primary bg-primary/10" : "border-zinc-700 hover:bg-zinc-800"}`}>
+                <input type="radio" name="bulk-status" value={s.value} checked={bulkStatus === s.value} onChange={() => setBulkStatus(s.value)} className="accent-primary" />
+                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: s.dot }} />
+                <span className="text-xs">{s.label}</span>
+              </label>
+            ))}
+          </div>
+          <DialogFooter>
+            <button onClick={() => setBulkModal(null)} className="text-xs px-3 py-1.5 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-800">Cancelar</button>
+            <button
+              disabled={!bulkStatus || bulkLoading}
+              onClick={() => bulkUpdate({ status: bulkStatus })}
+              className="text-xs px-3 py-1.5 rounded bg-primary text-white hover:bg-primary/90 disabled:opacity-50"
+            >
+              {bulkLoading ? "Alterando..." : "Alterar status"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Modal: Mover para etapa ── */}
+      <Dialog open={bulkModal === "stage"} onOpenChange={(o) => !o && setBulkModal(null)}>
+        <DialogContent className="bg-zinc-900 border-zinc-700 text-zinc-100 max-w-sm">
+          <DialogHeader><DialogTitle className="text-sm">Mover {selectedIds.size} negociação{selectedIds.size > 1 ? "ões" : ""} para etapa</DialogTitle></DialogHeader>
+          <div className="py-2 flex flex-col gap-2 max-h-64 overflow-y-auto">
+            {stages.map((s) => (
+              <label key={s.key} className={`flex items-center gap-2.5 px-3 py-2 rounded-lg cursor-pointer border transition-colors ${bulkStage === s.key ? "border-primary bg-primary/10" : "border-zinc-700 hover:bg-zinc-800"}`}>
+                <input type="radio" name="bulk-stage" value={s.key} checked={bulkStage === s.key} onChange={() => setBulkStage(s.key)} className="accent-primary" />
+                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: s.color }} />
+                <span className="text-xs">{s.label}</span>
+              </label>
+            ))}
+          </div>
+          <DialogFooter>
+            <button onClick={() => setBulkModal(null)} className="text-xs px-3 py-1.5 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-800">Cancelar</button>
+            <button
+              disabled={!bulkStage || bulkLoading}
+              onClick={() => bulkUpdate({ pipeline_stage: bulkStage })}
+              className="text-xs px-3 py-1.5 rounded bg-primary text-white hover:bg-primary/90 disabled:opacity-50"
+            >
+              {bulkLoading ? "Movendo..." : "Mover"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Modal: Mover para fluxo ── */}
+      <Dialog open={bulkModal === "pipeline"} onOpenChange={(o) => !o && setBulkModal(null)}>
+        <DialogContent className="bg-zinc-900 border-zinc-700 text-zinc-100 max-w-sm">
+          <DialogHeader><DialogTitle className="text-sm">Mover {selectedIds.size} negociação{selectedIds.size > 1 ? "ões" : ""} para fluxo</DialogTitle></DialogHeader>
+          <div className="py-2 flex flex-col gap-2">
+            {pipelines.filter((p) => p.id !== currentPipeline?.id).map((p) => (
+              <label key={p.id} className={`flex items-center gap-2.5 px-3 py-2 rounded-lg cursor-pointer border transition-colors ${bulkPipelineId === p.id ? "border-primary bg-primary/10" : "border-zinc-700 hover:bg-zinc-800"}`}>
+                <input type="radio" name="bulk-pipeline" value={p.id} checked={bulkPipelineId === p.id} onChange={() => setBulkPipelineId(p.id)} className="accent-primary" />
+                <span className="text-xs">{p.name}</span>
+              </label>
+            ))}
+            {pipelines.filter((p) => p.id !== currentPipeline?.id).length === 0 && (
+              <p className="text-xs text-zinc-500 text-center py-2">Nenhum outro fluxo disponível</p>
+            )}
+          </div>
+          <DialogFooter>
+            <button onClick={() => setBulkModal(null)} className="text-xs px-3 py-1.5 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-800">Cancelar</button>
+            <button
+              disabled={!bulkPipelineId || bulkLoading}
+              onClick={() => bulkUpdate({ pipeline_id: bulkPipelineId })}
+              className="text-xs px-3 py-1.5 rounded bg-primary text-white hover:bg-primary/90 disabled:opacity-50"
+            >
+              {bulkLoading ? "Movendo..." : "Mover para fluxo"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Modal: Exportar ── */}
+      <Dialog open={bulkModal === "export"} onOpenChange={(o) => !o && setBulkModal(null)}>
+        <DialogContent className="bg-zinc-900 border-zinc-700 text-zinc-100 max-w-xs">
+          <DialogHeader><DialogTitle className="text-sm">Exportar {selectedIds.size} negociação{selectedIds.size > 1 ? "ões" : ""}</DialogTitle></DialogHeader>
+          <div className="py-2 flex flex-col gap-2">
+            <button
+              onClick={exportSelectedCsv}
+              className="flex items-center gap-2 px-4 py-3 rounded-lg border border-zinc-700 hover:bg-zinc-800 transition-colors text-left"
+            >
+              <FileDown className="h-4 w-4 text-green-400" />
+              <div>
+                <div className="text-xs font-medium">CSV</div>
+                <div className="text-[10px] text-zinc-500">Compatível com Excel, Sheets</div>
+              </div>
+            </button>
+          </div>
+          <DialogFooter>
+            <button onClick={() => setBulkModal(null)} className="text-xs px-3 py-1.5 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-800">Fechar</button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Modal: Adicionar ou Alterar ── */}
+      <Dialog open={bulkModal === "addAlter"} onOpenChange={(o) => !o && setBulkModal(null)}>
+        <DialogContent className="bg-zinc-900 border-zinc-700 text-zinc-100 max-w-sm">
+          <DialogHeader><DialogTitle className="text-sm">Adicionar ou Alterar — {selectedIds.size} negociação{selectedIds.size > 1 ? "ões" : ""}</DialogTitle></DialogHeader>
+          <div className="py-2 space-y-3">
+            <div>
+              <label className="text-xs text-zinc-400 block mb-1.5">Campo</label>
+              <div className="flex flex-wrap gap-1.5">
+                {([
+                  { value: "qualificacao", label: "Qualificação" },
+                  { value: "campanha", label: "Campanha" },
+                  { value: "fonte", label: "Fonte" },
+                  { value: "canal", label: "Canal" },
+                ] as const).map((f) => (
+                  <button
+                    key={f.value}
+                    onClick={() => { setBulkAddField(f.value); setBulkAddValue(""); }}
+                    className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${bulkAddField === f.value ? "border-primary bg-primary/10 text-primary" : "border-zinc-700 text-zinc-300 hover:bg-zinc-800"}`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-zinc-400 block mb-1">
+                {bulkAddField === "qualificacao" ? "Qualificação (1–5)" : bulkAddField === "campanha" ? "Campanha" : bulkAddField === "fonte" ? "Fonte / Origem" : "Canal"}
+              </label>
+              {bulkAddField === "qualificacao" ? (
+                <select
+                  value={bulkAddValue}
+                  onChange={(e) => setBulkAddValue(e.target.value)}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-md text-xs text-zinc-100 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                >
+                  <option value="">Selecione...</option>
+                  {["1","2","3","4","5"].map((v) => <option key={v} value={v}>{v}</option>)}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={bulkAddValue}
+                  onChange={(e) => setBulkAddValue(e.target.value)}
+                  placeholder={bulkAddField === "campanha" ? "Nome da campanha" : bulkAddField === "fonte" ? "Ex: Google, Indicação..." : "Ex: WhatsApp, Instagram..."}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-md text-xs text-zinc-100 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <button onClick={() => setBulkModal(null)} className="text-xs px-3 py-1.5 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-800">Cancelar</button>
+            <button
+              disabled={!bulkAddValue || bulkLoading}
+              onClick={() => {
+                const fieldMap: Record<string, string> = {
+                  qualificacao: "priority",
+                  campanha: "campanha",
+                  fonte: "origin",
+                  canal: "channel",
+                };
+                bulkUpdate({ [fieldMap[bulkAddField]]: bulkAddValue });
+              }}
+              className="text-xs px-3 py-1.5 rounded bg-primary text-white hover:bg-primary/90 disabled:opacity-50"
+            >
+              {bulkLoading ? "Salvando..." : "Aplicar"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <CrudDialog
         open={clientDialog}
