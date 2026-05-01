@@ -68,58 +68,48 @@ function parseNomusBR(v: string | number | null | undefined): number {
   return Number(String(v).replace(/\./g, "").replace(",", ".")) || 0;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Edge function: fonte única de dados Nomus (sem chamadas por produto) ─────
 
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
-// Fetch com retry + backoff exponencial em caso de 429
-async function nomusFetch(path: string): Promise<any | null> {
-  for (let attempt = 0; attempt <= 4; attempt++) {
-    const res = await fetch(`/api/nomus${path}`, { headers: { Accept: "application/json" } });
-    if (res.status === 429) {
-      const body = await res.json().catch(() => ({}));
-      const fromApi = Number(body.tempoAteLiberar) * 1000 || 0;
-      const backoff = Math.pow(2, attempt) * 2000; // 2s, 4s, 8s, 16s, 32s
-      await sleep(Math.max(fromApi, backoff));
-      continue;
-    }
-    if (!res.ok) return null;
-    return await res.json().catch(() => null);
-  }
-  return null;
+// Todos os hooks compartilham esta queryKey — uma única chamada à edge function.
+// Elimina o problema de rate-limit causado por N chamadas saldosEstoqueProduto.
+async function fetchNomusFromEdge(): Promise<NomusProduct[]> {
+  const { data, error } = await supabase.functions.invoke("nomus-stock");
+  if (error) throw new Error(`Erro ao consultar Nomus: ${error.message}`);
+  if (!Array.isArray(data) || data.length === 0)
+    throw new Error("Nenhum produto retornado pelo Nomus");
+  return (data as any[]).map((p) => ({
+    id: Number(p.id),
+    codigo: String(p.codigo || ""),
+    descricao: String(p.descricao || p.nome || ""),
+    siglaUnidadeMedida: String(p.siglaUnidadeMedida || ""),
+    saldoTotal: parseNomusBR(p.saldoTotal),
+    custoMedioUnitario: p.custoMedioUnitario != null ? parseNomusBR(p.custoMedioUnitario) : null,
+    custoTotal: p.custoTotal != null ? parseNomusBR(p.custoTotal) : null,
+    saldoPorSetor: Array.isArray(p.saldoPorSetor) ? p.saldoPorSetor : [],
+  }));
 }
 
-// ─── Nomus Products Hook (fase 1 — lista rápida, auto-carrega) ────────────────
+// ─── Nomus Products Hook (IDs — auto-carrega, compartilha cache nomus-stock) ──
 
-// Busca só a lista de produtos (sem saldo). Rápido: apenas N páginas.
 function useNomusProducts() {
-  return useQuery<Map<string, number>>({
-    queryKey: ["nomus-products"],
+  return useQuery<NomusProduct[], Error, Map<string, number>>({
+    queryKey: ["nomus-stock"],
     staleTime: 30 * 60_000,
     gcTime: Infinity,
     retry: false,
-    queryFn: async () => {
+    queryFn: fetchNomusFromEdge,
+    select: (data) => {
       const map = new Map<string, number>();
-      let page = 1;
-      while (page <= 50) {
-        if (page > 1) await sleep(500);
-        const data = await nomusFetch(`/rest/produtos?query=ativo=true&pagina=${page}`);
-        if (!Array.isArray(data) || data.length === 0) break;
-        for (const p of data) {
-          const codigo = String(p.codigo || "").trim();
-          if (codigo) map.set(codigo, Number(p.id));
-        }
-        if (data.length < 20) break;
-        page++;
+      for (const p of data) {
+        if (p.codigo) map.set(p.codigo.trim(), p.id);
       }
       return map;
     },
   });
 }
 
-// ─── Nomus Stock Hook (fase 2 — saldo + custo, trigger manual) ───────────────
+// ─── Nomus Stock Hook (trigger manual — lê do mesmo cache) ───────────────────
 
-// Flag e callbacks módulo-level: sobrevivem à navegação
 let _nomusTriggered = false;
 const _nomusTriggerCbs = new Set<() => void>();
 
@@ -165,55 +155,7 @@ function useNomusStock() {
     staleTime: 30 * 60_000,
     gcTime: Infinity,
     retry: false,
-    queryFn: async () => {
-      // Fase 1: lista de produtos
-      const allRaw: any[] = [];
-      let page = 1;
-      while (page <= 50) {
-        if (page > 1) await sleep(500);
-        const data = await nomusFetch(`/rest/produtos?query=ativo=true&pagina=${page}`);
-        if (!Array.isArray(data) || data.length === 0) break;
-        allRaw.push(...data);
-        if (data.length < 20) break;
-        page++;
-      }
-      if (allRaw.length === 0) throw new Error("Nenhum produto retornado pelo Nomus");
-
-      const products: NomusProduct[] = allRaw.map((p: any) => ({
-        id: Number(p.id),
-        codigo: String(p.codigo || ""),
-        descricao: String(p.descricao || p.nome || ""),
-        siglaUnidadeMedida: String(p.siglaUnidadeMedida || p.unidadeMedida || ""),
-        saldoTotal: 0,
-        custoMedioUnitario: null,
-        custoTotal: null,
-        saldoPorSetor: [],
-      }));
-
-      // Fase 2: saldo — empresa 2, lotes de 2 com 500ms entre lotes
-      const fetchSaldo = async (p: NomusProduct) => {
-        const data = await nomusFetch(`/rest/saldosEstoqueProduto/${p.id}`);
-        if (!Array.isArray(data)) return;
-        const empresa = data.find((e: any) => Number(e.idEmpresa) === 2) ?? data[0];
-        if (!empresa) return;
-        p.custoMedioUnitario = empresa.custoMedioUnitario != null
-          ? parseNomusBR(empresa.custoMedioUnitario) : null;
-        p.saldoPorSetor = (empresa.saldos || []).map((s: any): NomusSectorStock => ({
-          idSetorEstoque: Number(s.idSetorEstoque),
-          nomeSetorEstoque: String(s.nomeSetorEstoque || ""),
-          saldo: parseNomusBR(s.saldo),
-        }));
-        p.saldoTotal = p.saldoPorSetor.reduce((sum, s) => sum + s.saldo, 0);
-        p.custoTotal = p.custoMedioUnitario != null ? p.custoMedioUnitario * p.saldoTotal : null;
-      };
-
-      for (let i = 0; i < products.length; i += 2) {
-        if (i > 0) await sleep(500);
-        await Promise.all(products.slice(i, i + 2).map(fetchSaldo));
-      }
-
-      return products.sort((a, b) => b.saldoTotal - a.saldoTotal || a.descricao.localeCompare(b.descricao, "pt-BR"));
-    },
+    queryFn: fetchNomusFromEdge,
   });
 
   return { ...query, triggered, trigger };

@@ -14,6 +14,12 @@ const json = (data: unknown, status = 200) =>
 // é incompatível com o TLS antigo do servidor live.nomus.com.br.
 const NOMUS_PROXY = "https://posvenda.liveuni.com.br/api/nomus";
 
+interface NomusSectorStock {
+  idSetorEstoque: number;
+  nomeSetorEstoque: string;
+  saldo: number;
+}
+
 interface ProductRow {
   id: number;
   codigo: string;
@@ -22,6 +28,14 @@ interface ProductRow {
   saldoTotal: number;
   custoMedioUnitario: number | null;
   custoTotal: number | null;
+  saldoPorSetor: NomusSectorStock[];
+}
+
+// Nomus retorna números no formato BR ("1.234,56") — Number() puro retorna NaN
+function parseNomusBR(v: string | number | null | undefined): number {
+  if (v == null) return 0;
+  const n = Number(String(v).replace(/\./g, "").replace(",", "."));
+  return isNaN(n) ? 0 : n;
 }
 
 async function fetchNomus(path: string, retries = 2): Promise<any> {
@@ -72,30 +86,70 @@ Deno.serve(async (req) => {
       return json({ error: "Nenhum produto retornado pela API Nomus" }, 500);
     }
 
-    // 2. Mapear produtos e agregar saldo por setor
+    // 2. Mapear produtos — saldo, custo e setores vindos de empresasSetoresEstoque
     const products: ProductRow[] = allRaw.map((p: any) => {
-      const setores: any[] = p.empresasSetoresEstoque || p.setoresEstoque || [];
-      const saldoTotal = setores.reduce(
-        (sum: number, e: any) =>
-          sum + (Number(e.saldoEstoqueAtualEmpresa ?? e.saldoEstoque ?? e.saldo ?? 0) || 0),
-        0,
-      );
+      const empresas: any[] = p.empresasSetoresEstoque || p.setoresEstoque || [];
+
+      // Preferir empresa 2 (Live Equipamentos), fallback para a primeira disponível
+      const empresa = empresas.find((e: any) => Number(e.idEmpresa) === 2) ?? empresas[0];
+
+      let saldoTotal = 0;
+      let custoMedioUnitario: number | null = null;
+      let custoTotal: number | null = null;
+      const saldoPorSetor: NomusSectorStock[] = [];
+
+      if (empresa) {
+        saldoTotal = parseNomusBR(
+          empresa.saldoTotal ?? empresa.saldoEstoqueAtualEmpresa ?? empresa.saldoEstoque ?? empresa.saldo ?? 0,
+        );
+
+        if (empresa.custoMedioUnitario != null) {
+          custoMedioUnitario = parseNomusBR(empresa.custoMedioUnitario);
+        }
+
+        // Extrair setores aninhados (campo pode variar conforme versão da API)
+        const rawSetores = empresa.saldos || empresa.setores || empresa.saldosPorSetor || empresa.setoresEstoque || [];
+        if (Array.isArray(rawSetores)) {
+          for (const s of rawSetores) {
+            saldoPorSetor.push({
+              idSetorEstoque: Number(s.idSetorEstoque || s.id || 0),
+              nomeSetorEstoque: String(s.nomeSetorEstoque || s.nome || s.descricao || ""),
+              saldo: parseNomusBR(s.saldo ?? s.saldoEstoque ?? 0),
+            });
+          }
+          // Se há setores com dados, recalcular total por eles
+          if (saldoPorSetor.length > 0) {
+            const totalSetor = saldoPorSetor.reduce((sum, s) => sum + s.saldo, 0);
+            if (totalSetor !== 0) saldoTotal = totalSetor;
+          }
+        }
+
+        custoTotal = custoMedioUnitario != null ? custoMedioUnitario * saldoTotal : null;
+      } else {
+        // Fallback: somar todas as empresas com parse BR correto
+        saldoTotal = empresas.reduce(
+          (sum: number, e: any) =>
+            sum + parseNomusBR(e.saldoTotal ?? e.saldoEstoqueAtualEmpresa ?? e.saldoEstoque ?? e.saldo ?? 0),
+          0,
+        );
+      }
+
       return {
         id: Number(p.id),
         codigo: String(p.codigo || ""),
         descricao: String(p.descricao || p.nome || ""),
         siglaUnidadeMedida: String(p.siglaUnidadeMedida || p.unidadeMedida || ""),
         saldoTotal,
-        custoMedioUnitario: null,
-        custoTotal: null,
+        custoMedioUnitario,
+        custoTotal,
+        saldoPorSetor,
       };
     });
 
-    // Custo removido: cada produto requer uma chamada extra à API (timeout).
-    // O saldo já está nos dados do produto via empresasSetoresEstoque.
     products.sort((a, b) => b.saldoTotal - a.saldoTotal || a.descricao.localeCompare(b.descricao, "pt-BR"));
 
-    console.log(`Retornando ${products.length} produtos`);
+    const comEstoque = products.filter((p) => p.saldoTotal > 0).length;
+    console.log(`Retornando ${products.length} produtos (${comEstoque} com estoque positivo)`);
     return json(products);
   } catch (err) {
     console.error("Handler error:", String(err));
