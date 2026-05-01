@@ -672,13 +672,47 @@ Deno.serve(async (req) => {
       .from("rd_integration_config").select("*").limit(1).single();
     if (cfgErr || !config) return ok({ ok: false, error: "Configuração não encontrada." });
 
-    // Verifica se já há import em andamento
     const currentStats = (config.import_stats as Record<string, unknown>) ?? {};
+    const body = await req.json().catch(() => ({})) as Record<string, unknown>;
+    const advance = body.advance === true;
+
+    // ── MODO ADVANCE: browser solicita processamento da próxima página ──────────
+    if (advance && currentStats.status === "running") {
+      const currentPage = typeof currentStats.current_page === "number" ? currentStats.current_page : 1;
+      const cumulativeBefore = typeof currentStats.cumulative === "number" ? currentStats.cumulative : 0;
+      const emailToAuthId = await buildEmailToAuthIdMap();
+      const { imported, has_more, stage_mismatches } = await importDealsPage(config.api_token as string, currentPage, emailToAuthId);
+      const totalSoFar = cumulativeBefore + imported;
+
+      const newStats: Record<string, unknown> = {
+        status: has_more ? "running" : "done",
+        total_deals: totalSoFar,
+        current_page: currentPage + 1,
+        cumulative: totalSoFar,
+        total_contacts: 0,
+        total_tasks: 0,
+        total_activities: 0,
+        started_at: currentStats.started_at,
+      };
+      if (!has_more) {
+        newStats.imported_at = new Date().toISOString();
+        newStats.stage_mismatches = stage_mismatches;
+        newStats.current_page = currentPage;
+      }
+
+      await admin.from("rd_integration_config")
+        .update({ import_stats: newStats, last_import_at: new Date().toISOString() })
+        .eq("id", config.id);
+
+      return ok({ ok: true, imported, total_so_far: totalSoFar, has_more, page: currentPage });
+    }
+
+    // Se já está rodando e não é advance, retorna estado atual
     if (currentStats.status === "running") {
       return ok({ ok: true, already_running: true, import_stats: currentStats });
     }
 
-    // Enfileira: salva estado inicial e deixa o pg_cron assumir
+    // ── MODO INÍCIO: inicia a importação e já processa a página 1 ───────────────
     await admin.from("rd_integration_config").update({
       last_import_at: new Date().toISOString(),
       import_stats: {
@@ -693,10 +727,38 @@ Deno.serve(async (req) => {
       },
     }).eq("id", config.id);
 
+    // Processa a página 1 imediatamente
+    const emailToAuthId = await buildEmailToAuthIdMap();
+    const { imported, has_more, stage_mismatches } = await importDealsPage(config.api_token as string, 1, emailToAuthId);
+
+    const initStats: Record<string, unknown> = {
+      status: has_more ? "running" : "done",
+      current_page: 2,
+      cumulative: imported,
+      total_deals: imported,
+      total_contacts: 0,
+      total_tasks: 0,
+      total_activities: 0,
+      started_at: new Date().toISOString(),
+    };
+    if (!has_more) {
+      initStats.imported_at = new Date().toISOString();
+      initStats.stage_mismatches = stage_mismatches;
+      initStats.current_page = 1;
+    }
+
+    await admin.from("rd_integration_config")
+      .update({ import_stats: initStats })
+      .eq("id", config.id);
+
     return ok({
       ok: true,
       started: true,
-      message: "Importação iniciada no servidor. Pode navegar ou fechar esta página — o processo continua automaticamente.",
+      imported,
+      has_more,
+      message: has_more
+        ? "Importação iniciada. Página 1 processada — continuando automaticamente."
+        : "Importação concluída.",
     });
   } catch (e) {
     console.error("rd-import error:", e);

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -53,6 +53,7 @@ type RdConfig = {
   } | null;
   webhook_secret: string | null;
   notification_phone: string | null;
+  unanswered_ack_at: string | null;
 };
 
 type SyncLog = {
@@ -105,13 +106,22 @@ export default function RdStationPage() {
   const [editingNotifPhone, setEditingNotifPhone] = useState(false);
 
   const isRunning = config?.import_stats?.status === "running";
+  const advancingRef = useRef(false);
 
-  // Polling automático enquanto o servidor está importando
+  // Enquanto importando: avança a próxima página a cada ~6s via browser
+  // (pg_cron é backup caso o usuário navegue para outra página)
   useEffect(() => {
     if (!isRunning) return;
-    const interval = setInterval(() => {
-      qc.invalidateQueries({ queryKey: ["rd_integration_config"] });
-    }, 5000);
+    const advance = async () => {
+      if (advancingRef.current) return;
+      advancingRef.current = true;
+      try {
+        await supabase.functions.invoke("rd-import", { body: { advance: true } });
+        qc.invalidateQueries({ queryKey: ["rd_integration_config"] });
+      } catch { /* ignora — pg_cron assume */ }
+      finally { advancingRef.current = false; }
+    };
+    const interval = setInterval(advance, 6000);
     return () => clearInterval(interval);
   }, [isRunning, qc]);
 
