@@ -120,21 +120,16 @@ Deno.serve(async (req) => {
       return json({ ok: true });
     }
 
-    // Change job_functions
-    if (body.job_functions !== undefined) {
-      const { error } = await admin
-        .from("profiles")
-        .update({ job_functions: Array.isArray(body.job_functions) ? body.job_functions : [] })
-        .eq("user_id", user_id);
-      if (error) return json({ error: error.message }, 500);
-      return json({ ok: true });
-    }
-
-    // Change role
+    // Change role (and optionally job_functions together)
     if (!role) return json({ error: "role, password, full_name ou email é obrigatório" }, 400);
     await admin.from("user_roles").delete().eq("user_id", user_id);
     const { error } = await admin.from("user_roles").insert({ user_id, role });
     if (error) return json({ error: error.message }, 500);
+
+    // Persist job_functions alongside role update
+    if (Array.isArray(body.job_functions)) {
+      await admin.from("profiles").update({ job_functions: body.job_functions }).eq("user_id", user_id);
+    }
 
     return json({ ok: true });
   }
