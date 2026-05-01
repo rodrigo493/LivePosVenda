@@ -77,22 +77,23 @@ async function getAuthIdByEmail(email: string): Promise<string | null> {
 
 async function resolvePipelineAndStage(
   stageName: string | null,
+  rdPipelineName: string | null = null,
 ): Promise<{ pipelineId: string | null; stageKey: string | null }> {
-  const { data: pipeline } = await admin
-    .from("pipelines")
-    .select("id")
-    .ilike("name", "%vendas%")
-    .limit(1)
-    .maybeSingle();
+  // Carrega todos os pipelines locais
+  const { data: allPipelines } = await admin.from("pipelines").select("id, name");
+  if (!allPipelines?.length) return { pipelineId: null, stageKey: null };
 
+  // Tenta encontrar o pipeline local pelo nome do pipeline do RD Station
+  let pipeline: { id: string } | null = null;
+  if (rdPipelineName) {
+    const norm = normalizeStr(rdPipelineName);
+    const exact = allPipelines.find((p) => normalizeStr(p.name) === norm);
+    const partial = !exact ? allPipelines.find((p) => normalizeStr(p.name).includes(norm) || norm.includes(normalizeStr(p.name))) : null;
+    pipeline = exact ?? partial ?? null;
+  }
+  // Fallback: pipeline cujo nome contém "vendas", ou o primeiro
   if (!pipeline) {
-    const { data: fallback } = await admin
-      .from("pipelines")
-      .select("id")
-      .limit(1)
-      .maybeSingle();
-    if (!fallback) return { pipelineId: null, stageKey: null };
-    return { pipelineId: fallback.id, stageKey: null };
+    pipeline = allPipelines.find((p) => normalizeStr(p.name).includes("vendas")) ?? allPipelines[0];
   }
 
   const { data: stages } = await admin
@@ -105,13 +106,10 @@ async function resolvePipelineAndStage(
 
   if (stageName) {
     const norm = normalizeStr(stageName);
-    // 1. Match exato
     const exact = (stages ?? []).find((s) => normalizeStr(s.label) === norm);
     if (exact) return { pipelineId: pipeline.id, stageKey: exact.key };
-    // 2. Label local contém nome do RD
     const fwd = (stages ?? []).find((s) => normalizeStr(s.label).includes(norm));
     if (fwd) return { pipelineId: pipeline.id, stageKey: fwd.key };
-    // 3. Nome do RD contém label local
     const rev = (stages ?? []).find((s) => norm.includes(normalizeStr(s.label)));
     if (rev) return { pipelineId: pipeline.id, stageKey: rev.key };
     console.warn(`rd-webhook: stage sem match "${stageName}" → usando primeira etapa`);
@@ -477,10 +475,11 @@ async function upsertDeal(
   const title = (deal.name as string) || "Negociação sem título";
   const amountTotal = Number(deal.amount_total ?? 0);
   const stageName = (deal.deal_stage as { name?: string } | null)?.name ?? null;
+  const rdPipelineName = (deal.deal_pipeline as { name?: string } | null)?.name ?? null;
   const userEmail = (deal.user as { email?: string } | null)?.email ?? null;
   const contacts = (deal.contacts as Record<string, unknown>[] | undefined) ?? [];
 
-  const { pipelineId, stageKey } = await resolvePipelineAndStage(stageName);
+  const { pipelineId, stageKey } = await resolvePipelineAndStage(stageName, rdPipelineName);
 
   let assignedTo: string | null = null;
   if (userEmail) {
