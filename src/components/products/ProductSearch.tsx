@@ -6,6 +6,7 @@ import { useProducts } from "@/hooks/useProducts";
 import { useAllCompatibility } from "@/hooks/useProductCompatibility";
 import { SEARCH_RESULTS_LIMIT } from "@/constants/limits";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
 
 interface ProductSearchProps {
   modelFilter?: string;
@@ -18,28 +19,23 @@ interface ProductSearchProps {
 
 type StockEntry = { loading: boolean; qty: number | null };
 
-// Fila global: serializa requests Nomus com 400ms entre eles para evitar 429
+// Fila global: serializa chamadas à edge function nomus-search com 400ms de intervalo
 let _nomusQueue: Promise<void> = Promise.resolve();
 
-const _nomusGet = (url: string): Promise<Response> => {
-  let resolve!: (r: Response) => void;
+const _nomusEnqueue = <T,>(fn: () => Promise<T>): Promise<T> => {
+  let resolve!: (v: T) => void;
   let reject!: (e: unknown) => void;
-  const promise = new Promise<Response>((res, rej) => { resolve = res; reject = rej; });
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
   _nomusQueue = _nomusQueue.then(
     () => new Promise<void>(done =>
       setTimeout(async () => {
-        try { resolve(await fetch(url, { headers: { Accept: "application/json" } })); } catch (e) { reject(e); }
+        try { resolve(await fn()); } catch (e) { reject(e); }
         done();
       }, 400)
     )
   );
   return promise;
 };
-
-function parseNomusBR(v: string | number | null | undefined): number {
-  if (v == null) return 0;
-  return parseFloat(String(v).replace(/\./g, "").replace(",", ".")) || 0;
-}
 
 const defaultItemTypes = [
   { value: "peca_cobrada", label: "Peça (Cobrada)" },
@@ -115,27 +111,19 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
       .slice(0, SEARCH_RESULTS_LIMIT);
   }, [products, query, modelFilter, compatMap]);
 
-  // Busca estoque sob demanda ao passar o mouse — usa proxy nginx (/api/nomus) com auth
+  // Busca estoque sob demanda ao passar o mouse — via edge function nomus-search
   const handleMouseEnter = async (code: string) => {
     if (!code || fetchedRef.current.has(code)) return;
     fetchedRef.current.add(code);
     setStockMap(prev => ({ ...prev, [code]: { loading: true, qty: null } }));
     try {
-      // 1. Busca ID Nomus pelo código
-      const pr = await _nomusGet(`/api/nomus/rest/produtos?query=${encodeURIComponent(code)}`);
-      if (!pr.ok) throw new Error("produtos não ok");
-      const prData = await pr.json();
-      const produto = Array.isArray(prData) ? prData.find((p: any) => p.codigo === code) : null;
-      if (!produto) throw new Error("código não encontrado");
-
-      // 2. Busca saldo pelo ID — soma saldos[] da empresa 2
-      const sr = await _nomusGet(`/api/nomus/rest/saldosEstoqueProduto/${produto.id}`);
-      if (!sr.ok) throw new Error("saldo não ok");
-      const saldos = await sr.json();
-      const empresa = Array.isArray(saldos) ? saldos.find((s: any) => String(s.idEmpresa) === "2") : null;
-      const qty = empresa?.saldos?.reduce(
-        (acc: number, s: any) => acc + parseNomusBR(s.saldo), 0
-      ) ?? 0;
+      const { data, error } = await _nomusEnqueue(() =>
+        supabase.functions.invoke("nomus-search", {
+          body: { type: "estoque", query: code },
+        })
+      );
+      if (error) throw error;
+      const qty = typeof data?.saldo === "number" ? data.saldo : null;
       setStockMap(prev => ({ ...prev, [code]: { loading: false, qty } }));
     } catch {
       setStockMap(prev => ({ ...prev, [code]: { loading: false, qty: null } }));

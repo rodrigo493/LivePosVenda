@@ -25,8 +25,34 @@ Deno.serve(async (req) => {
       url = `${NOMUS_API_URL}/rest/pessoas?query=nomeFantasia==*${term}*,razaoSocial==*${term}*,nome==*${term}*`;
     } else if (type === 'produtos') {
       url = `${NOMUS_API_URL}/rest/produtos?query=codigo==*${encodeURIComponent(query)}*`;
+    } else if (type === 'estoque') {
+      // 1. Buscar ID do produto pelo código exato
+      const resProd = await fetch(
+        `${NOMUS_API_URL}/rest/produtos?query=codigo==${encodeURIComponent(query)}`,
+        { headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'Authorization': `Basic ${NOMUS_API_KEY}` } }
+      );
+      const produtos = await resProd.json();
+      const produto = Array.isArray(produtos) ? produtos.find((p: any) => p.codigo === query) : null;
+      if (!produto) {
+        return new Response(JSON.stringify({ saldo: 0 }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+
+      // 2. Buscar saldo de estoque
+      const resSaldo = await fetch(
+        `${NOMUS_API_URL}/rest/saldosEstoqueProduto/${produto.id}`,
+        { headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'Authorization': `Basic ${NOMUS_API_KEY}` } }
+      );
+      const saldos = await resSaldo.json();
+      const empresa = Array.isArray(saldos) ? saldos.find((s: any) => String(s.idEmpresa) === '2') : null;
+      const toNum = (v: string = '0') => parseFloat(v.replace(/\./g, '').replace(',', '.')) || 0;
+      const saldo = empresa?.saldos?.reduce((acc: number, s: any) => acc + toNum(String(s.saldo ?? '0')), 0) ?? 0;
+
+      return new Response(JSON.stringify({ saldo, idNomus: produto.id }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+
     } else {
-      return new Response(JSON.stringify({ error: 'Tipo inválido. Use: clientes ou produtos' }), {
+      return new Response(JSON.stringify({ error: 'Tipo inválido. Use: clientes, produtos ou estoque' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
