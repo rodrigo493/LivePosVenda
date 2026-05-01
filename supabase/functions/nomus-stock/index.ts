@@ -132,10 +132,11 @@ Deno.serve(async (req) => {
 
     console.log(`Catálogo interno: ${catalogCodes.size} códigos ativos`);
 
-    // 2. Buscar todas as páginas de produtos Nomus
+    // 2. Buscar todas as páginas de produtos Nomus (500ms entre páginas para evitar rate limit)
     const allRaw: any[] = [];
     let page = 1;
     while (page <= 50) {
+      if (page > 1) await new Promise((r) => setTimeout(r, 500));
       const data = await fetchNomus(`/rest/produtos?query=ativo=true&pagina=${page}`);
       if (!Array.isArray(data) || data.length === 0) break;
       allRaw.push(...data);
@@ -156,12 +157,12 @@ Deno.serve(async (req) => {
 
     console.log(`${catalogMatches.length} produtos Nomus correspondem ao catálogo interno`);
 
-    // 4. Buscar saldo apenas para os produtos do catálogo (sequencial, 300ms entre chamadas)
+    // 4. Buscar saldo apenas para os produtos do catálogo (sequencial, 600ms entre chamadas)
     const saldoMap = new Map<number, Awaited<ReturnType<typeof fetchSaldo>>>();
 
     for (const p of catalogMatches) {
       const nomusId = Number(p.id);
-      await new Promise((r) => setTimeout(r, 300));
+      await new Promise((r) => setTimeout(r, 600));
       saldoMap.set(nomusId, await fetchSaldo(nomusId));
     }
 
