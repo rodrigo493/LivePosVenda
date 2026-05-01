@@ -6,7 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Trash2, Plus, Pencil, X, Check, ChevronDown, ChevronRight, MessageSquare } from "lucide-react";
+import { useAllUsers, UserSummary } from "@/hooks/useUserAccess";
 
 interface Pipeline { id: string; name: string; slug: string; }
 interface Instance {
@@ -19,6 +21,7 @@ interface Instance {
   base_url: string;
   distribution_pct: number;
   active: boolean;
+  user_id: string | null;
 }
 
 const EMPTY_FORM = {
@@ -29,7 +32,29 @@ const EMPTY_FORM = {
   base_url: "https://liveuni.uazapi.com",
   distribution_pct: 0,
   active: true,
+  user_id: "",
 };
+
+function UserSelect({ value, onChange, users }: { value: string; onChange: (v: string) => void; users: UserSummary[] }) {
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs">Usuário vinculado</Label>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger className="h-8 text-xs">
+          <SelectValue placeholder="Nenhum (sem vínculo)" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="none" className="text-xs">Nenhum (sem vínculo)</SelectItem>
+          {users.map(u => (
+            <SelectItem key={u.user_id} value={u.user_id} className="text-xs">
+              {u.full_name || u.email}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
 
 function DistributionBar({ instances, onDistributeEqually }: { instances: Instance[]; onDistributeEqually?: () => void }) {
   const active = instances.filter(i => i.active);
@@ -81,6 +106,7 @@ function InstanceRow({
   onChangePct: (id: string, pct: number) => void;
   onUpdate: (id: string, data: Partial<Omit<Instance, "id" | "pipeline_id">>) => Promise<void>;
 }) {
+  const { data: users = [] } = useAllUsers();
   const [editing, setEditing] = useState(false);
   const [editingFull, setEditingFull] = useState(false);
   const [pct, setPct] = useState(String(inst.distribution_pct));
@@ -92,7 +118,10 @@ function InstanceRow({
     base_url: inst.base_url,
     distribution_pct: inst.distribution_pct,
     active: inst.active,
+    user_id: inst.user_id ?? "",
   });
+
+  const linkedUser = users.find(u => u.user_id === inst.user_id);
 
   const savePct = () => {
     const n = parseInt(pct, 10);
@@ -106,7 +135,11 @@ function InstanceRow({
       toast.error("Preencha nome, instanceName e token");
       return;
     }
-    await onUpdate(inst.id, { ...form, distribution_pct: Number(form.distribution_pct) || 0 });
+    await onUpdate(inst.id, {
+      ...form,
+      distribution_pct: Number(form.distribution_pct) || 0,
+      user_id: form.user_id && form.user_id !== "none" ? form.user_id : null,
+    });
     setEditingFull(false);
   };
 
@@ -121,6 +154,20 @@ function InstanceRow({
       />
     </div>
   );
+
+  const openEdit = () => {
+    setForm({
+      instance_name: inst.instance_name,
+      phone_number: inst.phone_number ?? "",
+      uazapi_instance_name: inst.uazapi_instance_name,
+      instance_token: inst.instance_token,
+      base_url: inst.base_url,
+      distribution_pct: inst.distribution_pct,
+      active: inst.active,
+      user_id: inst.user_id ?? "",
+    });
+    setEditingFull(true);
+  };
 
   if (editingFull) {
     return (
@@ -143,6 +190,11 @@ function InstanceRow({
               onChange={e => setForm(f => ({ ...f, distribution_pct: Number(e.target.value) }))}
             />
           </div>
+          <UserSelect
+            value={form.user_id || "none"}
+            onChange={v => setForm(f => ({ ...f, user_id: v }))}
+            users={users}
+          />
         </div>
         <div className="flex gap-2 justify-end">
           <Button variant="ghost" size="sm" onClick={() => setEditingFull(false)}>Cancelar</Button>
@@ -159,6 +211,7 @@ function InstanceRow({
         <p className="text-xs text-muted-foreground truncate">
           {inst.phone_number && <span className="mr-2">{inst.phone_number}</span>}
           <span className="font-mono">{inst.uazapi_instance_name}</span>
+          {linkedUser && <span className="ml-2 text-primary/70">· {linkedUser.full_name || linkedUser.email}</span>}
         </p>
       </div>
 
@@ -195,11 +248,7 @@ function InstanceRow({
         {inst.active ? "Ativo" : "Inativo"}
       </button>
 
-      <button
-        onClick={() => { setForm({ instance_name: inst.instance_name, phone_number: inst.phone_number ?? "", uazapi_instance_name: inst.uazapi_instance_name, instance_token: inst.instance_token, base_url: inst.base_url, distribution_pct: inst.distribution_pct, active: inst.active }); setEditingFull(true); }}
-        className="text-muted-foreground hover:text-foreground transition-colors"
-        title="Editar"
-      >
+      <button onClick={openEdit} className="text-muted-foreground hover:text-foreground transition-colors" title="Editar">
         <Pencil className="h-3.5 w-3.5" />
       </button>
 
@@ -219,6 +268,7 @@ function AddInstanceForm({
   onCancel: () => void;
   onSaved: () => void;
 }) {
+  const { data: users = [] } = useAllUsers();
   const [form, setForm] = useState(EMPTY_FORM);
   const qc = useQueryClient();
 
@@ -231,6 +281,7 @@ function AddInstanceForm({
       pipeline_id: pipelineId,
       ...form,
       distribution_pct: Number(form.distribution_pct) || 0,
+      user_id: form.user_id && form.user_id !== "none" ? form.user_id : null,
     });
     if (error) { toast.error(error.message); return; }
     toast.success("Número adicionado");
@@ -270,6 +321,11 @@ function AddInstanceForm({
             onChange={e => setForm(f => ({ ...f, distribution_pct: Number(e.target.value) }))}
           />
         </div>
+        <UserSelect
+          value={form.user_id || "none"}
+          onChange={v => setForm(f => ({ ...f, user_id: v }))}
+          users={users}
+        />
       </div>
       <div className="flex gap-2 justify-end">
         <Button variant="ghost" size="sm" onClick={onCancel}>Cancelar</Button>
