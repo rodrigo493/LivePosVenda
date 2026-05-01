@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Package, Save, Loader2, Send, CalendarIcon, Pencil, X, Wrench, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Package, Save, Loader2, Send, CalendarIcon, Pencil, X, Wrench, Plus, Trash2, Factory } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -896,9 +896,11 @@ const PADetailPage = () => {
             <table className="w-full">
               <thead>
                 <tr className="border-b bg-muted/30">
-                  {["Código", "Descrição", "Tipo", "Qtd", "Preço Unit.", "Subtotal", ...(editing ? [""] : [])].map((h) => (
+                  {["Código", "Descrição", "Tipo", "Qtd", "Preço Unit.", "Subtotal"].map((h) => (
                     <th key={h} className="text-left text-[11px] uppercase tracking-wider text-muted-foreground font-medium px-3 py-2">{h}</th>
                   ))}
+                  <th className="px-3 py-2 w-px" />
+                  {editing && <th className="px-3 py-2 w-px" />}
                 </tr>
               </thead>
               <tbody>
@@ -945,6 +947,22 @@ const PADetailPage = () => {
                       </td>
                       <td className="px-3 py-2.5 text-xs font-mono font-medium">
                         {isWarranty ? <span className="text-success">Coberto</span> : `R$ ${(qty * price).toFixed(2)}`}
+                      </td>
+                      <td className="px-2 py-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-1.5 text-[10px] gap-1 text-orange-500 hover:text-orange-700 hover:bg-orange-50 dark:hover:bg-orange-900/20"
+                          title="Gerar Ordem de Produção"
+                          onClick={async () => {
+                            const name = item.description || item.products?.name || item.products?.code || "item";
+                            const ok = await notifySquad({ recordType: "pa", recordId: id!, reference: requestNumber, message: `Produzir/Comprar: ${name}` });
+                            if (ok) toast.success("Ordem enviada ao Squad!");
+                          }}
+                        >
+                          <Factory className="h-3 w-3" />
+                          OP
+                        </Button>
                       </td>
                       {editing && (
                         <td className="px-3 py-2.5">
