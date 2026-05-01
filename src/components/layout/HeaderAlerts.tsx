@@ -95,15 +95,19 @@ export function HeaderAlerts() {
     [unreadConvs]
   );
 
-  // CARD SEM RESPOSTA: última mensagem é do cliente (inbound) e
-  // se passaram ≥ 12 horas úteis (seg–sex 08–17) sem resposta
+  // CARD SEM RESPOSTA: última mensagem é do cliente (inbound),
+  // ocorreu nos últimos 30 dias e passaram ≥ 12 horas úteis sem resposta
   const unansweredCount = useMemo(() => {
     const now = new Date();
-    return conversations.filter(
-      (c) =>
+    const cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    return conversations.filter((c) => {
+      const lastAt = new Date(c.last_message_at);
+      return (
         c.last_message_direction === "inbound" &&
-        calcBusinessHours(new Date(c.last_message_at), now) >= 12
-    ).length;
+        lastAt >= cutoff &&
+        calcBusinessHours(lastAt, now) >= 12
+      );
+    }).length;
   }, [conversations]);
 
   const hasAny = totalUnread > 0 || overdueCount > 0 || unansweredCount > 0;
@@ -175,12 +179,57 @@ export function HeaderAlerts() {
 
       {/* ── CARD SEM RESPOSTA ── */}
       {unansweredCount > 0 && (
-        <button
-          onClick={() => navigate("/chat")}
-          className="animate-alert-pill px-4 py-[5px] rounded-full border border-orange-500 bg-black text-white text-[11px] font-bold uppercase tracking-widest whitespace-nowrap cursor-pointer hover:opacity-90 transition-opacity"
-        >
-          CARD SEM RESPOSTA
-        </button>
+        <Popover>
+          <PopoverTrigger asChild>
+            <button className="animate-alert-pill px-4 py-[5px] rounded-full border border-orange-500 bg-black text-white text-[11px] font-bold uppercase tracking-widest whitespace-nowrap cursor-pointer hover:opacity-90 transition-opacity">
+              CARD SEM RESPOSTA
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="center" sideOffset={10} className="w-72 p-0 border-orange-500/50 shadow-[0_0_20px_rgba(234,88,12,0.25)]">
+            <div className="px-3 py-2.5 border-b flex items-center gap-2">
+              <MessageSquare className="h-3.5 w-3.5 text-orange-400" />
+              <span className="text-xs font-bold text-orange-400 uppercase tracking-wide">
+                {unansweredCount} {unansweredCount === 1 ? "card sem resposta" : "cards sem resposta"} (+12h)
+              </span>
+            </div>
+            <div className="max-h-64 overflow-y-auto">
+              {conversations
+                .filter((c) => {
+                  const now = new Date();
+                  const cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+                  const lastAt = new Date(c.last_message_at);
+                  return c.last_message_direction === "inbound" && lastAt >= cutoff && calcBusinessHours(lastAt, now) >= 12;
+                })
+                .slice(0, 6)
+                .map((conv) => (
+                  <button
+                    key={conv.client_id}
+                    onClick={() => navigate(`/chat?client=${conv.client_id}`)}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 border-b last:border-0 border-border/50 hover:bg-muted/60 text-left transition-colors"
+                  >
+                    <div className="h-7 w-7 rounded-full bg-orange-500/20 flex items-center justify-center text-xs font-bold text-orange-400 shrink-0">
+                      {conv.client_name.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold truncate">{conv.client_name}</p>
+                      <p className="text-[10px] text-muted-foreground truncate">{conv.last_message}</p>
+                    </div>
+                    <span className="text-[9px] text-muted-foreground shrink-0">
+                      {formatRelative(conv.last_message_at)}
+                    </span>
+                  </button>
+                ))}
+            </div>
+            {unansweredCount > 6 && (
+              <button
+                onClick={() => navigate("/chat")}
+                className="w-full px-3 py-2 text-xs text-orange-400 hover:bg-muted/50 text-center transition-colors border-t border-border"
+              >
+                Ver todos ({unansweredCount}) →
+              </button>
+            )}
+          </PopoverContent>
+        </Popover>
       )}
     </div>
   );
