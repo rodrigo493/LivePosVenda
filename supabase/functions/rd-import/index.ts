@@ -545,18 +545,70 @@ async function importActivities(token: string): Promise<number> {
   return count;
 }
 
+const ok = (body: unknown) =>
+  new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+  });
+
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: CORS_HEADERS });
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS_HEADERS });
+  if (req.method !== "POST") return ok({ error: "Method not allowed" });
+
+  // ── MODO WORKER (chamado pelo pg_cron via x-worker-token) ─────────────────
+  const workerToken = req.headers.get("x-worker-token");
+  if (workerToken) {
+    try {
+      const { data: config } = await admin
+        .from("rd_integration_config")
+        .select("*")
+        .eq("worker_token", workerToken)
+        .eq("is_active", true)
+        .limit(1)
+        .maybeSingle();
+
+      if (!config) return ok({ ok: false, reason: "invalid_token" });
+
+      const stats = (config.import_stats as Record<string, unknown>) ?? {};
+      if (stats.status !== "running") return ok({ ok: false, reason: "not_running" });
+
+      const currentPage = typeof stats.current_page === "number" ? stats.current_page : 1;
+      const cumulativeBefore = typeof stats.cumulative === "number" ? stats.cumulative : 0;
+      const token = config.api_token as string;
+
+      console.log(`rd-import worker: page=${currentPage}, cumulative=${cumulativeBefore}`);
+      const emailToAuthId = await buildEmailToAuthIdMap();
+      const { imported, has_more, stage_mismatches } = await importDealsPage(token, currentPage, emailToAuthId);
+      const totalSoFar = cumulativeBefore + imported;
+
+      const newStats: Record<string, unknown> = {
+        status: has_more ? "running" : "done",
+        total_deals: totalSoFar,
+        current_page: currentPage + 1,
+        cumulative: totalSoFar,
+        total_contacts: 0,
+        total_tasks: 0,
+        total_activities: 0,
+        started_at: stats.started_at,
+      };
+      if (!has_more) {
+        newStats.imported_at = new Date().toISOString();
+        newStats.stage_mismatches = stage_mismatches;
+        newStats.current_page = currentPage;
+      }
+
+      await admin.from("rd_integration_config")
+        .update({ import_stats: newStats, last_import_at: new Date().toISOString() })
+        .eq("id", config.id);
+
+      return ok({ ok: true, imported, total_so_far: totalSoFar, has_more, page: currentPage });
+    } catch (e) {
+      console.error("rd-import worker error:", e);
+      return ok({ ok: false, error: String(e) });
+    }
   }
 
-  if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Method not allowed" }), {
-      status: 405,
-      headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-    });
-  }
-
+  // ── MODO BROWSER (usuário autenticado — só enfileira a importação) ─────────
   const authHeader = req.headers.get("Authorization") ?? "";
   if (!authHeader.startsWith("Bearer ")) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -570,119 +622,45 @@ Deno.serve(async (req) => {
       global: { headers: { Authorization: authHeader } },
     });
     const { data: { user } } = await userClient.auth.getUser();
-    if (!user) {
-      return new Response(JSON.stringify({ ok: false, error: "Unauthorized" }), {
-        status: 200,
-        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-      });
-    }
+    if (!user) return ok({ ok: false, error: "Unauthorized" });
 
     const { data: role } = await admin
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", user.id)
-      .eq("role", "admin")
-      .limit(1)
-      .maybeSingle();
-
-    if (!role) {
-      return new Response(JSON.stringify({ ok: false, error: "Admin access required — user.id: " + user.id }), {
-        status: 200,
-        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-      });
-    }
+      .from("user_roles").select("role")
+      .eq("user_id", user.id).eq("role", "admin").limit(1).maybeSingle();
+    if (!role) return ok({ ok: false, error: "Admin access required" });
 
     const { data: config, error: cfgErr } = await admin
-      .from("rd_integration_config")
-      .select("*")
-      .limit(1)
-      .single();
+      .from("rd_integration_config").select("*").limit(1).single();
+    if (cfgErr || !config) return ok({ ok: false, error: "Configuração não encontrada." });
 
-    if (cfgErr || !config) {
-      return new Response(JSON.stringify({ ok: false, error: "Configuração não encontrada. Cadastre o token primeiro." }), {
-        status: 200,
-        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-      });
+    // Verifica se já há import em andamento
+    const currentStats = (config.import_stats as Record<string, unknown>) ?? {};
+    if (currentStats.status === "running") {
+      return ok({ ok: true, already_running: true, import_stats: currentStats });
     }
 
-    const body = await req.json().catch(() => ({})) as {
-      skip_contacts?: boolean;
-      page?: number;
-      cumulative?: number;
-    };
-    const skipContacts = body.skip_contacts === true;
-    const token = config.api_token as string;
-    const rdPipelineId = config.rd_pipeline_id as string | null;
-    const configId = config.id as string;
-
-    // ── Modo paginado: importa UMA página por chamada ──────────────────────
-    if (typeof body.page === "number") {
-      const page = body.page;
-      const cumulativeBefore = typeof body.cumulative === "number" ? body.cumulative : 0;
-
-      console.log(`rd-import: paginated mode page=${page}, cumulative=${cumulativeBefore}`);
-      const emailToAuthId = await buildEmailToAuthIdMap();
-      const { imported, has_more, stage_mismatches } = await importDealsPage(token, page, emailToAuthId);
-      const totalSoFar = cumulativeBefore + imported;
-
-      const importStats = {
-        status: has_more ? "running" : "done",
-        total_deals: totalSoFar,
+    // Enfileira: salva estado inicial e deixa o pg_cron assumir
+    await admin.from("rd_integration_config").update({
+      last_import_at: new Date().toISOString(),
+      import_stats: {
+        status: "running",
+        current_page: 1,
+        cumulative: 0,
+        total_deals: 0,
         total_contacts: 0,
         total_tasks: 0,
         total_activities: 0,
-        started_at: page === 1 ? new Date().toISOString() : undefined,
-        ...(has_more ? {} : { imported_at: new Date().toISOString(), stage_mismatches }),
-      };
+        started_at: new Date().toISOString(),
+      },
+    }).eq("id", config.id);
 
-      await admin.from("rd_integration_config").update({
-        last_import_at: new Date().toISOString(),
-        import_stats: importStats,
-      }).eq("id", configId);
-
-      return new Response(
-        JSON.stringify({ ok: true, imported, total_so_far: totalSoFar, has_more, page }),
-        { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-      );
-    }
-
-    // ── Modo legado: importa tudo de uma vez (pode dar timeout com >600 deals) ─
-    console.log("rd-import: legacy full import, skip_contacts=", skipContacts);
-    const emailToAuthId = await buildEmailToAuthIdMap();
-
-    let totalContacts = 0;
-    if (!skipContacts) {
-      totalContacts = await importContacts(token);
-      console.log(`rd-import: ${totalContacts} contacts imported`);
-    }
-
-    const { count: totalDeals, stage_mismatches, pageLog } = await importDeals(token, rdPipelineId, emailToAuthId);
-    console.log(`rd-import: ${totalDeals} deals imported`);
-
-    const importStats = {
-      status: "done",
-      total_deals: totalDeals,
-      total_contacts: totalContacts,
-      total_tasks: 0,
-      total_activities: 0,
-      imported_at: new Date().toISOString(),
-      stage_mismatches,
-    };
-
-    await admin.from("rd_integration_config").update({
-      last_import_at: new Date().toISOString(),
-      import_stats: importStats,
-    }).eq("id", configId);
-
-    return new Response(JSON.stringify({ ok: true, ...importStats, pageLog }), {
-      status: 200,
-      headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+    return ok({
+      ok: true,
+      started: true,
+      message: "Importação iniciada no servidor. Pode navegar ou fechar esta página — o processo continua automaticamente.",
     });
   } catch (e) {
     console.error("rd-import error:", e);
-    return new Response(JSON.stringify({ ok: false, error: String(e) }), {
-      status: 200,
-      headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-    });
+    return ok({ ok: false, error: String(e) });
   }
 });

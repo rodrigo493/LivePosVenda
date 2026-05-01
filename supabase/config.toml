@@ -29,3 +29,6 @@ verify_jwt = false
 
 [functions.rd-webhook]
 verify_jwt = false
+
+[functions.rd-import]
+verify_jwt = false

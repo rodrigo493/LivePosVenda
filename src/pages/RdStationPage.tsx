@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -99,8 +99,18 @@ export default function RdStationPage() {
   const [logStatus, setLogStatus] = useState<string>("all");
   const [logsOpen, setLogsOpen] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [importProgress, setImportProgress] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
+
+  const isRunning = config?.import_stats?.status === "running";
+
+  // Polling automático enquanto o servidor está importando
+  useEffect(() => {
+    if (!isRunning) return;
+    const interval = setInterval(() => {
+      qc.invalidateQueries({ queryKey: ["rd_integration_config"] });
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [isRunning, qc]);
 
   const [expandedLog, setExpandedLog] = useState<string | null>(null);
 
@@ -201,50 +211,25 @@ export default function RdStationPage() {
       return;
     }
     setImporting(true);
-    setImportProgress("Iniciando importação...");
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const headers = { Authorization: `Bearer ${session?.access_token}` };
-
-      let page = 1;
-      let totalSoFar = 0;
-
-      while (true) {
-        setImportProgress(`Importando página ${page}… (${totalSoFar} deals)`);
-
-        const res = await supabase.functions.invoke("rd-import", {
-          body: { page, cumulative: totalSoFar, skip_contacts: true },
-          headers,
-        });
-
-        if (res.error) throw new Error(res.error.message);
-
-        const data = res.data as {
-          ok: boolean;
-          imported: number;
-          total_so_far: number;
-          has_more: boolean;
-          error?: string;
-        };
-
-        if (!data?.ok) throw new Error(data?.error || "Erro desconhecido na função");
-
-        totalSoFar = data.total_so_far;
-        qc.invalidateQueries({ queryKey: ["rd_integration_config"] });
-
-        if (!data.has_more) {
-          toast.success(`Importação concluída! ${totalSoFar} negociações importadas.`, { duration: 8000 });
-          break;
-        }
-
-        page++;
+      const res = await supabase.functions.invoke("rd-import", {
+        body: { skip_contacts: true },
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      });
+      if (res.error) throw new Error(res.error.message);
+      const data = res.data as { ok: boolean; started?: boolean; already_running?: boolean; error?: string; message?: string };
+      if (!data?.ok) throw new Error(data?.error || "Erro desconhecido");
+      if (data.already_running) {
+        toast.info("Importação já está em andamento no servidor.");
+      } else {
+        toast.success(data.message ?? "Importação iniciada!", { duration: 8000 });
       }
+      qc.invalidateQueries({ queryKey: ["rd_integration_config"] });
     } catch (e) {
-      toast.error(`Erro no import: ${String(e)}`);
+      toast.error(`Erro: ${String(e)}`);
     } finally {
       setImporting(false);
-      setImportProgress(null);
-      qc.invalidateQueries({ queryKey: ["rd_integration_config"] });
     }
   }
 
@@ -478,14 +463,19 @@ export default function RdStationPage() {
           <Button
             size="sm"
             className="h-8 gap-1.5"
-            disabled={importing || !config?.is_active}
+            disabled={importing || !config?.is_active || isRunning}
             onClick={handleImport}
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${importing ? "animate-spin" : ""}`} />
-            {importing ? "Importando..." : "Importar Histórico Completo"}
+            <RefreshCw className={`h-3.5 w-3.5 ${(importing || isRunning) ? "animate-spin" : ""}`} />
+            {importing ? "Iniciando..." : isRunning ? "Importando no servidor..." : "Importar Histórico Completo"}
           </Button>
-          {importProgress && (
-            <p className="text-xs text-muted-foreground animate-pulse">{importProgress}</p>
+          {isRunning && config?.import_stats && (
+            <p className="text-xs text-yellow-500 animate-pulse">
+              ⏳ Processando página {(config.import_stats as Record<string,unknown>).current_page as number ?? "?"}
+              {" · "}
+              {(config.import_stats as Record<string,unknown>).total_deals as number ?? 0} deals importados
+              {" · "}Pode navegar para outras páginas
+            </p>
           )}
         </div>
 
