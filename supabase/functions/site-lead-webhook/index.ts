@@ -153,6 +153,7 @@ Deno.serve(async (req) => {
         client_id:      clientId,
         pipeline_id:    pipeline.id,
         pipeline_stage: stageKey,
+        ticket_type:    "negociacao",
         title,
         description,
         status:         "aberto",
