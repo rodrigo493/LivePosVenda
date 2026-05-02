@@ -341,6 +341,7 @@ function PipelineSection({ pipeline, instances }: { pipeline: Pipeline; instance
   const qc = useQueryClient();
 
   const deleteInstance = async (id: string) => {
+    if (!window.confirm("Remover este número do fluxo?")) return;
     const { error } = await supabase.from("pipeline_whatsapp_instances").delete().eq("id", id);
     if (error) { toast.error(error.message); return; }
     toast.success("Número removido");
