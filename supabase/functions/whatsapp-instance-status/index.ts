@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "https://posvenda.liveuni.com.br",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
 Deno.serve(async (req) => {
@@ -35,7 +35,16 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { instance_id } = await req.json();
+    let body: { instance_id?: string };
+    try {
+      body = await req.json();
+    } catch {
+      return new Response(JSON.stringify({ error: "JSON inválido" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const { instance_id } = body;
     if (!instance_id) {
       return new Response(JSON.stringify({ error: "instance_id required" }), {
         status: 400,
@@ -109,10 +118,11 @@ Deno.serve(async (req) => {
       if (wid) {
         phone = wid.includes("@") ? wid.split("@")[0] : wid;
         if (phone && phone !== instance.phone_number) {
-          await adminClient
+          const { error: updateErr } = await adminClient
             .from("pipeline_whatsapp_instances")
             .update({ phone_number: phone })
             .eq("id", instance_id);
+          if (updateErr) console.error("Failed to update phone_number:", updateErr);
         }
       }
     }
