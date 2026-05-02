@@ -82,9 +82,13 @@ Deno.serve(async (_req) => {
       const cfg = resolveVars(automation.action_config as Record<string, unknown>, vars);
 
       switch (automation.action_type) {
-        case "whatsapp_message":
-          await executeWhatsApp(UAZAPI_BASE, UAZAPI_TOKEN, cfg);
+        case "whatsapp_message": {
+          const { token: resolvedToken, base: resolvedBase } = await resolveInstanceForPipeline(
+            supabase, ticket.pipeline_id, UAZAPI_TOKEN, UAZAPI_BASE
+          );
+          await executeWhatsApp(resolvedBase, resolvedToken, cfg);
           break;
+        }
         case "create_task":
           await executeSquadFallback(SQUAD_TOKEN, ticket, cfg, "Tarefa");
           break;
@@ -110,6 +114,33 @@ Deno.serve(async (_req) => {
 });
 
 // --- helpers ---
+
+async function resolveInstanceForPipeline(
+  supabase: any,
+  pipelineId: string | null,
+  fallbackToken: string,
+  fallbackBase: string
+): Promise<{ token: string; base: string }> {
+  if (!pipelineId) return { token: fallbackToken, base: fallbackBase };
+
+  const { data: instances } = await supabase
+    .from("pipeline_whatsapp_instances")
+    .select("instance_token, base_url, distribution_pct")
+    .eq("pipeline_id", pipelineId)
+    .eq("active", true)
+    .gt("distribution_pct", 0);
+
+  if (!instances?.length) return { token: fallbackToken, base: fallbackBase };
+
+  const total = (instances as any[]).reduce((s: number, i: any) => s + i.distribution_pct, 0);
+  let rand = Math.random() * total;
+  for (const i of instances as any[]) {
+    rand -= i.distribution_pct;
+    if (rand <= 0) return { token: i.instance_token, base: i.base_url || fallbackBase };
+  }
+  const last = (instances as any[])[instances.length - 1];
+  return { token: last.instance_token, base: last.base_url || fallbackBase };
+}
 
 function resolveVars(
   config: Record<string, unknown>,

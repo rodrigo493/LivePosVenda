@@ -366,6 +366,7 @@ Deno.serve(async (req) => {
         .select("id, pipeline_id, base_url, instance_token")
         .eq("instance_token", incomingToken)
         .eq("active", true)
+        .order("created_at", { ascending: true })
         .limit(1);
       pipelineInstance = instances?.[0] ?? null;
     }
