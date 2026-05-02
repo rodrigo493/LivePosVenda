@@ -461,7 +461,7 @@ export function WhatsAppInstancesSettings() {
   const byPipeline = (pid: string) => instances.filter(i => i.pipeline_id === pid);
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 min-w-[600px]">
       <div>
         <h3 className="text-sm font-semibold">Números WhatsApp por Fluxo</h3>
         <p className="text-xs text-muted-foreground mt-0.5">

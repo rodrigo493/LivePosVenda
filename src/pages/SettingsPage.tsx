@@ -280,7 +280,7 @@ const SettingsPage = () => {
         {/* WHATSAPP */}
         {isAdmin && (
           <TabsContent value="whatsapp">
-            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="bg-card rounded-xl border shadow-card p-6">
+            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="bg-card rounded-xl border shadow-card p-6 overflow-x-auto">
               <WhatsAppInstancesSettings />
             </motion.div>
           </TabsContent>
