@@ -74,6 +74,10 @@ function PageLoader() {
 function AppRoutes() {
   const { user, loading } = useAuth();
 
+  if (window.location.pathname === "/privacidade") {
+    return <PrivacidadePage />;
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -90,9 +94,6 @@ function AppRoutes() {
   if (!user) {
     if (window.location.pathname === "/reset-password") {
       return <ResetPasswordPage />;
-    }
-    if (window.location.pathname === "/privacidade") {
-      return <PrivacidadePage />;
     }
     return <AuthPage />;
   }
