@@ -6,8 +6,9 @@ import { supabase } from "@/integrations/supabase/client";
 export function useWhatsAppRealtimeSync() {
   const qc = useQueryClient();
   useEffect(() => {
-    const channel = supabase
-      .channel("whatsapp-global-realtime")
+    // Canal separado por tabela para evitar que falha de um quebre o outro
+    const wppChannel = supabase
+      .channel("whatsapp-messages-realtime")
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "whatsapp_messages" },
@@ -16,26 +17,30 @@ export function useWhatsAppRealtimeSync() {
           qc.invalidateQueries({ queryKey: ["pipeline-tickets"] });
         }
       )
+      .subscribe();
+
+    const ticketsChannel = supabase
+      .channel("tickets-realtime")
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "tickets" },
-        (payload) => {
+        () => {
           qc.invalidateQueries({ queryKey: ["pipeline-tickets"] });
-          if ((payload.new as any)?.new_lead === true) {
-            qc.invalidateQueries({ queryKey: ["new-leads"] });
-          }
+          qc.invalidateQueries({ queryKey: ["new-leads"] });
         }
       )
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "tickets" },
-        (payload) => {
-          if ((payload.old as any)?.new_lead === true && (payload.new as any)?.new_lead === false) {
-            qc.invalidateQueries({ queryKey: ["new-leads"] });
-          }
+        () => {
+          qc.invalidateQueries({ queryKey: ["new-leads"] });
         }
       )
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+
+    return () => {
+      supabase.removeChannel(wppChannel);
+      supabase.removeChannel(ticketsChannel);
+    };
   }, [qc]);
 }

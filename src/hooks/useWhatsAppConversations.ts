@@ -33,8 +33,11 @@ export function useWhatsAppConversations() {
         if (!client || !client.name) continue;
         const lastReadAt = client.whatsapp_last_read_at ? new Date(client.whatsapp_last_read_at).getTime() : null;
         const msgTime = new Date(msg.created_at).getTime();
-        // Only mark as unread if there's a known read timestamp to compare against
-        const isUnread = msg.direction === "inbound" && lastReadAt !== null && msgTime > lastReadAt;
+        const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+        // null lastReadAt = nunca lido → mensagens recentes são não lidas
+        const isUnread = msg.direction === "inbound" &&
+          msgTime > thirtyDaysAgo &&
+          (lastReadAt === null || msgTime > lastReadAt);
         if (!map.has(msg.client_id)) {
           map.set(msg.client_id, {
             client_id: msg.client_id,
