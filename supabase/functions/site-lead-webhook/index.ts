@@ -162,6 +162,7 @@ Deno.serve(async (req) => {
         ticket_number:  "",
         lead_source_id: leadSource?.id ?? null,
         assigned_to:    assignedTo,
+        new_lead:       true,
       })
       .select("id")
       .single();

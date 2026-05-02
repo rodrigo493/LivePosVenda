@@ -72,6 +72,7 @@ import { TaskCreateDialog } from "@/components/tasks/TaskCreateDialog";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useClearNewLead } from "@/hooks/useNewLeads";
 
 function daysSince(dateStr: string | null) {
   if (!dateStr) return 999;
@@ -165,6 +166,11 @@ const CrmPipelinePage = () => {
   const [batchOpen, setBatchOpen] = useState(false);
   const [excelImportOpen, setExcelImportOpen] = useState(false);
   const [detailTicket, setDetailTicket] = useState<any>(null);
+  const clearNewLead = useClearNewLead();
+  const handleOpenTicket = useCallback((ticket: any) => {
+    setDetailTicket(ticket);
+    if (ticket?.new_lead) clearNewLead(ticket.id);
+  }, [clearNewLead]);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [filterSource, setFilterSource] = useState<string>("all");
@@ -306,6 +312,7 @@ const CrmPipelinePage = () => {
         _unreadWhatsapp: whatsappUnread.get(t.client_id) || 0,
         _lastWhatsappAt: whatsappLastActivity.get(t.client_id) || null,
         _stageColor: stageColor,
+        _isNewLead: !!t.new_lead,
       };
       const target = map[t.pipeline_stage] ? t.pipeline_stage : "sem_atendimento";
       map[target]?.push(enriched);
@@ -313,6 +320,7 @@ const CrmPipelinePage = () => {
 
     Object.values(map).forEach((arr) =>
       arr.sort((a: any, b: any) => {
+        if (a._isNewLead !== b._isNewLead) return a._isNewLead ? -1 : 1;
         if (!!a._unreadWhatsapp !== !!b._unreadWhatsapp) return a._unreadWhatsapp ? -1 : 1;
         if (a._lastWhatsappAt || b._lastWhatsappAt) {
           if (!a._lastWhatsappAt) return 1;
@@ -911,7 +919,7 @@ const CrmPipelinePage = () => {
                     <tr
                       key={ticket.id}
                       className={`border-b border-zinc-800 last:border-0 hover:bg-zinc-800/60 cursor-pointer transition-colors ${isChecked ? "bg-primary/5" : ""}`}
-                      onClick={() => setDetailTicket(ticket)}
+                      onClick={() => handleOpenTicket(ticket)}
                     >
                       <td className="px-3 py-2 w-8" onClick={(e) => e.stopPropagation()}>
                         <input
@@ -1008,7 +1016,7 @@ const CrmPipelinePage = () => {
                   totalValue={totalValue}
                   pipelineName={currentPipeline?.name ?? ""}
                   onQuickTask={handleQuickTask}
-                  onClickTicket={setDetailTicket}
+                  onClickTicket={handleOpenTicket}
                   onNewTicket={() => setClientDialog(true)}
                   isAdmin={isAdmin}
                 />
@@ -1577,6 +1585,7 @@ function formatTaskDateTime(due_date: string | null, due_time: string | null): s
 function PipelineCard({ ticket, pipelineName, onQuickTask, onClick, isAdmin }: { ticket: any; pipelineName: string; onQuickTask: () => void; onClick: () => void; isAdmin: boolean }) {
   const typeInfo = TICKET_TYPE_LABELS[ticket.ticket_type] || { label: ticket.ticket_type, color: "bg-zinc-700 text-zinc-300" };
   const unreadWpp = ticket._unreadWhatsapp || 0;
+  const isNewLead = ticket._isNewLead || false;
   const lastOrderTag = getLastOrderTag(ticket.quotes || []);
   const isDelayed = ticket._isDelayed;
   const days = ticket._daysSinceInteraction ?? 0;
@@ -1606,12 +1615,22 @@ function PipelineCard({ ticket, pipelineName, onQuickTask, onClick, isAdmin }: {
     <div
       onClick={onClick}
       className={`rounded-lg border cursor-pointer transition-all overflow-hidden hover:brightness-110 ${
-        unreadWpp > 0
+        isNewLead
+          ? "bg-[#0b1a12] border-[#166534]"
+          : unreadWpp > 0
           ? "bg-[#1f1208] border-[#7c2d12]"
           : "bg-zinc-800 border-zinc-700"
       }`}
       style={{ borderLeft: `3px solid ${stageColor}` }}
     >
+      {isNewLead && (
+        <div className="flex items-center gap-1.5 px-2.5 py-1 border-b border-[#166534]/50">
+          <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-dot-pulse" />
+          <span className="text-[9px] font-bold text-green-400 uppercase tracking-wide">
+            Novo lead
+          </span>
+        </div>
+      )}
       {unreadWpp > 0 && (
         <div className="flex items-center gap-1.5 px-2.5 py-1 border-b border-[#7c2d12]/50">
           <span className="h-1.5 w-1.5 rounded-full bg-orange-500 animate-dot-pulse" />
