@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { MessageSquare, RefreshCw } from "lucide-react";
+import { MessageSquare, RefreshCw, Wifi } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface Instance {
@@ -40,6 +40,8 @@ async function fetchInstanceStatus(instanceId: string): Promise<StatusResponse> 
 
 export function WhatsAppQrConnect({ instance }: { instance: Instance }) {
   const [status, setStatus] = useState<StatusResponse | null>(null);
+  // "idle" = ainda não tentou conectar | "connecting" = buscando QR | "done" = conectado
+  const [mode, setMode] = useState<"idle" | "connecting" | "done">("idle");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const wasConnected = useRef(false);
@@ -60,6 +62,7 @@ export function WhatsAppQrConnect({ instance }: { instance: Instance }) {
 
       if (result.state === "open" && !wasConnected.current) {
         wasConnected.current = true;
+        setMode("done");
         toast.success(
           result.phone
             ? `WhatsApp conectado! Número: ${result.phone}`
@@ -74,21 +77,49 @@ export function WhatsAppQrConnect({ instance }: { instance: Instance }) {
     }
   }, [instance.id]);
 
+  // Verificação inicial: apenas checa se já está conectado (sem iniciar polling contínuo)
   useEffect(() => {
-    poll();
-    intervalRef.current = setInterval(poll, 3_000);
-    return stopPolling;
-  }, [poll]);
+    let cancelled = false;
+    fetchInstanceStatus(instance.id)
+      .then((result) => {
+        if (cancelled) return;
+        setStatus(result);
+        if (result.state === "open") {
+          wasConnected.current = true;
+          setMode("done");
+        }
+      })
+      .catch(() => {
+        // ignora erro na verificação inicial — usuário pode tentar manualmente
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [instance.id]);
 
-  const retry = () => {
+  // Inicia polling quando o usuário clica em "Conectar"
+  const handleConnect = () => {
+    setMode("connecting");
     setError(null);
     setLoading(true);
     wasConnected.current = false;
+    stopPolling();
+    poll();
+    intervalRef.current = setInterval(poll, 3_000);
+  };
+
+  const handleRetry = () => {
+    setError(null);
+    setLoading(true);
     poll();
     if (!intervalRef.current) {
       intervalRef.current = setInterval(poll, 3_000);
     }
   };
+
+  // Limpa polling ao desmontar
+  useEffect(() => () => stopPolling(), []);
 
   return (
     <div className="space-y-4">
@@ -103,7 +134,7 @@ export function WhatsAppQrConnect({ instance }: { instance: Instance }) {
       </div>
 
       {/* Loading inicial */}
-      {loading && !status && (
+      {loading && mode === "idle" && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
           <RefreshCw className="h-4 w-4 animate-spin" />
           Verificando conexão...
@@ -116,17 +147,17 @@ export function WhatsAppQrConnect({ instance }: { instance: Instance }) {
           <p className="text-sm text-destructive">
             Não foi possível conectar ao servidor WhatsApp. {error}
           </p>
-          <Button variant="outline" size="sm" onClick={retry} className="text-xs gap-1.5">
+          <Button variant="outline" size="sm" onClick={handleRetry} className="text-xs gap-1.5">
             <RefreshCw className="h-3.5 w-3.5" /> Tentar novamente
           </Button>
         </div>
       )}
 
       {/* Conectado */}
-      {!error && status?.state === "open" && (
+      {!error && mode === "done" && (
         <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-4">
           <p className="text-sm font-medium text-emerald-800">WhatsApp conectado com sucesso!</p>
-          {status.phone && (
+          {status?.phone && (
             <p className="text-xs text-emerald-700 mt-1">
               Número: <span className="font-mono">{status.phone}</span>
             </p>
@@ -134,10 +165,34 @@ export function WhatsAppQrConnect({ instance }: { instance: Instance }) {
         </div>
       )}
 
-      {/* QR Code (desconectado ou conectando) */}
-      {!error && status && status.state !== "open" && (
+      {/* Idle: desconectado, aguardando o usuário clicar */}
+      {!error && mode === "idle" && !loading && status?.state !== "open" && (
+        <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-5 flex flex-col items-center gap-3 text-center">
+          <div className="h-10 w-10 rounded-full bg-zinc-100 flex items-center justify-center">
+            <Wifi className="h-5 w-5 text-zinc-400" />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-zinc-700">WhatsApp desconectado</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Clique em Conectar para gerar o QR code
+            </p>
+          </div>
+          <Button onClick={handleConnect} className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white">
+            <Wifi className="h-4 w-4" />
+            Conectar WhatsApp
+          </Button>
+        </div>
+      )}
+
+      {/* Buscando QR / polling ativo */}
+      {!error && mode === "connecting" && (
         <>
-          {status.qrcode ? (
+          {loading && !status?.qrcode ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+              <RefreshCw className="h-4 w-4 animate-spin" />
+              Gerando QR code...
+            </div>
+          ) : status?.qrcode ? (
             <div className="space-y-3">
               <p className="text-xs text-muted-foreground">
                 Escaneie o QR code abaixo com seu WhatsApp para conectar:
@@ -162,9 +217,10 @@ export function WhatsAppQrConnect({ instance }: { instance: Instance }) {
               </div>
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground py-2">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+              <RefreshCw className="h-4 w-4 animate-spin" />
               Aguardando QR code...
-            </p>
+            </div>
           )}
         </>
       )}
