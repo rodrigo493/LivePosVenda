@@ -129,11 +129,11 @@ Deno.serve(async (req) => {
       const entry = dealClientMap[i];
       const stageKey = resolveStage(d.stage);
       let status = "aberto";
-      if (d.estado === "Ganho" || d.estado === "Ganho") status = "fechado";
+      if (d.estado === "Ganho" || d.estado === "Vendida" || d.estado === "Vendido") status = "fechado";
       else if (d.estado === "Perdido" || d.estado === "Perdida") status = "cancelado";
       else if (d.estado === "Pausado" || d.estado === "Pausada") status = "pausado";
 
-      let createdAt: string|null = null;
+      let createdAt: string = new Date().toISOString();
       if (d.created_date?.match(/\d{2}\/\d{2}\/\d{4}/)) {
         const [dd, mm, yyyy] = d.created_date.split("/");
         createdAt = `${yyyy}-${mm}-${dd}T00:00:00Z`;
@@ -154,7 +154,7 @@ Deno.serve(async (req) => {
       };
       if (d.campanha) t.campanha = d.campanha;
       if (entry.client_id) t.client_id = entry.client_id;
-      if (createdAt) t.created_at = createdAt;
+      t.created_at = createdAt;
       return t;
     });
 
