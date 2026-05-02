@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Settings, Users, Bell, Database, Mail, Shield, DollarSign, FlaskConical, Save, Brain, UserPlus, Trash2, Pencil, KeyRound, Link, MessageSquare, ChevronDown } from "lucide-react";
+import { Settings, Users, Bell, Database, Mail, Shield, DollarSign, FlaskConical, Save, Brain, UserPlus, Trash2, Pencil, KeyRound, Link, MessageSquare, ChevronDown, Target } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { WhatsAppInstancesSettings } from "@/components/settings/WhatsAppInstancesSettings";
+import { LeadSourcesSettings } from "@/components/settings/LeadSourcesSettings";
 
 function useSystemSettings() {
   return useQuery({
@@ -111,6 +112,7 @@ const SettingsPage = () => {
           <TabsTrigger value="engenharia" className="text-xs gap-1.5"><FlaskConical className="h-3.5 w-3.5" /> Engenharia</TabsTrigger>
 <TabsTrigger value="ia" className="text-xs gap-1.5"><Brain className="h-3.5 w-3.5" /> IA</TabsTrigger>
           <TabsTrigger value="nomus" className="text-xs gap-1.5"><Link className="h-3.5 w-3.5" /> Nomus ERP</TabsTrigger>
+          {isAdmin && <TabsTrigger value="fontes" className="text-xs gap-1.5"><Target className="h-3.5 w-3.5" /> Fontes</TabsTrigger>}
           {isAdmin && <TabsTrigger value="whatsapp" className="text-xs gap-1.5"><MessageSquare className="h-3.5 w-3.5" /> WhatsApp</TabsTrigger>}
           {isAdmin && <TabsTrigger value="usuarios" className="text-xs gap-1.5"><Users className="h-3.5 w-3.5" /> Usuários</TabsTrigger>}
         </TabsList>
@@ -266,6 +268,15 @@ const SettingsPage = () => {
         <TabsContent value="nomus">
           <NomusIdCache />
         </TabsContent>
+        {/* FONTES */}
+        {isAdmin && (
+          <TabsContent value="fontes">
+            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="bg-card rounded-xl border shadow-card p-6">
+              <LeadSourcesSettings />
+            </motion.div>
+          </TabsContent>
+        )}
+
         {/* WHATSAPP */}
         {isAdmin && (
           <TabsContent value="whatsapp">
