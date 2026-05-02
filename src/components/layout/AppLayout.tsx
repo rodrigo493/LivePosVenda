@@ -1,9 +1,11 @@
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { HeaderAlerts } from "@/components/layout/HeaderAlerts";
-import { Bell, Search, LogOut, Shield } from "lucide-react";
+import { Bell, Search, LogOut, Shield, UserCircle } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useWhatsAppRealtimeSync } from "@/hooks/useWhatsAppRealtimeSync";
+import { useNavigate } from "react-router-dom";
+import { useMyWhatsAppStatus } from "@/hooks/useMyWhatsAppStatus";
 import {
   Popover,
   PopoverContent,
@@ -17,6 +19,8 @@ interface AppLayoutProps {
 export function AppLayout({ children }: AppLayoutProps) {
   useWhatsAppRealtimeSync();
   const { user, roles, signOut } = useAuth();
+  const navigate = useNavigate();
+  const { state: waState } = useMyWhatsAppStatus(user?.id);
 
   const initials = user?.user_metadata?.full_name
     ? user.user_metadata.full_name
@@ -55,6 +59,29 @@ export function AppLayout({ children }: AppLayoutProps) {
 
             {/* Direita: sino + avatar */}
             <div className="flex items-center gap-3 flex-1 justify-end">
+              {waState !== null && (
+                <button
+                  onClick={() => navigate("/meu-perfil")}
+                  title={
+                    waState === "open"
+                      ? "WhatsApp conectado"
+                      : waState === "connecting"
+                      ? "WhatsApp conectando..."
+                      : "WhatsApp desconectado"
+                  }
+                  className="flex items-center justify-center h-8 w-8 rounded-lg hover:bg-zinc-800 transition-colors"
+                >
+                  <span
+                    className={`h-2.5 w-2.5 rounded-full ${
+                      waState === "open"
+                        ? "bg-emerald-500"
+                        : waState === "connecting"
+                        ? "bg-amber-400 animate-pulse"
+                        : "bg-red-500"
+                    }`}
+                  />
+                </button>
+              )}
               <button className="relative p-2 rounded-lg hover:bg-zinc-800 transition-colors">
                 <Bell className="h-4 w-4 text-zinc-400" />
                 <span className="absolute top-1.5 right-1.5 h-2 w-2 bg-primary rounded-full" />
@@ -89,6 +116,13 @@ export function AppLayout({ children }: AppLayoutProps) {
                     </div>
                   )}
                   <div className="p-2">
+                    <button
+                      onClick={() => navigate("/meu-perfil")}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted rounded-md transition-colors"
+                    >
+                      <UserCircle className="h-4 w-4" />
+                      Meu Perfil
+                    </button>
                     <button
                       onClick={signOut}
                       className="w-full flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-destructive/10 rounded-md transition-colors"
