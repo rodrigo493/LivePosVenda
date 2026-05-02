@@ -144,7 +144,11 @@ export function WhatsAppQrConnect({ instance }: { instance: Instance }) {
               </p>
               <div className="inline-block p-3 bg-white rounded-xl border shadow-sm">
                 <img
-                  src={status.qrcode}
+                  src={
+                    status.qrcode.startsWith("data:") || status.qrcode.startsWith("http")
+                      ? status.qrcode
+                      : `data:image/png;base64,${status.qrcode}`
+                  }
                   alt="QR Code WhatsApp"
                   className="h-48 w-48"
                 />
