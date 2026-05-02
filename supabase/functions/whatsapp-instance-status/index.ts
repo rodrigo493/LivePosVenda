@@ -86,28 +86,31 @@ Deno.serve(async (req) => {
     const token = instance.instance_token;
     const baseUrl = (instance.base_url || "https://liveuni.uazapi.com").replace(/\/$/, "");
 
-    // Verifica estado da conexão
+    // ── 1. Verifica estado da conexão ──────────────────────────────────────
     const stateRes = await fetch(`${baseUrl}/instance/connectionState`, {
       headers: { token },
     });
-    const stateData = await stateRes.json().catch(() => ({}));
-    // Uazapi GO: { instance: { state: "open"|"close"|"connecting" } } ou { state: "..." }
-    const state: string = stateData?.instance?.state ?? stateData?.state ?? "close";
+    const stateRaw = await stateRes.text();
+    console.log(`[state] status=${stateRes.status} body=${stateRaw.slice(0, 400)}`);
+    const stateData = JSON.parse(stateRaw || "{}");
+
+    // Uazapi GO retorna { instance: { state } } ou { state } ou { State }
+    const state: string =
+      stateData?.instance?.state ??
+      stateData?.state ??
+      stateData?.State ??
+      "close";
 
     let qrcode: string | null = null;
     let phone: string | null = null;
 
-    if (state !== "open") {
-      const qrRes = await fetch(`${baseUrl}/instance/qrcode`, {
-        headers: { token },
-      });
-      const qrData = await qrRes.json().catch(() => ({}));
-      qrcode = qrData?.qrcode ?? qrData?.qr ?? qrData?.base64 ?? null;
-    } else {
-      const infoRes = await fetch(`${baseUrl}/instance/info`, {
-        headers: { token },
-      });
-      const infoData = await infoRes.json().catch(() => ({}));
+    if (state === "open") {
+      // ── 2a. Conectado: busca número e atualiza banco ───────────────────
+      const infoRes = await fetch(`${baseUrl}/instance/info`, { headers: { token } });
+      const infoRaw = await infoRes.text();
+      console.log(`[info] status=${infoRes.status} body=${infoRaw.slice(0, 400)}`);
+      const infoData = JSON.parse(infoRaw || "{}");
+
       const wid: string | null =
         infoData?.instance?.wid ??
         infoData?.wid ??
@@ -125,6 +128,54 @@ Deno.serve(async (req) => {
           if (updateErr) console.error("Failed to update phone_number:", updateErr);
         }
       }
+    } else {
+      // ── 2b. Desconectado/conectando: reinicia se necessário e busca QR ──
+      if (state === "close") {
+        // Reinicia a instância para entrar em modo "connecting" e gerar QR
+        const restartRes = await fetch(`${baseUrl}/instance/restart`, {
+          method: "GET",
+          headers: { token },
+        });
+        const restartRaw = await restartRes.text();
+        console.log(`[restart] status=${restartRes.status} body=${restartRaw.slice(0, 300)}`);
+      }
+
+      // Tenta buscar QR — pode demorar 1-2s após restart, mas polling no frontend compensa
+      // Tenta endpoints alternativos caso o principal não retorne QR
+      const qrEndpoints = ["/instance/qrcode", "/instance/qr"];
+      for (const endpoint of qrEndpoints) {
+        const qrRes = await fetch(`${baseUrl}${endpoint}`, { headers: { token } });
+        const qrRaw = await qrRes.text();
+        console.log(`[qr ${endpoint}] status=${qrRes.status} body=${qrRaw.slice(0, 500)}`);
+
+        let qrData: any = {};
+        try { qrData = JSON.parse(qrRaw); } catch { /* imagem raw ou erro */ }
+
+        // Tenta campos mais comuns da resposta Uazapi
+        const candidate =
+          qrData?.qrcode ??
+          qrData?.qr ??
+          qrData?.base64 ??
+          qrData?.QRcode ??
+          qrData?.qrCode ??
+          qrData?.image ??
+          null;
+
+        if (candidate) {
+          qrcode = candidate;
+          break;
+        }
+
+        // Alguns endpoints retornam a imagem PNG diretamente (content-type image/png)
+        const ct = qrRes.headers.get("content-type") || "";
+        if (ct.startsWith("image/")) {
+          // converte para data URL
+          qrcode = `data:${ct};base64,${btoa(qrRaw)}`;
+          break;
+        }
+      }
+
+      console.log(`[result] state=${state} hasQR=${!!qrcode}`);
     }
 
     return new Response(
