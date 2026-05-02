@@ -8,6 +8,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { CrmPermissionsProvider } from "@/contexts/CrmPermissionsContext";
 import AuthPage from "./pages/AuthPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
+import PrivacidadePage from "./pages/PrivacidadePage";
 import { LaivinhaChat } from "@/components/laivinha/LaivinhaChat";
 const ChatPage = lazy(() => import("./pages/ChatPage"));
 
@@ -89,6 +90,9 @@ function AppRoutes() {
   if (!user) {
     if (window.location.pathname === "/reset-password") {
       return <ResetPasswordPage />;
+    }
+    if (window.location.pathname === "/privacidade") {
+      return <PrivacidadePage />;
     }
     return <AuthPage />;
   }
