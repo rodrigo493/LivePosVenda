@@ -175,6 +175,7 @@ async function handleInstagramMessage(messaging: Record<string, unknown>) {
     channel: "instagram",
     campanha,
     client_id: clientId,
+    new_lead: true,
     created_at: new Date().toISOString(),
   });
 
