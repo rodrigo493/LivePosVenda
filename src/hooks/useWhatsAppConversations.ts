@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 
 export interface Conversation {
   client_id: string;
@@ -12,16 +13,34 @@ export interface Conversation {
 }
 
 export function useWhatsAppConversations() {
+  const { user, hasRole } = useAuth();
+  const isAdmin = hasRole("admin");
+  const userId = user?.id ?? null;
+
   return useQuery({
-    queryKey: ["whatsapp-conversations"],
+    queryKey: ["whatsapp-conversations", userId, isAdmin],
     staleTime: 0,
     refetchOnMount: "always",
     refetchInterval: 15_000,
+    enabled: !!userId,
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from("whatsapp_messages")
-        .select("client_id, message_text, direction, created_at, clients(name, phone, whatsapp, whatsapp_last_read_at)")
         .order("created_at", { ascending: false });
+
+      if (isAdmin) {
+        // Admin vê todas as conversas
+        query = query.select(
+          "client_id, message_text, direction, created_at, clients(name, phone, whatsapp, whatsapp_last_read_at)"
+        ) as typeof query;
+      } else {
+        // Usuário comum vê apenas clientes onde assigned_to = seu userId
+        query = query.select(
+          "client_id, message_text, direction, created_at, clients!inner(name, phone, whatsapp, whatsapp_last_read_at)"
+        ).eq("clients.assigned_to", userId!) as typeof query;
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
 
