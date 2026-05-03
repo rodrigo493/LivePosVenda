@@ -25,6 +25,7 @@ import {
   CalendarCheck,
   ShoppingBag,
   Link2,
+  TrendingDown,
 } from "lucide-react";
 import { NavLink } from "@/components/layout/NavLink";
 import posvendaLogo from "@/assets/posvenda.png";
@@ -52,6 +53,7 @@ const mainNav = [
   { title: "Dashboard",      url: "/",             icon: LayoutDashboard, moduleKey: null },
   { title: "Meu Painel",     url: "/meu-painel",   icon: User,            moduleKey: null },
   { title: "CRM Pipeline",   url: "/crm",          icon: Kanban,          moduleKey: "crm_pipeline" },
+  { title: "Motivos de Perda", url: "/motivos-perda", icon: TrendingDown, moduleKey: null },
   { title: "Chat WhatsApp",  url: "/chat",         icon: MessageSquare,   moduleKey: "chat_whatsapp" },
   { title: "Clientes",       url: "/clientes",     icon: Users,           moduleKey: "clientes" },
   { title: "Equipamentos",   url: "/equipamentos", icon: Package,         moduleKey: "equipamentos" },

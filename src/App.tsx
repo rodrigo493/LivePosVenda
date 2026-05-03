@@ -45,6 +45,7 @@ const CrmPermissionsPage = lazy(() => import("./pages/CrmPermissionsPage"));
 const TasksAgendaPage = lazy(() => import("./pages/TasksAgendaPage"));
 const ProdutosNegociacaoPage = lazy(() => import("./pages/ProdutosNegociacaoPage"));
 const RdStationPage = lazy(() => import("./pages/RdStationPage"));
+const MotivosPerdaPage = lazy(() => import("./pages/MotivosPerdaPage"));
 const ProfilePage = lazy(() => import("./pages/ProfilePage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
@@ -139,6 +140,7 @@ function AppRoutes() {
             <Route path="/tarefas" element={<TasksAgendaPage />} />
             <Route path="/produtos-negociacao" element={<ProdutosNegociacaoPage />} />
             <Route path="/integracoes/rd-station" element={<RdStationPage />} />
+            <Route path="/motivos-perda" element={<MotivosPerdaPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>
