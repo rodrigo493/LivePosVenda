@@ -21,6 +21,8 @@ const WarrantiesPage = lazy(() => import("./pages/WarrantiesPage"));
 const ServiceRequestsPage = lazy(() => import("./pages/ServiceRequestsPage"));
 const PedidosAcessoriosPage = lazy(() => import("./pages/PedidosAcessoriosPage"));
 const PADetailPage = lazy(() => import("./pages/PADetailPage"));
+const PedidosVendaPage = lazy(() => import("./pages/PedidosVendaPage"));
+const PDDetailPage = lazy(() => import("./pages/PDDetailPage"));
 const PedidosGarantiaPage = lazy(() => import("./pages/PedidosGarantiaPage"));
 const PGDetailPage = lazy(() => import("./pages/PGDetailPage"));
 const QuotesPage = lazy(() => import("./pages/QuotesPage"));
@@ -111,6 +113,8 @@ function AppRoutes() {
             <Route path="/assistencia" element={<ServiceRequestsPage />} />
             <Route path="/pedidos-acessorios" element={<PedidosAcessoriosPage />} />
             <Route path="/pedidos-acessorios/:id" element={<PADetailPage />} />
+            <Route path="/pedidos-venda" element={<PedidosVendaPage />} />
+            <Route path="/pedidos-venda/:id" element={<PDDetailPage />} />
             <Route path="/pedidos-garantia" element={<PedidosGarantiaPage />} />
             <Route path="/pedidos-garantia/:id" element={<PGDetailPage />} />
             <Route path="/orcamentos" element={<QuotesPage />} />

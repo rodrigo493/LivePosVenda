@@ -191,10 +191,21 @@ function useClientServiceRequests(clientId: string | undefined) {
   return useQuery({
     queryKey: ["client-service-requests", clientId], enabled: !!clientId,
     queryFn: async () => {
-      const { data, error } = await supabase.from("service_requests").select("*, tickets(ticket_number, title)").in(
-        "ticket_id",
-        (await supabase.from("tickets").select("id").eq("client_id", clientId!)).data?.map((t: any) => t.id) || []
-      ).order("created_at", { ascending: false });
+      const ticketIds = (await supabase.from("tickets").select("id").eq("client_id", clientId!)).data?.map((t: any) => t.id) || [];
+      const { data, error } = await supabase.from("service_requests").select("*, tickets(ticket_number, title)")
+        .in("ticket_id", ticketIds).eq("document_type", "pa").order("created_at", { ascending: false });
+      if (error) throw error; return data;
+    },
+  });
+}
+
+function useClientSalesOrders(clientId: string | undefined) {
+  return useQuery({
+    queryKey: ["client-sales-orders", clientId], enabled: !!clientId,
+    queryFn: async () => {
+      const ticketIds = (await supabase.from("tickets").select("id").eq("client_id", clientId!)).data?.map((t: any) => t.id) || [];
+      const { data, error } = await supabase.from("service_requests").select("*, tickets(ticket_number, title)")
+        .in("ticket_id", ticketIds).eq("document_type", "pd").order("created_at", { ascending: false });
       if (error) throw error; return data;
     },
   });
@@ -411,6 +422,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   const { data: clientWorkOrders } = useClientWorkOrders(enabledClientId);
   const { data: clientWarrantyClaims } = useClientWarrantyClaims(enabledClientId);
   const { data: clientServiceRequests } = useClientServiceRequests(enabledClientId);
+  const { data: clientSalesOrders } = useClientSalesOrders(enabledClientId);
   const { data: clientTasks } = useClientTasks(enabledClientId);
   const { data: clientHistory } = useClientServiceHistory(enabledClientId);
   const { data: ticketEntregaveis } = useTicketEntregaveis(enabledId);
@@ -870,6 +882,40 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
     onError: (err: any) => toast.error(err?.message || "Erro ao criar PA"),
   });
 
+  const createSalesOrder = useMutation({
+    mutationFn: async () => {
+      const { data: pdNumData } = await supabase.rpc("generate_pd_number");
+      const requestNumber = pdNumData || `PD-${Date.now()}`;
+      const { data: pd, error: pdErr } = await supabase.from("service_requests").insert({
+        ticket_id: ticketId!,
+        request_number: requestNumber,
+        request_type: "troca_peca" as any,
+        document_type: "pd",
+      }).select().single();
+      if (pdErr) throw pdErr;
+      const { error: quoteErr } = await supabase.from("quotes").insert({
+        client_id: clientId!,
+        equipment_id: equipmentId || null,
+        ticket_id: ticketId || null,
+        service_request_id: pd.id,
+        created_by: user?.id,
+      });
+      if (quoteErr) {
+        console.error("[createSalesOrder] quote insert error:", quoteErr);
+        toast.warning(`PD criado, mas falha ao criar orçamento: ${quoteErr.message}`);
+      }
+      return pd;
+    },
+    onSuccess: (data: any) => {
+      qc.invalidateQueries({ queryKey: ["client-sales-orders"] });
+      toast.success(`PD ${data.request_number} criado`);
+      void notifySquad({ recordType: "pd", recordId: data.id, reference: data.request_number });
+      onOpenChange(false);
+      setTimeout(() => navigate(`/pedidos-venda/${data.id}?from_ticket=${ticketId}`), 150);
+    },
+    onError: (err: any) => toast.error(err?.message || "Erro ao criar PD"),
+  });
+
   const createEquipment = useMutation({
     mutationFn: async ({ model_id, serial_number, batch_number }: { model_id: string; serial_number?: string; batch_number?: string }) => {
       const { data, error } = await supabase
@@ -1266,6 +1312,9 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
               </TabsTrigger>
               <TabsTrigger value="client-services" className="text-xs rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-3 pb-2 gap-1">
                 <Package className="h-3 w-3" /> Ped. Acessórios ({clientServiceRequests?.length || 0})
+              </TabsTrigger>
+              <TabsTrigger value="client-sales-orders" className="text-xs rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-3 pb-2 gap-1">
+                <Package className="h-3 w-3" /> Ped. de Venda ({clientSalesOrders?.length || 0})
               </TabsTrigger>
                <TabsTrigger value="client-tasks" className="text-xs rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-3 pb-2 gap-1">
                 <Tag className="h-3 w-3" /> Tarefas ({clientTasks?.length || 0})
@@ -1927,6 +1976,56 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                             </Select>
                           </div>
                           <Button variant="ghost" size="sm" className="text-[10px] gap-1 h-6" onClick={() => { onOpenChange(false); navigate(`/pedidos-acessorios/${sr.id}?from_ticket=${ticket.id}`); }}>
+                            <ExternalLink className="h-3 w-3" /> Ver Detalhes
+                          </Button>
+                        </div>
+                        <div className="grid grid-cols-3 gap-4 text-xs text-muted-foreground">
+                          <span>Criado: {fmtDate(sr.created_at)}</span>
+                          <span>Tipo: {sr.request_type}</span>
+                          {sr.notes && <span className="line-clamp-1">Obs: {sr.notes}</span>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </TabsContent>
+
+                {/* ── Tab: Pedidos de Venda (PD) ───────── */}
+                <TabsContent value="client-sales-orders" className="mt-0 space-y-3">
+                  <SectionHeader label="Pedidos de Venda (PD)" clientName={ticket.clients?.name} count={clientSalesOrders?.length || 0} onNew={() => createSalesOrder.mutate()} loading={createSalesOrder.isPending} />
+                  {clientSalesOrders?.length === 0 && <EmptyState label="Nenhum pedido de venda registrado." />}
+                  {clientSalesOrders?.map((sr: any) => {
+                    const pdStatusLabels: Record<string, string> = { aberto: "Aberto", orcamento_enviado: "Orçamento Enviado", agendado: "Agendado", em_andamento: "Em Andamento", resolvido: "Resolvido", cancelado: "Cancelado" };
+                    return (
+                      <div key={sr.id} className="border rounded-lg p-4 hover:bg-muted/30 transition-colors">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <Package className="h-4 w-4 text-muted-foreground" />
+                            <span
+                              className="text-sm font-semibold font-mono text-primary cursor-pointer hover:underline"
+                              onClick={() => { onOpenChange(false); navigate(`/pedidos-venda/${sr.id}?from_ticket=${ticket.id}`); }}
+                            >
+                              {sr.request_number || "PD"}
+                            </span>
+                            <Select
+                              value={sr.status}
+                              onValueChange={async (val: any) => {
+                                const { error } = await supabase.from("service_requests").update({ status: val }).eq("id", sr.id);
+                                if (error) { toast.error("Erro ao atualizar"); return; }
+                                toast.success("Status atualizado");
+                                qc.invalidateQueries({ queryKey: ["client-sales-orders"] });
+                              }}
+                            >
+                              <SelectTrigger className="h-6 w-[140px] text-[10px]">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {Object.entries(pdStatusLabels).map(([val, label]) => (
+                                  <SelectItem key={val} value={val}>{label}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <Button variant="ghost" size="sm" className="text-[10px] gap-1 h-6" onClick={() => { onOpenChange(false); navigate(`/pedidos-venda/${sr.id}?from_ticket=${ticket.id}`); }}>
                             <ExternalLink className="h-3 w-3" /> Ver Detalhes
                           </Button>
                         </div>
