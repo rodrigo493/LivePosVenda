@@ -1,38 +1,42 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { useState, useCallback } from "react";
+import { useAuth } from "@/hooks/useAuth";
 
+function storageKey(userId: string) {
+  return `unanswered_ack_at_${userId}`;
+}
+
+function readAck(userId: string): string | null {
+  try {
+    return localStorage.getItem(storageKey(userId));
+  } catch {
+    return null;
+  }
+}
+
+function writeAck(userId: string, iso: string) {
+  try {
+    localStorage.setItem(storageKey(userId), iso);
+  } catch { /* ignorar */ }
+}
+
+// Ack por usuário — armazenado em localStorage, sem tabela global
 export function useUnansweredAck() {
-  const qc = useQueryClient();
+  const { user } = useAuth();
+  const userId = user?.id ?? "";
 
-  const query = useQuery<string | null>({
-    queryKey: ["unanswered-ack-at"],
-    staleTime: 30_000,
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("rd_integration_config")
-        .select("unanswered_ack_at")
-        .limit(1)
-        .maybeSingle();
-      return (data as any)?.unanswered_ack_at ?? null;
-    },
-  });
+  const [ackAt, setAckAt] = useState<string | null>(() =>
+    userId ? readAck(userId) : null
+  );
+  const [isAcking, setIsAcking] = useState(false);
 
-  const ack = useMutation({
-    mutationFn: async () => {
-      const now = new Date().toISOString();
-      const { data: row } = await supabase
-        .from("rd_integration_config")
-        .select("id")
-        .limit(1)
-        .maybeSingle();
-      if (!row) return;
-      await supabase
-        .from("rd_integration_config")
-        .update({ unanswered_ack_at: now } as any)
-        .eq("id", (row as any).id);
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["unanswered-ack-at"] }),
-  });
+  const ack = useCallback(() => {
+    if (!userId) return;
+    setIsAcking(true);
+    const now = new Date().toISOString();
+    writeAck(userId, now);
+    setAckAt(now);
+    setIsAcking(false);
+  }, [userId]);
 
-  return { ackAt: query.data ?? null, ack: ack.mutate, isAcking: ack.isPending };
+  return { ackAt, ack, isAcking };
 }

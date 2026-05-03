@@ -21,6 +21,7 @@ import GridLayout, { WidthProvider } from "react-grid-layout/legacy";
 import { KpiCard } from "@/components/dashboard/KpiCard";
 import { KpiDrilldownDialog, DrilldownItem } from "@/components/dashboard/KpiDrilldownDialog";
 import { OperationalAlerts } from "@/components/dashboard/OperationalAlerts";
+import { TeamAlerts } from "@/components/dashboard/TeamAlerts";
 import { ProblemRanking } from "@/components/dashboard/ProblemRanking";
 import { DeviceFrequencyRanking } from "@/components/dashboard/DeviceFrequencyRanking";
 import { AiOperationalSummary } from "@/components/dashboard/AiOperationalSummary";
@@ -490,6 +491,7 @@ function DashboardContent() {
       )}
 
       <AdminTeamOverview />
+      <TeamAlerts />
       <OperationalAlerts />
 
       {/* ── Botões do modo de edição ── */}
