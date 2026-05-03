@@ -434,8 +434,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   const { data: ticketMemoria } = useTicketMemoria(enabledId);
   const { data: negotiationItems = [] } = useTicketNegotiationItems(enabledId);
   const { data: allLossReasons } = useLossReasonsActive();
-  const { data: ticketLossReasons } = useTicketLossReasons(ticket?.id);
-  const toggleLossReason = useToggleLossReason(ticket?.id);
+  const { data: ticketLossReasons } = useTicketLossReasons(enabledId);
+  const toggleLossReason = useToggleLossReason(enabledId);
   const { data: dealCatalog = [] } = useDealCatalogProducts();
   const addNegItem = useAddNegotiationItem();
   const updateNegItem = useUpdateNegotiationItem();
@@ -2592,7 +2592,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                     {!allLossReasons || allLossReasons.length === 0 ? (
                       <p className="text-sm text-muted-foreground py-8 text-center">
                         Nenhum motivo cadastrado.{" "}
-                        <a href="/motivos-perda" className="underline">Cadastrar motivos</a>
+                        <button onClick={() => goTo("/motivos-perda")} className="underline">Cadastrar motivos</button>
                       </p>
                     ) : (
                       <div className="flex flex-wrap gap-2 pt-1">
@@ -2600,7 +2600,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                           const isSelected = ticketLossReasons?.some((r) => r.loss_reason_id === reason.id) ?? false;
                           const isPending =
                             toggleLossReason.isPending &&
-                            (toggleLossReason.variables as any)?.reasonId === reason.id;
+                            toggleLossReason.variables?.reasonId === reason.id;
                           return (
                             <button
                               key={reason.id}
