@@ -26,6 +26,7 @@ export function useLossReasons() {
   return useQuery<LossReason[]>({
     queryKey: ["loss-reasons"],
     queryFn: async () => {
+      // loss_reasons tables not yet in generated types — cast until `supabase gen types` is rerun
       const { data, error } = await (supabase as any)
         .from("loss_reasons_with_count")
         .select("id, label, active, position, created_at, ticket_count")
@@ -43,6 +44,7 @@ export function useLossReasons() {
 export function useLossReasonsActive() {
   return useQuery<LossReason[]>({
     queryKey: ["loss-reasons-active"],
+    staleTime: 30_000,
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("loss_reasons")
@@ -61,6 +63,7 @@ export function useLossReasonsActive() {
 export function useLossReasonsStats() {
   return useQuery<LossReason[]>({
     queryKey: ["loss-reasons-stats"],
+    staleTime: 30_000,
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("loss_reasons_with_count")
@@ -98,6 +101,7 @@ export function useCreateLossReason() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (label: string) => {
+      // position defaults to 0 — reserved for future drag-and-drop reordering
       const { error } = await (supabase as any)
         .from("loss_reasons")
         .insert({ label: label.trim() });
