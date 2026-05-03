@@ -6,6 +6,44 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+// uazapiGO v2 state mapping → nosso padrão interno
+function normalizeState(raw: string): "open" | "close" | "connecting" {
+  const s = (raw || "").toLowerCase();
+  if (s === "connected") return "open";
+  if (s === "connecting") return "connecting";
+  return "close"; // disconnected ou qualquer outro
+}
+
+// Extrai QR code de qualquer campo possível na resposta uazapiGO
+function extractQr(data: any): string | null {
+  return (
+    data?.qrcode ??
+    data?.qr ??
+    data?.base64 ??
+    data?.qrCode ??
+    data?.QRcode ??
+    data?.instance?.qrcode ??
+    data?.instance?.qr ??
+    data?.data?.qrcode ??
+    data?.data?.qr ??
+    null
+  );
+}
+
+// Extrai telefone conectado da resposta uazapiGO
+function extractPhone(data: any): string | null {
+  const raw =
+    data?.phone ??
+    data?.wid ??
+    data?.instance?.phone ??
+    data?.instance?.wid ??
+    data?.data?.phone ??
+    null;
+  if (!raw) return null;
+  const str = String(raw);
+  return str.includes("@") ? str.split("@")[0] : str;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -86,97 +124,74 @@ Deno.serve(async (req) => {
     const token = instance.instance_token;
     const baseUrl = (instance.base_url || "https://liveuni.uazapi.com").replace(/\/$/, "");
 
-    // ── 1. Verifica estado da conexão ──────────────────────────────────────
-    const stateRes = await fetch(`${baseUrl}/instance/connectionState`, {
+    // ── 1. Status atual (uazapiGO v2: GET /instance/status) ───────────────
+    // Retorna: state (disconnected/connecting/connected) + qrcode se connecting
+    const statusRes = await fetch(`${baseUrl}/instance/status`, {
       headers: { token },
     });
-    const stateRaw = await stateRes.text();
-    console.log(`[state] status=${stateRes.status} body=${stateRaw.slice(0, 400)}`);
-    const stateData = JSON.parse(stateRaw || "{}");
+    const statusRaw = await statusRes.text();
+    console.log(`[GET /instance/status] http=${statusRes.status} body=${statusRaw.slice(0, 500)}`);
 
-    // Uazapi GO retorna { instance: { state } } ou { state } ou { State }
-    const state: string =
-      stateData?.instance?.state ??
-      stateData?.state ??
-      stateData?.State ??
-      "close";
+    let statusData: any = {};
+    try { statusData = JSON.parse(statusRaw); } catch { /* ignorar */ }
+
+    const rawState: string =
+      statusData?.state ?? statusData?.State ?? statusData?.status ?? statusData?.instance?.state ?? "disconnected";
+    let state = normalizeState(rawState);
 
     let qrcode: string | null = null;
     let phone: string | null = null;
 
-    if (state === "open") {
-      // ── 2a. Conectado: busca número e atualiza banco ───────────────────
-      const infoRes = await fetch(`${baseUrl}/instance/info`, { headers: { token } });
-      const infoRaw = await infoRes.text();
-      console.log(`[info] status=${infoRes.status} body=${infoRaw.slice(0, 400)}`);
-      const infoData = JSON.parse(infoRaw || "{}");
-
-      const wid: string | null =
-        infoData?.instance?.wid ??
-        infoData?.wid ??
-        infoData?.phone ??
-        infoData?.instance?.phone ??
-        null;
-
-      if (wid) {
-        phone = wid.includes("@") ? wid.split("@")[0] : wid;
-        if (phone && phone !== instance.phone_number) {
-          const { error: updateErr } = await adminClient
-            .from("pipeline_whatsapp_instances")
-            .update({ phone_number: phone })
-            .eq("id", instance_id);
-          if (updateErr) console.error("Failed to update phone_number:", updateErr);
-        }
-      }
-    } else {
-      // ── 2b. Desconectado/conectando: reinicia se necessário e busca QR ──
-      if (state === "close") {
-        // Reinicia a instância para entrar em modo "connecting" e gerar QR
-        const restartRes = await fetch(`${baseUrl}/instance/restart`, {
-          method: "GET",
-          headers: { token },
-        });
-        const restartRaw = await restartRes.text();
-        console.log(`[restart] status=${restartRes.status} body=${restartRaw.slice(0, 300)}`);
-      }
-
-      // Tenta buscar QR — pode demorar 1-2s após restart, mas polling no frontend compensa
-      // Tenta endpoints alternativos caso o principal não retorne QR
-      const qrEndpoints = ["/instance/qrcode", "/instance/qr"];
-      for (const endpoint of qrEndpoints) {
-        const qrRes = await fetch(`${baseUrl}${endpoint}`, { headers: { token } });
-        const qrRaw = await qrRes.text();
-        console.log(`[qr ${endpoint}] status=${qrRes.status} body=${qrRaw.slice(0, 500)}`);
-
-        let qrData: any = {};
-        try { qrData = JSON.parse(qrRaw); } catch { /* imagem raw ou erro */ }
-
-        // Tenta campos mais comuns da resposta Uazapi
-        const candidate =
-          qrData?.qrcode ??
-          qrData?.qr ??
-          qrData?.base64 ??
-          qrData?.QRcode ??
-          qrData?.qrCode ??
-          qrData?.image ??
-          null;
-
-        if (candidate) {
-          qrcode = candidate;
-          break;
-        }
-
-        // Alguns endpoints retornam a imagem PNG diretamente (content-type image/png)
-        const ct = qrRes.headers.get("content-type") || "";
-        if (ct.startsWith("image/")) {
-          // converte para data URL
-          qrcode = `data:${ct};base64,${btoa(qrRaw)}`;
-          break;
-        }
-      }
-
-      console.log(`[result] state=${state} hasQR=${!!qrcode}`);
+    if (state === "connecting") {
+      // QR code já vem no response do status quando connecting
+      qrcode = extractQr(statusData);
     }
+
+    if (state === "close") {
+      // ── 2. Inicia conexão (gera QR) via POST /instance/connect ────────
+      const connectRes = await fetch(`${baseUrl}/instance/connect`, {
+        method: "POST",
+        headers: { token, "Content-Type": "application/json" },
+        body: JSON.stringify({}), // sem phone = gera QR code
+      });
+      const connectRaw = await connectRes.text();
+      console.log(`[POST /instance/connect] http=${connectRes.status} body=${connectRaw.slice(0, 500)}`);
+
+      let connectData: any = {};
+      try { connectData = JSON.parse(connectRaw); } catch { /* ignorar */ }
+
+      if (connectRes.ok) {
+        // Pode já vir o QR na resposta do connect
+        qrcode = extractQr(connectData);
+        state = "connecting";
+      }
+
+      // Se QR não veio no connect, faz nova chamada ao status (já deve estar connecting)
+      if (!qrcode) {
+        const status2Res = await fetch(`${baseUrl}/instance/status`, { headers: { token } });
+        const status2Raw = await status2Res.text();
+        console.log(`[GET /instance/status 2] http=${status2Res.status} body=${status2Raw.slice(0, 500)}`);
+        let status2Data: any = {};
+        try { status2Data = JSON.parse(status2Raw); } catch { /* ignorar */ }
+        qrcode = extractQr(status2Data);
+        const rawState2 = status2Data?.state ?? status2Data?.status ?? "";
+        if (rawState2) state = normalizeState(rawState2);
+      }
+    }
+
+    if (state === "open") {
+      // ── 3. Conectado: extrai telefone e atualiza banco ─────────────────
+      phone = extractPhone(statusData);
+      if (phone && phone !== instance.phone_number) {
+        const { error: updateErr } = await adminClient
+          .from("pipeline_whatsapp_instances")
+          .update({ phone_number: phone })
+          .eq("id", instance_id);
+        if (updateErr) console.error("Failed to update phone_number:", updateErr);
+      }
+    }
+
+    console.log(`[result] state=${state} hasQR=${!!qrcode} phone=${phone}`);
 
     return new Response(
       JSON.stringify({ state, qrcode, phone }),
