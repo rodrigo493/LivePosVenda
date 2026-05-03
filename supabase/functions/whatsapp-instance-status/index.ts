@@ -7,8 +7,8 @@ const corsHeaders = {
 };
 
 // uazapiGO v2 state mapping → nosso padrão interno
-function normalizeState(raw: string): "open" | "close" | "connecting" {
-  const s = (raw || "").toLowerCase();
+function normalizeState(raw: unknown): "open" | "close" | "connecting" {
+  const s = String(raw ?? "").toLowerCase();
   if (s === "connected") return "open";
   if (s === "connecting") return "connecting";
   return "close"; // disconnected ou qualquer outro
@@ -135,7 +135,7 @@ Deno.serve(async (req) => {
     let statusData: any = {};
     try { statusData = JSON.parse(statusRaw); } catch { /* ignorar */ }
 
-    const rawState: string =
+    const rawState =
       statusData?.state ?? statusData?.State ?? statusData?.status ?? statusData?.instance?.state ?? "disconnected";
     let state = normalizeState(rawState);
 
@@ -174,8 +174,8 @@ Deno.serve(async (req) => {
         let status2Data: any = {};
         try { status2Data = JSON.parse(status2Raw); } catch { /* ignorar */ }
         qrcode = extractQr(status2Data);
-        const rawState2 = status2Data?.state ?? status2Data?.status ?? "";
-        if (rawState2) state = normalizeState(rawState2);
+        const rawState2 = status2Data?.state ?? status2Data?.status;
+        if (rawState2 != null) state = normalizeState(rawState2);
       }
     }
 
