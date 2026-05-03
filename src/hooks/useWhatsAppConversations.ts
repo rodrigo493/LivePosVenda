@@ -12,13 +12,14 @@ export interface Conversation {
   unread_count: number;
 }
 
-export function useWhatsAppConversations() {
+// filterUserId: null = todos (admin), string = filtrar por assigned_to
+export function useWhatsAppConversations(filterUserId?: string | null) {
   const { user, hasRole } = useAuth();
   const isAdmin = hasRole("admin");
   const userId = user?.id ?? null;
 
   return useQuery({
-    queryKey: ["whatsapp-conversations", userId, isAdmin],
+    queryKey: ["whatsapp-conversations", userId, isAdmin, filterUserId ?? "all"],
     staleTime: 0,
     refetchOnMount: "always",
     refetchInterval: 15_000,
@@ -28,32 +29,34 @@ export function useWhatsAppConversations() {
         .from("whatsapp_messages")
         .order("created_at", { ascending: false });
 
-      if (isAdmin) {
-        // Admin vê todas as conversas
+      // Determina qual filtro de assigned_to aplicar
+      const targetUserId: string | null = isAdmin
+        ? (filterUserId ?? null)   // admin: usa o filtro escolhido (null = todos)
+        : userId;                  // não-admin: sempre filtra pelo próprio userId
+
+      if (targetUserId) {
+        // Filtra por responsável usando inner join
+        query = query.select(
+          "client_id, message_text, direction, created_at, clients!inner(name, phone, whatsapp, whatsapp_last_read_at)"
+        ).eq("clients.assigned_to", targetUserId) as typeof query;
+      } else {
+        // Admin sem filtro: vê todos
         query = query.select(
           "client_id, message_text, direction, created_at, clients(name, phone, whatsapp, whatsapp_last_read_at)"
         ) as typeof query;
-      } else {
-        // Usuário comum vê apenas clientes onde assigned_to = seu userId
-        query = query.select(
-          "client_id, message_text, direction, created_at, clients!inner(name, phone, whatsapp, whatsapp_last_read_at)"
-        ).eq("clients.assigned_to", userId!) as typeof query;
       }
 
       const { data, error } = await query;
-
       if (error) throw error;
 
       const map = new Map<string, Conversation>();
       for (const msg of data || []) {
         if (!msg.client_id) continue;
         const client = msg.clients as any;
-        // Skip orphaned messages (no client record) or clients without a real name
         if (!client || !client.name) continue;
         const lastReadAt = client.whatsapp_last_read_at ? new Date(client.whatsapp_last_read_at).getTime() : null;
         const msgTime = new Date(msg.created_at).getTime();
         const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
-        // null lastReadAt = nunca lido → mensagens recentes são não lidas
         const isUnread = msg.direction === "inbound" &&
           msgTime > thirtyDaysAgo &&
           (lastReadAt === null || msgTime > lastReadAt);
@@ -73,8 +76,7 @@ export function useWhatsAppConversations() {
         }
       }
 
-      // Deduplica por telefone (últimos 8 dígitos) para evitar duplicatas
-      // causadas por clientes registrados duas vezes com o mesmo número
+      // Deduplica por telefone (últimos 8 dígitos)
       const byPhone = new Map<string, Conversation>();
       for (const conv of map.values()) {
         const phoneKey = conv.client_phone
@@ -84,7 +86,6 @@ export function useWhatsAppConversations() {
         if (!existing) {
           byPhone.set(phoneKey, { ...conv });
         } else {
-          // Mantém o mais recente como representante; soma os não lidos
           existing.unread_count += conv.unread_count;
           if (new Date(conv.last_message_at) > new Date(existing.last_message_at)) {
             existing.client_id = conv.client_id;

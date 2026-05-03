@@ -15,6 +15,25 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Client } from "@/types/database";
 
+interface ChatUser {
+  id: string;
+  full_name: string | null;
+}
+
+function useChatUsers() {
+  return useQuery<ChatUser[]>({
+    queryKey: ["chat-users"],
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data } = await (supabase as any)
+        .from("profiles")
+        .select("id, full_name")
+        .order("full_name");
+      return (data ?? []) as ChatUser[];
+    },
+  });
+}
+
 function formatRelativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diff / 60000);
@@ -32,9 +51,13 @@ interface ActiveChat {
 }
 
 export default function ChatPage() {
-  const { data: conversations, isLoading } = useWhatsAppConversations();
+  const { user, hasRole } = useAuth();
+  const isAdmin = hasRole("admin");
+  const [userFilter, setUserFilter] = useState<string | null>(null);
+
+  const { data: conversations, isLoading } = useWhatsAppConversations(isAdmin ? userFilter : undefined);
   const { data: allClients } = useClients();
-  const { user } = useAuth();
+  const { data: chatUsers } = useChatUsers();
   const isMobile = useIsMobile();
   const [selectedChat, setSelectedChat] = useState<ActiveChat | null>(null);
   const [mobileView, setMobileView] = useState<"list" | "chat">("list");
@@ -185,7 +208,7 @@ export default function ChatPage() {
       {/* Lista de conversas */}
       {showList && (
         <div className={`${isMobile ? "w-full" : "w-80 shrink-0"} flex flex-col border-r`}>
-          <div className="p-3 border-b">
+          <div className="p-3 border-b space-y-2">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
               <Input
@@ -195,6 +218,34 @@ export default function ChatPage() {
                 className="pl-8 h-8 text-sm"
               />
             </div>
+            {/* Filtro por usuário — visível apenas para admin */}
+            {isAdmin && chatUsers && chatUsers.length > 0 && (
+              <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-hide">
+                <button
+                  onClick={() => setUserFilter(null)}
+                  className={`shrink-0 text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                    userFilter === null
+                      ? "bg-zinc-900 text-white border-zinc-900"
+                      : "bg-transparent text-muted-foreground border-border hover:border-zinc-400"
+                  }`}
+                >
+                  Todos
+                </button>
+                {chatUsers.map((u) => (
+                  <button
+                    key={u.id}
+                    onClick={() => setUserFilter(u.id === userFilter ? null : u.id)}
+                    className={`shrink-0 text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                      userFilter === u.id
+                        ? "bg-zinc-900 text-white border-zinc-900"
+                        : "bg-transparent text-muted-foreground border-border hover:border-zinc-400"
+                    }`}
+                  >
+                    {u.full_name?.split(" ")[0] ?? "Usuário"}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="flex-1 overflow-y-auto">
