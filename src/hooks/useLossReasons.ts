@@ -72,7 +72,7 @@ export function useLossReasonsStats() {
         .order("ticket_count", { ascending: false })
         .limit(10);
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []).map((r: any) => ({ ...r, ticket_count: Number(r.ticket_count) }));
     },
   });
 }
