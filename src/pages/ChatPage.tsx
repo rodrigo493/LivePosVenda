@@ -56,6 +56,18 @@ export default function ChatPage() {
   const [userFilter, setUserFilter] = useState<string | null>(null);
 
   const { data: conversations, isLoading } = useWhatsAppConversations(isAdmin ? userFilter : undefined);
+
+  const { data: diagCount } = useQuery({
+    queryKey: ["diag-msg-count"],
+    staleTime: 0,
+    queryFn: async () => {
+      const { count } = await supabase
+        .from("whatsapp_messages")
+        .select("*", { count: "exact", head: true });
+      return count ?? 0;
+    },
+  });
+
   const { data: allClients } = useClients();
   const { data: chatUsers } = useChatUsers();
   const isMobile = useIsMobile();
@@ -289,6 +301,11 @@ export default function ChatPage() {
               <div className="p-8 text-center text-muted-foreground">
                 <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-20" />
                 <p className="text-sm">{search ? "Nenhum resultado." : "Nenhuma conversa ainda."}</p>
+                {isAdmin && !search && (
+                  <p className="text-xs mt-2 font-mono opacity-60">
+                    whatsapp_messages: {diagCount ?? "…"}
+                  </p>
+                )}
               </div>
             ) : (
               <AnimatePresence>

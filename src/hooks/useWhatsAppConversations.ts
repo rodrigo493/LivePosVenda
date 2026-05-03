@@ -32,15 +32,25 @@ export function useWhatsAppConversations(filterUserId?: string | null) {
       // Determina qual filtro de assigned_to aplicar
       const targetUserId: string | null = isAdmin
         ? (filterUserId ?? null)   // admin: usa o filtro escolhido (null = todos)
-        : userId;                  // não-admin: sempre filtra pelo próprio userId
+        : userId;                  // não-admin: filtra pelo próprio userId + não-atribuídos
 
-      if (targetUserId) {
-        // Filtra por responsável usando inner join
+      if (isAdmin && targetUserId) {
+        // Admin com filtro específico: vê apenas o usuário selecionado
         query = query.select(
           "client_id, message_text, direction, created_at, clients!inner(name, phone, whatsapp, whatsapp_last_read_at)"
         ).eq("clients.assigned_to", targetUserId) as typeof query;
-      } else {
+      } else if (isAdmin && !targetUserId) {
         // Admin sem filtro: vê todos
+        query = query.select(
+          "client_id, message_text, direction, created_at, clients(name, phone, whatsapp, whatsapp_last_read_at)"
+        ) as typeof query;
+      } else if (targetUserId) {
+        // Não-admin: vê conversas atribuídas a si + não-atribuídas
+        query = query.select(
+          "client_id, message_text, direction, created_at, clients!inner(name, phone, whatsapp, whatsapp_last_read_at)"
+        ).or(`assigned_to.eq.${targetUserId},assigned_to.is.null`, { foreignTable: "clients" }) as typeof query;
+      } else {
+        // Fallback sem userId (não deve ocorrer, enabled: !!userId)
         query = query.select(
           "client_id, message_text, direction, created_at, clients(name, phone, whatsapp, whatsapp_last_read_at)"
         ) as typeof query;
