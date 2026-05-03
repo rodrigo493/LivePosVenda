@@ -5,7 +5,7 @@ import {
   AlertTriangle, Send, Pencil, Check, X, Wrench, Shield, ClipboardList,
   ExternalLink, Receipt, Settings2, ArrowLeft, Cpu, Plus, ChevronDown, History, CheckSquare, Brain,
   BookOpen, Upload, Trash2, MoreVertical, Copy, PauseCircle, PlayCircle,
-  ShoppingCart, Search, Minus,
+  ShoppingCart, Search, Minus, XCircle,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -49,6 +49,11 @@ import {
   useUpdateNegotiationItem,
   useRemoveNegotiationItem,
 } from "@/hooks/useTicketNegotiationItems";
+import {
+  useLossReasonsActive,
+  useTicketLossReasons,
+  useToggleLossReason,
+} from "@/hooks/useLossReasons";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { formatDate as fmtDate, formatCurrency as fmtCurrency } from "@/lib/formatters";
@@ -428,6 +433,9 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   const { data: ticketEntregaveis } = useTicketEntregaveis(enabledId);
   const { data: ticketMemoria } = useTicketMemoria(enabledId);
   const { data: negotiationItems = [] } = useTicketNegotiationItems(enabledId);
+  const { data: allLossReasons } = useLossReasonsActive();
+  const { data: ticketLossReasons } = useTicketLossReasons(ticket?.id);
+  const toggleLossReason = useToggleLossReason(ticket?.id);
   const { data: dealCatalog = [] } = useDealCatalogProducts();
   const addNegItem = useAddNegotiationItem();
   const updateNegItem = useUpdateNegotiationItem();
@@ -1340,6 +1348,19 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                 <ShoppingCart className="h-3 w-3" /> Produtos Negociação
                 {negotiationItems.length > 0 && (
                   <span className="ml-0.5 rounded-full bg-indigo-500 text-white text-[9px] font-bold px-1.5 py-px">{negotiationItems.length}</span>
+                )}
+              </TabsTrigger>
+
+              <TabsTrigger
+                value="loss-reasons"
+                className="text-xs rounded-none border-b-2 border-transparent data-[state=active]:border-destructive data-[state=active]:shadow-none px-3 pb-2 gap-1 data-[state=active]:text-destructive"
+              >
+                <XCircle className="h-3 w-3" />
+                Mot. de Perda
+                {(ticketLossReasons?.length ?? 0) > 0 && (
+                  <span className="ml-0.5 rounded-full bg-destructive text-white text-[9px] font-bold px-1.5 py-px">
+                    {ticketLossReasons!.length}
+                  </span>
                 )}
               </TabsTrigger>
 
@@ -2560,6 +2581,48 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                     clientPhone={clientProfile?.whatsapp || clientProfile?.phone || ticket.clients?.whatsapp || ticket.clients?.phone}
                     clientName={clientProfile?.name || ticket.clients?.name}
                   />
+                </TabsContent>
+
+                {/* ── Tab: Motivos de Perda ──── */}
+                <TabsContent value="loss-reasons" className="mt-0">
+                  <div className="space-y-4">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                      Selecione os motivos de perda desta negociação
+                    </p>
+                    {!allLossReasons || allLossReasons.length === 0 ? (
+                      <p className="text-sm text-muted-foreground py-8 text-center">
+                        Nenhum motivo cadastrado.{" "}
+                        <a href="/motivos-perda" className="underline">Cadastrar motivos</a>
+                      </p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {allLossReasons.map((reason) => {
+                          const isSelected = ticketLossReasons?.some((r) => r.loss_reason_id === reason.id) ?? false;
+                          const isPending =
+                            toggleLossReason.isPending &&
+                            (toggleLossReason.variables as any)?.reasonId === reason.id;
+                          return (
+                            <button
+                              key={reason.id}
+                              onClick={() =>
+                                toggleLossReason.mutate({ reasonId: reason.id, isSelected })
+                              }
+                              disabled={isPending}
+                              className={[
+                                "text-xs rounded-full px-3 py-1.5 border transition-colors select-none",
+                                isSelected
+                                  ? "bg-destructive/10 border-destructive text-destructive font-medium"
+                                  : "bg-background border-border text-muted-foreground hover:border-destructive/50 hover:text-foreground",
+                                isPending ? "opacity-50 cursor-not-allowed" : "cursor-pointer",
+                              ].join(" ")}
+                            >
+                              {isPending ? "..." : reason.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 </TabsContent>
 
               </div>
