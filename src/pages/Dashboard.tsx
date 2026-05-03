@@ -25,6 +25,7 @@ import { TeamAlerts } from "@/components/dashboard/TeamAlerts";
 import { ProblemRanking } from "@/components/dashboard/ProblemRanking";
 import { DeviceFrequencyRanking } from "@/components/dashboard/DeviceFrequencyRanking";
 import { AiOperationalSummary } from "@/components/dashboard/AiOperationalSummary";
+import { LossReasonsWidget } from "@/components/dashboard/LossReasonsWidget";
 import { AdminTeamOverview } from "@/components/dashboard/AdminTeamOverview";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { motion } from "framer-motion";
@@ -705,6 +706,9 @@ function DashboardContent() {
       <div className="mb-6">
         <AiOperationalSummary />
       </div>
+
+      {/* Motivos de Perda */}
+      <LossReasonsWidget />
 
       <KpiDrilldownDialog
         open={!!drilldown}
