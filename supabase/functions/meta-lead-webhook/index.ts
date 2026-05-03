@@ -28,18 +28,23 @@ async function graphGet(path: string): Promise<Record<string, unknown>> {
 }
 
 // Resolve or create pipeline + first stage key
+// Priority: slug='vendas' → slug contains 'venda' → first active pipeline
 async function getPipeline(): Promise<{ pipelineId: string; firstStageKey: string } | null> {
-  const { data: pipeline } = await admin.from("pipelines").select("id").ilike("name", "%vendas%").limit(1).maybeSingle();
+  const { data: bySlug } = await admin.from("pipelines").select("id").eq("slug", "vendas").eq("is_active", true).maybeSingle();
+  const pipeline = bySlug
+    ?? (await admin.from("pipelines").select("id").ilike("slug", "%venda%").eq("is_active", true).order("position").limit(1).maybeSingle()).data
+    ?? (await admin.from("pipelines").select("id").eq("is_active", true).order("position").limit(1).maybeSingle()).data;
   if (!pipeline) return null;
   const { data: stage } = await admin.from("pipeline_stages").select("key").eq("pipeline_id", pipeline.id).order("position").limit(1).maybeSingle();
-  return { pipelineId: pipeline.id, firstStageKey: stage?.key ?? "novo_lead_moh0ffnk" };
+  return { pipelineId: pipeline.id, firstStageKey: stage?.key ?? "lead_novo" };
 }
 
 // Find or create client; return clientId
 async function upsertClient(name: string, email: string | null, phone: string | null, instagramId: string | null): Promise<string | null> {
   // Try by instagram PSID
   if (instagramId) {
-    const { data } = await admin.from("clients").select("id").eq("instagram_psid", instagramId).maybeSingle();
+    const { data, error } = await admin.from("clients").select("id").eq("instagram_psid", instagramId).maybeSingle();
+    if (error) console.error("[upsertClient] erro busca psid:", JSON.stringify(error));
     if (data) return data.id;
   }
   if (email) {
@@ -56,7 +61,9 @@ async function upsertClient(name: string, email: string | null, phone: string | 
   if (email) insert.email = email;
   if (phone) insert.phone = phone;
   if (instagramId) insert.instagram_psid = instagramId;
-  const { data } = await admin.from("clients").insert(insert).select("id").maybeSingle();
+  const { data, error } = await admin.from("clients").insert(insert).select("id").maybeSingle();
+  if (error) console.error("[upsertClient] erro insert:", JSON.stringify(error));
+  console.log("[upsertClient] inserido:", JSON.stringify(data));
   return data?.id ?? null;
 }
 
@@ -156,15 +163,16 @@ async function handleInstagramMessage(messaging: Record<string, unknown>) {
   const campanha = source ? `Instagram ${source}` : "Instagram DM";
 
   const ctx = await getPipeline();
-  if (!ctx) return;
+  if (!ctx) { console.error("[DM] pipeline não encontrado, abortando"); return; }
 
   const clientId = await upsertClient(name, null, null, sender);
-  if (!clientId) return;
+  if (!clientId) { console.error("[DM] clientId nulo para sender:", sender); return; }
 
   // Deduplicate: só cria card se não tiver ticket aberto
-  if (await hasOpenTicket(clientId, ctx.pipelineId)) return;
+  const already = await hasOpenTicket(clientId, ctx.pipelineId);
+  if (already) { console.log("[DM] ticket já existe, pulando:", sender); return; }
 
-  await admin.from("tickets").insert({
+  const { error: tErr } = await admin.from("tickets").insert({
     title: name,
     ticket_type: "negociacao",
     status: "aberto",
@@ -179,7 +187,8 @@ async function handleInstagramMessage(messaging: Record<string, unknown>) {
     created_at: new Date().toISOString(),
   });
 
-  console.log(`[DM] Card criado: ${name} (${campanha})`);
+  if (tErr) console.error("[DM] erro ao inserir ticket:", JSON.stringify(tErr));
+  else console.log(`[DM] Card criado: ${name} (${campanha})`);
 }
 
 // ── main ─────────────────────────────────────────────────────────────────────
@@ -192,6 +201,19 @@ Deno.serve(async (req) => {
   // Webhook verification (GET)
   if (req.method === "GET") {
     const url = new URL(req.url);
+
+    // Diagnóstico: ?action=diagnose
+    if (url.searchParams.get("action") === "diagnose") {
+      const { data: pipelines, error: pErr } = await admin.from("pipelines").select("id,name,slug,is_active");
+      const ctx = await getPipeline();
+      const { data: igTickets } = await admin.from("tickets").select("id,title,pipeline_id,origin,channel,created_at").eq("origin", "instagram").order("created_at", { ascending: false }).limit(5);
+      const { data: igClients } = await admin.from("clients").select("id,name,instagram_psid,created_at").not("instagram_psid", "is", null).order("created_at", { ascending: false }).limit(5);
+      return new Response(JSON.stringify({ pipelines, pErr, ctx, igTickets, igClients }, null, 2), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
     const mode      = url.searchParams.get("hub.mode");
     const token     = url.searchParams.get("hub.verify_token");
     const challenge = url.searchParams.get("hub.challenge");
