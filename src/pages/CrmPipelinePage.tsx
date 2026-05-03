@@ -21,6 +21,7 @@ import {
   Layers,
   CheckSquare2,
 } from "lucide-react";
+import { ChannelIcon } from "@/components/ui/ChannelIcon";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
   DndContext,
@@ -1664,6 +1665,9 @@ function PipelineCard({ ticket, pipelineName, onQuickTask, onClick, isAdmin }: {
               <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ backgroundColor: statusInfo.dot }} />
               {statusInfo.label}
             </span>
+          )}
+          {ticket.channel && (
+            <ChannelIcon channel={ticket.channel} size={11} className="opacity-80" />
           )}
           <span className="ml-auto">
             <StatusBadge status={ticket.priority} />

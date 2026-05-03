@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { MessageSquare, Search, UserPlus, LayoutGrid, ArrowLeft } from "lucide-react";
+import { ChannelIcon } from "@/components/ui/ChannelIcon";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { WhatsAppChat } from "@/components/whatsapp/WhatsAppChat";
@@ -260,6 +261,9 @@ export default function ChatPage() {
                         }`}>
                           {conv.client_name.charAt(0).toUpperCase()}
                         </div>
+                        <span className="absolute -bottom-0.5 -right-0.5 bg-background rounded-full p-0.5">
+                          <ChannelIcon channel="whatsapp" size={11} />
+                        </span>
                         {hasUnread && (
                           <span className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 bg-[#c2410c] rounded-full border-2 border-background animate-dot-pulse" />
                         )}
