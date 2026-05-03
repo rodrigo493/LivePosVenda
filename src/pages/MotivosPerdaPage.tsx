@@ -21,6 +21,7 @@ export default function MotivosPerdaPage() {
   const [newLabel, setNewLabel] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingLabel, setEditingLabel] = useState("");
+  const [loadingId, setLoadingId] = useState<string | null>(null);
 
   async function handleCreate() {
     if (!newLabel.trim()) return;
@@ -36,21 +37,27 @@ export default function MotivosPerdaPage() {
 
   async function handleSaveEdit(id: string) {
     if (!editingLabel.trim()) return;
+    setLoadingId(id);
     try {
       await updateReason.mutateAsync({ id, updates: { label: editingLabel.trim() } });
       toast.success("Motivo atualizado.");
       setEditingId(null);
     } catch {
       toast.error("Erro ao atualizar motivo.");
+    } finally {
+      setLoadingId(null);
     }
   }
 
   async function handleToggleActive(id: string, currentActive: boolean) {
+    setLoadingId(id);
     try {
       await updateReason.mutateAsync({ id, updates: { active: !currentActive } });
       toast.success(currentActive ? "Motivo desativado." : "Motivo reativado.");
     } catch {
       toast.error("Erro ao alterar status.");
+    } finally {
+      setLoadingId(null);
     }
   }
 
@@ -117,10 +124,10 @@ export default function MotivosPerdaPage() {
                       onKeyDown={(e) => { if (e.key === "Enter") handleSaveEdit(reason.id); if (e.key === "Escape") setEditingId(null); }}
                       className="h-7 text-sm flex-1 max-w-md"
                     />
-                    <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => handleSaveEdit(reason.id)} disabled={updateReason.isPending}>
+                    <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => handleSaveEdit(reason.id)} disabled={loadingId === reason.id || !editingLabel.trim()}>
                       <Check className="h-3.5 w-3.5 text-green-600" />
                     </Button>
-                    <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setEditingId(null)}>
+                    <Button size="sm" variant="ghost" className="h-7 px-2" title="Cancelar edição" onClick={() => setEditingId(null)}>
                       <X className="h-3.5 w-3.5" />
                     </Button>
                   </>
@@ -132,6 +139,7 @@ export default function MotivosPerdaPage() {
                     </Badge>
                     <Button
                       size="sm" variant="ghost" className="h-7 px-2"
+                      title="Editar motivo"
                       onClick={() => { setEditingId(reason.id); setEditingLabel(reason.label); }}
                     >
                       <Pencil className="h-3.5 w-3.5" />
@@ -140,6 +148,7 @@ export default function MotivosPerdaPage() {
                       size="sm" variant="ghost" className="h-7 px-2 text-muted-foreground hover:text-destructive"
                       onClick={() => handleToggleActive(reason.id, reason.active)}
                       title="Desativar"
+                      disabled={loadingId === reason.id}
                     >
                       <PowerOff className="h-3.5 w-3.5" />
                     </Button>
@@ -168,6 +177,7 @@ export default function MotivosPerdaPage() {
                     size="sm" variant="ghost" className="h-7 px-2 text-muted-foreground hover:text-green-600"
                     onClick={() => handleToggleActive(reason.id, reason.active)}
                     title="Reativar"
+                    disabled={loadingId === reason.id}
                   >
                     <Power className="h-3.5 w-3.5" />
                   </Button>
