@@ -37,7 +37,8 @@ export function useOverdueTasks() {
         q = q.gt("due_date", ackDate);
       }
 
-      if (!isAdmin) q = q.eq("assigned_to", user!.id);
+      // Admin e usuário comum veem apenas suas próprias tarefas no alerta
+      q = q.eq("assigned_to", user!.id);
 
       const { count, error } = await q;
       if (error) throw error;

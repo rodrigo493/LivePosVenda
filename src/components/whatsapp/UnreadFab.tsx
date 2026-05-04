@@ -2,6 +2,7 @@
 import { useNavigate } from "react-router-dom";
 import { MessageSquare } from "lucide-react";
 import { useWhatsAppConversations } from "@/hooks/useWhatsAppConversations";
+import { useAuth } from "@/hooks/useAuth";
 import {
   Popover,
   PopoverContent,
@@ -20,7 +21,9 @@ function formatRelativeTime(iso: string): string {
 
 export function UnreadFab() {
   const navigate = useNavigate();
-  const { data: conversations = [] } = useWhatsAppConversations();
+  const { user, hasRole } = useAuth();
+  const isAdmin = hasRole("admin");
+  const { data: conversations = [] } = useWhatsAppConversations(isAdmin ? user?.id : undefined);
 
   const unreadConvs = conversations.filter((c) => c.unread_count > 0);
   const totalUnread = unreadConvs.reduce((sum, c) => sum + c.unread_count, 0);
