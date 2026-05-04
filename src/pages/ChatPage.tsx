@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { WhatsAppChat } from "@/components/whatsapp/WhatsAppChat";
 import { useWhatsAppConversations, useMarkConversationRead } from "@/hooks/useWhatsAppConversations";
+import { useUserWhatsAppInstances } from "@/hooks/useUserWhatsAppInstances";
 import { useClients } from "@/hooks/useClients";
 import { useAuth } from "@/hooks/useAuth";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -69,32 +70,29 @@ export default function ChatPage() {
   const [userFilter, setUserFilter] = useState<string | null>(null);
   const hasInitFilter = useRef(false);
 
-  // Detecta se o usuário logado tem instância WhatsApp vinculada
-  const { data: myInstance } = useQuery({
-    queryKey: ["my-chat-instance", user?.id],
-    enabled: !!user?.id,
-    staleTime: 300_000,
-    queryFn: async () => {
-      const { data } = await (supabase as any)
-        .from("pipeline_whatsapp_instances")
-        .select("id")
-        .eq("user_id", user!.id)
-        .eq("active", true)
-        .limit(1)
-        .maybeSingle();
-      return (data as any) ?? null;
-    },
-  });
+  // Instâncias do usuário logado (substitui a query myInstance)
+  const { data: myInstances = [] } = useUserWhatsAppInstances();
+  const hasMultipleInstances = !isAdmin && myInstances.length >= 2;
 
-  // Inicializa o filtro com o próprio usuário se ele tem instância (apenas 1x)
+  // Aba de instância ativa (null = usa lógica original)
+  const [activeInstanceId, setActiveInstanceId] = useState<string | null>(null);
+  // Quando há múltiplas instâncias, default para a primeira se nenhuma está selecionada
+  const effectiveInstanceId = hasMultipleInstances
+    ? (activeInstanceId ?? myInstances[0]?.id ?? null)
+    : null;
+
+  // Inicializa o filtro admin com o próprio usuário se ele tem instância (apenas 1x)
   useEffect(() => {
-    if (!hasInitFilter.current && myInstance && user?.id) {
+    if (!hasInitFilter.current && myInstances.length > 0 && user?.id) {
       hasInitFilter.current = true;
-      setUserFilter(user.id);
+      if (isAdmin) setUserFilter(user.id);
     }
-  }, [myInstance, user?.id]);
+  }, [myInstances, user?.id, isAdmin]);
 
-  const { data: conversations, isLoading } = useWhatsAppConversations(isAdmin ? userFilter : undefined);
+  const { data: conversations, isLoading } = useWhatsAppConversations(
+    isAdmin ? userFilter : undefined,
+    effectiveInstanceId
+  );
 
   const { data: diagCount } = useQuery({
     queryKey: ["diag-msg-count"],
@@ -281,6 +279,27 @@ export default function ChatPage() {
                 className="pl-8 h-8 text-sm"
               />
             </div>
+            {/* Abas de instância — visível para usuário não-admin com múltiplas instâncias */}
+            {hasMultipleInstances && (
+              <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-hide">
+                {myInstances.map((inst) => (
+                  <button
+                    key={inst.id}
+                    onClick={() => {
+                      setActiveInstanceId(inst.id);
+                      setSelectedChat(null);
+                    }}
+                    className={`shrink-0 text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                      effectiveInstanceId === inst.id
+                        ? "bg-emerald-600 text-white border-emerald-600"
+                        : "bg-transparent text-muted-foreground border-border hover:border-zinc-400"
+                    }`}
+                  >
+                    {inst.pipeline_name}
+                  </button>
+                ))}
+              </div>
+            )}
             {/* Filtro por usuário — visível apenas para admin */}
             {isAdmin && chatUsers && chatUsers.length > 0 && (
               <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-hide">
@@ -496,6 +515,7 @@ export default function ChatPage() {
                   clientName={selectedChat.client_name}
                   hideHeader
                   className="flex flex-col flex-1 min-h-0 p-4"
+                  instanceId={effectiveInstanceId ?? undefined}
                 />
               </div>
             </motion.div>

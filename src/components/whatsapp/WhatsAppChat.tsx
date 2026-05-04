@@ -16,6 +16,7 @@ interface WhatsAppChatProps {
   clientName?: string;
   hideHeader?: boolean;
   className?: string;
+  instanceId?: string;
 }
 
 function useWhatsAppMessages(clientId: string | undefined, ticketId?: string) {
