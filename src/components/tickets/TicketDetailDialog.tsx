@@ -1097,13 +1097,34 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
     const clientName = clientProfile?.name || ticket?.clients?.name || "";
     setProducaoSending(true);
     try {
+      // Upload paralelo de arquivos para Storage
+      const attachments: { url: string; name: string; type: string }[] = [];
+      if (producaoFiles.length > 0) {
+        const results = await Promise.all(
+          producaoFiles.map(async (file) => {
+            const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+            const path = `${ticket.id}/${Date.now()}-${safeName}`;
+            const { error: uploadError } = await supabase.storage
+              .from("problemas-producao")
+              .upload(path, file);
+            if (uploadError) throw new Error(`Falha ao enviar "${file.name}": ${uploadError.message}`);
+            const { data: urlData } = supabase.storage
+              .from("problemas-producao")
+              .getPublicUrl(path);
+            return { url: urlData.publicUrl, name: file.name, type: file.type };
+          })
+        );
+        attachments.push(...results);
+      }
+
       const { data, error } = await supabase.functions.invoke("problemas-producao", {
-        body: { description: producaoDesc.trim(), client_name: clientName },
+        body: { description: producaoDesc.trim(), client_name: clientName, attachments },
       });
       if (error) throw new Error(error.message);
       if (data?.error) throw new Error(data.error);
       toast.success("Problema enviado ao SquadOS com sucesso");
       setProducaoDesc("");
+      setProducaoFiles([]);
     } catch (err: any) {
       toast.error(err?.message || "Falha ao enviar para o SquadOS.");
     } finally {
