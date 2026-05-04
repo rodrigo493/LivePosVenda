@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { CrudDialog } from "@/components/shared/CrudDialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useCreateClient } from "@/hooks/useClients";
-import { useQueryClient } from "@tanstack/react-query";
 
 interface ContactData {
   name: string;
@@ -36,25 +35,24 @@ export function ContactCard({ contactData }: ContactCardProps) {
   const [clientExists, setClientExists] = useState<boolean | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const createClient = useCreateClient();
-  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (!contactData.phone) {
       setClientExists(false);
       return;
     }
-    const phone = contactData.phone.replace(/\D/g, "");
-    const suffix = phone.slice(-8);
+    let cancelled = false;
+    const suffix = contactData.phone.replace(/\D/g, "").slice(-8);
     supabase
       .from("clients")
       .select("id", { count: "exact", head: true })
       .or(`phone.ilike.%${suffix},whatsapp.ilike.%${suffix}`)
-      .then(({ count }) => setClientExists((count ?? 0) > 0));
+      .then(({ count }) => { if (!cancelled) setClientExists((count ?? 0) > 0); });
+    return () => { cancelled = true; };
   }, [contactData.phone]);
 
   const handleCreate = async (values: Record<string, any>) => {
     await createClient.mutateAsync(values);
-    queryClient.invalidateQueries({ queryKey: ["clients"] });
     setClientExists(true);
   };
 
@@ -64,8 +62,8 @@ export function ContactCard({ contactData }: ContactCardProps) {
 
   return (
     <>
-      <div className="flex items-center gap-2.5 p-2 rounded-lg bg-white/10 min-w-[180px] max-w-[240px]">
-        <div className="flex-shrink-0 w-9 h-9 rounded-full bg-white/20 flex items-center justify-center">
+      <div className="flex items-center gap-2.5 p-2 rounded-lg bg-black/10 min-w-[180px] max-w-[240px]">
+        <div className="flex-shrink-0 w-9 h-9 rounded-full bg-black/10 flex items-center justify-center">
           <User size={18} />
         </div>
         <div className="flex-1 min-w-0">
