@@ -396,15 +396,25 @@ export default function ChatPage() {
                             {formatRelativeTime(conv.last_message_at)}
                           </span>
                         </div>
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between gap-1">
                           <p className={`text-xs truncate ${hasUnread ? "text-foreground/80 font-medium" : "text-muted-foreground"}`}>
                             {conv.last_message}
                           </p>
-                          {hasUnread && (
-                            <span className="ml-1 shrink-0 h-4 min-w-4 rounded-full bg-[#c2410c] text-white text-[10px] flex items-center justify-center px-1">
-                              {conv.unread_count}
-                            </span>
-                          )}
+                          <div className="flex items-center gap-1 shrink-0">
+                            {isAdmin && userFilter === null && conv.assigned_to && (() => {
+                              const name = chatUsers?.find(u => u.id === conv.assigned_to)?.full_name?.split(" ")[0];
+                              return name ? (
+                                <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                                  {name}
+                                </span>
+                              ) : null;
+                            })()}
+                            {hasUnread && (
+                              <span className="h-4 min-w-4 rounded-full bg-[#c2410c] text-white text-[10px] flex items-center justify-center px-1">
+                                {conv.unread_count}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </motion.button>

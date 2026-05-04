@@ -10,6 +10,7 @@ export interface Conversation {
   last_message_at: string;
   last_message_direction: "inbound" | "outbound";
   unread_count: number;
+  assigned_to: string | null;
 }
 
 // filterUserId: null = todos (admin), string = filtrar por instância + assigned_to
@@ -112,6 +113,7 @@ export function useWhatsAppConversations(filterUserId?: string | null) {
             last_message_at: msg.created_at,
             last_message_direction: (msg.direction as "inbound" | "outbound") ?? "outbound",
             unread_count: isUnread ? 1 : 0,
+            assigned_to: client.assigned_to ?? null,
           });
         } else if (isUnread) {
           const conv = map.get(msg.client_id)!;
