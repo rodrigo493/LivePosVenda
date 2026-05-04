@@ -233,15 +233,22 @@ export default function ChatPage() {
   const filteredSystemClients = useMemo(() => {
     if (!search.trim()) return [];
     const term = search.toLowerCase();
-    return (allClients || []).filter((c) => {
+    const results = (allClients || []).filter((c) => {
       if (conversationClientIds.has(c.id)) return false;
       const phone = (c as any).whatsapp || c.phone || "";
       return (
         c.name.toLowerCase().includes(term) ||
         phone.includes(term)
       );
-    }).slice(0, 5);
-  }, [allClients, search, conversationClientIds]);
+    });
+    // Clientes criados pelo usuário atual aparecem primeiro
+    results.sort((a, b) => {
+      const aOwn = (a as any).created_by === user?.id ? -1 : 1;
+      const bOwn = (b as any).created_by === user?.id ? -1 : 1;
+      return aOwn - bOwn;
+    });
+    return results.slice(0, 20);
+  }, [allClients, search, conversationClientIds, user?.id]);
 
   useEffect(() => {
     if (filteredConversations.length === 0) return;
