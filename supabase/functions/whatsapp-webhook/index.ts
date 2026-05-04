@@ -456,13 +456,28 @@ Deno.serve(async (req) => {
       if (msgId) {
         const newStatus = statusNum >= 4 ? "read" : statusNum === 3 ? "delivered" : null;
         if (newStatus) {
-          const { count } = await admin
+          // Tenta match exato primeiro (caso o ID venha no formato completo)
+          const { count: exactCount } = await admin
             .from("whatsapp_messages")
             .update({ status: newStatus })
             .eq("manychat_message_id", msgId)
             .eq("direction", "outbound")
             .select("*", { count: "exact", head: true });
-          console.log("Ack update:", msgId, "->", newStatus, "statusNum:", statusNum, "rows:", count);
+
+          // Se não encontrou, tenta com sufixo — Uazapi salva como "phone:rawId"
+          // mas ACK chega com só o rawId
+          let totalCount = exactCount ?? 0;
+          if (!totalCount) {
+            const { count: suffixCount } = await admin
+              .from("whatsapp_messages")
+              .update({ status: newStatus })
+              .like("manychat_message_id", `%:${msgId}`)
+              .eq("direction", "outbound")
+              .select("*", { count: "exact", head: true });
+            totalCount = suffixCount ?? 0;
+          }
+
+          console.log("Ack update:", msgId, "->", newStatus, "statusNum:", statusNum, "rows:", totalCount);
         } else {
           console.log("Ack event ignored (statusNum not 3/4+):", msgId, "statusNum:", statusNum);
         }

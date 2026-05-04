@@ -259,8 +259,13 @@ Deno.serve(async (req) => {
       return null;
     }
 
-    const outboundMsgId = extractMsgId(sendData);
-    console.log("outboundMsgId resolved:", outboundMsgId, "| keys:", Object.keys(sendData || {}).join(","));
+    const outboundMsgIdRaw = extractMsgId(sendData);
+    // Uazapi retorna "phone:rawId" — guardamos só o rawId para casar com ACK events
+    // que chegam com apenas o rawId em data.Key.Id
+    const outboundMsgId = outboundMsgIdRaw?.includes(":")
+      ? outboundMsgIdRaw.split(":").pop() ?? outboundMsgIdRaw
+      : outboundMsgIdRaw;
+    console.log("outboundMsgId resolved:", outboundMsgId, "(raw:", outboundMsgIdRaw, ")| keys:", Object.keys(sendData || {}).join(","));
 
     const { error: insertErr } = await adminClient.from("whatsapp_messages").insert({
       client_id,
