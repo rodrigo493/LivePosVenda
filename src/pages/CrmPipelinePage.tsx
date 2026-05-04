@@ -1478,19 +1478,26 @@ function StageColumn({
         </div>
         {showStats && (
           <div className="mt-2 space-y-1 text-[10px]">
-            {[
-              { label: "Total de cards",      value: items.length,      color: "text-zinc-100"   },
-              { label: "Em andamento",        value: stats.emAndamento, color: "text-blue-400"   },
-              { label: "Esfriando",           value: stats.esfriando,   color: "text-amber-400"  },
-              { label: "Sem tarefas",         value: stats.semTarefas,  color: "text-zinc-400"   },
-              { label: "Tarefas atrasadas",   value: stats.atrasadas,   color: "text-red-400"    },
-              { label: "Sem prod./serviços",  value: stats.semProdutos, color: "text-purple-400" },
-            ].map(({ label, value, color }) => (
-              <div key={label} className="flex items-center justify-between bg-zinc-800 rounded px-2 py-1">
-                <span className="text-zinc-400">{label}</span>
-                <span className={`font-bold ${color}`}>{value}</span>
+            {stage.key === "concluido" ? (
+              <div className="flex items-center justify-between bg-zinc-800 rounded px-2 py-1">
+                <span className="text-zinc-400">Resolvido</span>
+                <span className="font-bold text-green-400">{items.length}</span>
               </div>
-            ))}
+            ) : (
+              [
+                { label: "Total de cards",      value: items.length,      color: "text-zinc-100"   },
+                { label: "Em andamento",        value: stats.emAndamento, color: "text-blue-400"   },
+                { label: "Esfriando",           value: stats.esfriando,   color: "text-amber-400"  },
+                { label: "Sem tarefas",         value: stats.semTarefas,  color: "text-zinc-400"   },
+                { label: "Tarefas atrasadas",   value: stats.atrasadas,   color: "text-red-400"    },
+                { label: "Sem prod./serviços",  value: stats.semProdutos, color: "text-purple-400" },
+              ].map(({ label, value, color }) => (
+                <div key={label} className="flex items-center justify-between bg-zinc-800 rounded px-2 py-1">
+                  <span className="text-zinc-400">{label}</span>
+                  <span className={`font-bold ${color}`}>{value}</span>
+                </div>
+              ))
+            )}
           </div>
         )}
       </div>
@@ -1502,6 +1509,7 @@ function StageColumn({
               key={ticket.id}
               ticket={ticket}
               pipelineName={pipelineName}
+              stageKey={stage.key}
               onQuickTask={() => onQuickTask(ticket.id, ticket.client_id)}
               onClick={() => onClickTicket(ticket)}
               isAdmin={isAdmin}
@@ -1523,7 +1531,7 @@ function StageColumn({
   );
 }
 
-function SortableCard({ ticket, pipelineName, onQuickTask, onClick, isAdmin }: { ticket: any; pipelineName: string; onQuickTask: () => void; onClick: () => void; isAdmin: boolean }) {
+function SortableCard({ ticket, pipelineName, stageKey, onQuickTask, onClick, isAdmin }: { ticket: any; pipelineName: string; stageKey: string; onQuickTask: () => void; onClick: () => void; isAdmin: boolean }) {
   const {
     attributes,
     listeners,
@@ -1541,7 +1549,7 @@ function SortableCard({ ticket, pipelineName, onQuickTask, onClick, isAdmin }: {
 
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <PipelineCard ticket={ticket} pipelineName={pipelineName} onQuickTask={onQuickTask} onClick={onClick} isAdmin={isAdmin} />
+      <PipelineCard ticket={ticket} pipelineName={pipelineName} stageKey={stageKey} onQuickTask={onQuickTask} onClick={onClick} isAdmin={isAdmin} />
     </div>
   );
 }
@@ -1583,7 +1591,7 @@ function formatTaskDateTime(due_date: string | null, due_time: string | null): s
   return date;
 }
 
-function PipelineCard({ ticket, pipelineName, onQuickTask, onClick, isAdmin }: { ticket: any; pipelineName: string; onQuickTask: () => void; onClick: () => void; isAdmin: boolean }) {
+function PipelineCard({ ticket, pipelineName, stageKey, onQuickTask, onClick, isAdmin }: { ticket: any; pipelineName: string; stageKey: string; onQuickTask: () => void; onClick: () => void; isAdmin: boolean }) {
   const typeInfo = TICKET_TYPE_LABELS[ticket.ticket_type] || { label: ticket.ticket_type, color: "bg-zinc-700 text-zinc-300" };
   const unreadWpp = ticket._unreadWhatsapp || 0;
   const isNewLead = ticket._isNewLead || false;
@@ -1656,9 +1664,13 @@ function PipelineCard({ ticket, pipelineName, onQuickTask, onClick, isAdmin }: {
               {lastOrderTag}
             </span>
           )}
-          {isDelayed ? (
+          {stageKey === "concluido" ? (
+            <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-green-900/60 text-green-300 border border-green-700/50 flex items-center gap-0.5">
+              ✓ Resolvido
+            </span>
+          ) : isDelayed ? (
             <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-amber-900/60 text-amber-300 border border-amber-700/50 flex items-center gap-0.5">
-              ⚠ Esfrindo {days}d
+              ⚠ Esfriando {days}d
             </span>
           ) : (
             <span className="text-[9px] font-medium px-1.5 py-0.5 rounded flex items-center gap-1 bg-zinc-700/60 text-zinc-400">
