@@ -26,6 +26,7 @@ import {
   ShoppingBag,
   Link2,
   TrendingDown,
+  Receipt,
 } from "lucide-react";
 import { NavLink } from "@/components/layout/NavLink";
 import posvendaLogo from "@/assets/posvenda.png";
@@ -53,7 +54,7 @@ const mainNav = [
   { title: "Dashboard",      url: "/",             icon: LayoutDashboard, moduleKey: null },
   { title: "Meu Painel",     url: "/meu-painel",   icon: User,            moduleKey: null },
   { title: "CRM Pipeline",   url: "/crm",          icon: Kanban,          moduleKey: "crm_pipeline" },
-  { title: "Motivos de Perda", url: "/motivos-perda", icon: TrendingDown, moduleKey: null },
+  { title: "Motivos de Perda", url: "/motivos-perda", icon: TrendingDown, moduleKey: "motivos_perda" },
   { title: "Chat WhatsApp",  url: "/chat",         icon: MessageSquare,   moduleKey: "chat_whatsapp" },
   { title: "Clientes",       url: "/clientes",     icon: Users,           moduleKey: "clientes" },
   { title: "Equipamentos",   url: "/equipamentos", icon: Package,         moduleKey: "equipamentos" },
@@ -64,6 +65,7 @@ const operationsNav = [
   { title: "Chamados",              url: "/chamados",           icon: HeadphonesIcon, moduleKey: "chamados" },
   { title: "Pedidos de Acessórios", url: "/pedidos-acessorios", icon: Package,        moduleKey: "pedidos_acessorios" },
   { title: "Pedidos de Garantia",   url: "/pedidos-garantia",   icon: ShieldCheck,    moduleKey: "pedidos_garantia" },
+  { title: "Pedidos de Venda",      url: "/pedidos-venda",      icon: Receipt,        moduleKey: "pedidos_venda" },
   { title: "Orçamentos",            url: "/orcamentos",         icon: FileText,       moduleKey: "orcamentos" },
   { title: "Ordens de Serviço",     url: "/ordens-servico",     icon: ClipboardList,  moduleKey: "ordens_servico" },
   { title: "Manutenção Prev.",      url: "/manutencao",         icon: CalendarClock,  moduleKey: "manutencao" },
