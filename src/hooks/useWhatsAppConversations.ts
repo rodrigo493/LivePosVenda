@@ -14,13 +14,17 @@ export interface Conversation {
 }
 
 // filterUserId: null = todos (admin), string = filtrar por instância + assigned_to
-export function useWhatsAppConversations(filterUserId?: string | null) {
+// instanceId: null = todas as instâncias (default), string = filtrar por uma instância específica
+export function useWhatsAppConversations(
+  filterUserId?: string | null,
+  instanceId?: string | null
+) {
   const { user, hasRole } = useAuth();
   const isAdmin = hasRole("admin");
   const userId = user?.id ?? null;
 
   return useQuery({
-    queryKey: ["whatsapp-conversations", userId, isAdmin, filterUserId ?? "all"],
+    queryKey: ["whatsapp-conversations", userId, isAdmin, filterUserId ?? "all", instanceId ?? "all"],
     staleTime: 0,
     refetchOnMount: "always",
     refetchInterval: 15_000,
@@ -30,11 +34,15 @@ export function useWhatsAppConversations(filterUserId?: string | null) {
         ? (filterUserId ?? null)
         : userId;
 
-      // ── Step 1: resolve TODAS as instâncias ativas do usuário alvo ──────
+      // ── Step 1: resolve instâncias a filtrar ──────────────────────────
       const instanceIds = new Set<string>();
-      if (targetUserId) {
-        const { data: insts } = await supabase
-          .from("pipeline_whatsapp_instances" as any)
+      if (instanceId) {
+        // Instância explícita: filtra apenas por ela
+        instanceIds.add(instanceId);
+      } else if (targetUserId) {
+        // Comportamento original: todas as instâncias ativas do usuário alvo
+        const { data: insts } = await (supabase as any)
+          .from("pipeline_whatsapp_instances")
           .select("id")
           .eq("user_id", targetUserId)
           .eq("active", true);
