@@ -14,8 +14,8 @@ export interface Conversation {
   last_instance_id: string | null;
 }
 
-// filterUserId: null = todos (admin), string = filtrar por instância + assigned_to
-// instanceId: null = todas as instâncias (default), string = filtrar por uma instância específica
+// filterUserId: null = todos (admin), string = filtrar pelas conversas do usuário
+// instanceId: string = filtrar por instância específica (abas multi-instância de não-admin)
 export function useWhatsAppConversations(
   filterUserId?: string | null,
   instanceId?: string | null
@@ -35,16 +35,7 @@ export function useWhatsAppConversations(
         ? (filterUserId ?? null)
         : userId;
 
-      // ── Step 1: resolve instâncias a filtrar ──────────────────────────
-      // Apenas quando instanceId é explicitamente fornecido (abas multi-instância de não-admin).
-      // A filtragem por aba de usuário usa SOMENTE assigned_to — não instance_id —
-      // para evitar mostrar todas as conversas quando um usuário é dono da instância principal.
-      const instanceIds = new Set<string>();
-      if (instanceId) {
-        instanceIds.add(instanceId);
-      }
-
-      // ── Step 2: busca mensagens recentes (últimos 90 dias) incluindo instance_id ──
+      // ── Step 1: busca mensagens recentes (últimos 90 dias) ────────────
       const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
       const { data: messages, error: msgError } = await supabase
         .from("whatsapp_messages")
@@ -56,17 +47,30 @@ export function useWhatsAppConversations(
       if (msgError) throw msgError;
       if (!messages?.length) return [];
 
-      // ── Step 3: constrói set de clientes que têm mensagens de qualquer instância do usuário
-      const instanceClientIds = new Set<string>();
-      if (instanceIds.size > 0) {
-        for (const msg of messages) {
-          if ((msg as any).instance_id && instanceIds.has((msg as any).instance_id) && msg.client_id) {
-            instanceClientIds.add(msg.client_id);
-          }
+      // ── Step 2: determina o instance_id da mensagem MAIS RECENTE por cliente ──
+      // Mensagens já vêm em ordem decrescente → o primeiro por cliente = mais recente.
+      const lastInstancePerClient = new Map<string, string>(); // client_id → instance_id
+      for (const msg of messages) {
+        if (msg.client_id && !lastInstancePerClient.has(msg.client_id) && (msg as any).instance_id) {
+          lastInstancePerClient.set(msg.client_id, (msg as any).instance_id);
         }
       }
 
-      // ── Step 4: busca todos os clientes que aparecem nas mensagens ─────
+      // ── Step 3: resolve mapa instance_id → user_id quando necessário ─
+      // Só carrega quando filtramos por usuário sem instanceId explícito.
+      let instanceOwnerMap = new Map<string, string>(); // instance_id → user_id
+      if (targetUserId && !instanceId) {
+        const { data: insts } = await (supabase as any)
+          .from("pipeline_whatsapp_instances")
+          .select("id, user_id")
+          .eq("active", true)
+          .not("user_id", "is", null);
+        for (const inst of (insts ?? []) as any[]) {
+          if (inst.id && inst.user_id) instanceOwnerMap.set(inst.id as string, inst.user_id as string);
+        }
+      }
+
+      // ── Step 4: busca todos os clientes que aparecem nas mensagens ────
       const clientIds = [...new Set(messages.map((m) => m.client_id).filter(Boolean))];
       if (!clientIds.length) return [];
 
@@ -79,14 +83,30 @@ export function useWhatsAppConversations(
       if (!allClients?.length) return [];
 
       // ── Step 5: filtra clientes ───────────────────────────────────────
+      const instanceClientIds = new Set<string>();
+      if (instanceId) {
+        // Aba de instância explícita (não-admin com múltiplas instâncias)
+        for (const msg of messages) {
+          if ((msg as any).instance_id === instanceId && msg.client_id) {
+            instanceClientIds.add(msg.client_id);
+          }
+        }
+      }
+
       const clients = (allClients || []).filter((client) => {
         if (!targetUserId) return true; // "Todos": sem filtro
-        if (instanceIds.size > 0) {
-          // Modo multi-instância explícito: filtra pela instância selecionada
+
+        if (instanceId) {
+          // Aba de instância explícita: filtra pela instância selecionada
           return instanceClientIds.has(client.id);
         }
-        // Modo padrão (aba de usuário): filtra apenas por assigned_to
-        return client.assigned_to === targetUserId;
+
+        // Aba de usuário: conversa pertence ao usuário se:
+        // 1. A ÚLTIMA mensagem veio da instância deste usuário, OU
+        // 2. O cliente está diretamente atribuído a este usuário (fallback)
+        const lastInst = lastInstancePerClient.get(client.id);
+        const instanceOwner = lastInst ? instanceOwnerMap.get(lastInst) : null;
+        return instanceOwner === targetUserId || client.assigned_to === targetUserId;
       });
 
       if (!clients.length) return [];
