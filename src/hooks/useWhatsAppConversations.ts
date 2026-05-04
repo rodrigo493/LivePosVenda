@@ -36,20 +36,12 @@ export function useWhatsAppConversations(
         : userId;
 
       // ── Step 1: resolve instâncias a filtrar ──────────────────────────
+      // Apenas quando instanceId é explicitamente fornecido (abas multi-instância de não-admin).
+      // A filtragem por aba de usuário usa SOMENTE assigned_to — não instance_id —
+      // para evitar mostrar todas as conversas quando um usuário é dono da instância principal.
       const instanceIds = new Set<string>();
       if (instanceId) {
-        // Instância explícita: filtra apenas por ela
         instanceIds.add(instanceId);
-      } else if (targetUserId) {
-        // Comportamento original: todas as instâncias ativas do usuário alvo
-        const { data: insts } = await (supabase as any)
-          .from("pipeline_whatsapp_instances")
-          .select("id")
-          .eq("user_id", targetUserId)
-          .eq("active", true);
-        for (const inst of (insts as any[]) ?? []) {
-          if (inst?.id) instanceIds.add(inst.id);
-        }
       }
 
       // ── Step 2: busca mensagens recentes (últimos 90 dias) incluindo instance_id ──
@@ -86,12 +78,15 @@ export function useWhatsAppConversations(
       if (clientError) throw clientError;
       if (!allClients?.length) return [];
 
-      // ── Step 5: filtra clientes com OR: assigned_to OU instância ──────
+      // ── Step 5: filtra clientes ───────────────────────────────────────
       const clients = (allClients || []).filter((client) => {
         if (!targetUserId) return true; // "Todos": sem filtro
-        const byAssignment = client.assigned_to === targetUserId;
-        const byInstance = instanceClientIds.has(client.id);
-        return byAssignment || byInstance;
+        if (instanceIds.size > 0) {
+          // Modo multi-instância explícito: filtra pela instância selecionada
+          return instanceClientIds.has(client.id);
+        }
+        // Modo padrão (aba de usuário): filtra apenas por assigned_to
+        return client.assigned_to === targetUserId;
       });
 
       if (!clients.length) return [];
