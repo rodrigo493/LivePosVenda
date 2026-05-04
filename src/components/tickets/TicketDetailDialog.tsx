@@ -1065,14 +1065,11 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
     const clientName = clientProfile?.name || ticket?.clients?.name || "";
     setProducaoSending(true);
     try {
-      const res = await fetch("https://squad.liveuni.com.br/api/problemas-producao/webhook", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-webhook-secret": "squad-problemas-webhook-2026" },
-        body: JSON.stringify({ description: producaoDesc.trim(), client_name: clientName, received_at: new Date().toISOString() }),
+      const { data, error } = await supabase.functions.invoke("problemas-producao", {
+        body: { description: producaoDesc.trim(), client_name: clientName },
       });
-      if (res.status === 401) throw new Error("Autenticação inválida com o SquadOS.");
-      if (res.status === 400) throw new Error("Campo obrigatório faltando na requisição.");
-      if (!res.ok) throw new Error(`Erro inesperado: ${res.status}`);
+      if (error) throw new Error(error.message);
+      if (data?.error) throw new Error(data.error);
       toast.success("Problema enviado ao SquadOS com sucesso");
       setProducaoDesc("");
     } catch (err: any) {
