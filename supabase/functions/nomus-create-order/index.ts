@@ -22,7 +22,9 @@ Deno.serve(async (req) => {
     );
 
     const NOMUS_API_KEY = Deno.env.get('NOMUS_API_KEY');
+    const NOMUS_API_URL = Deno.env.get('NOMUS_API_URL');
     if (!NOMUS_API_KEY) return jsonResponse({ error: 'NOMUS_API_KEY not configured' }, 500);
+    if (!NOMUS_API_URL) return jsonResponse({ error: 'NOMUS_API_URL not configured' }, 500);
 
     const body = await req.json();
     const {
@@ -95,20 +97,20 @@ Deno.serve(async (req) => {
       ...(cfop ? { cfop } : {}),
     };
 
-    // Create order via pg_net (avoids Deno TLS issue with Nomus)
-    const { data: orderData, error: orderError } = await supabase.rpc("nomus_http_post", {
-      payload: nomusPayload,
-      auth_header: NOMUS_API_KEY,
+    // Chama o proxy VPS (NOMUS_API_URL) — proxy adiciona Authorization e resolve TLS
+    const nomusRes = await fetch(`${NOMUS_API_URL}/rest/pedidos`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify(nomusPayload),
     });
 
-    if (orderError) return jsonResponse({ error: orderError.message });
-
-    const statusCode = orderData?.status_code;
+    const statusCode = nomusRes.status;
     if (statusCode === 429) return jsonResponse({ error: 'API Nomus em throttling. Aguarde e tente novamente.', throttled: true, wait_seconds: 30 });
-    if (statusCode < 200 || statusCode >= 300) return jsonResponse({ error: `Erro Nomus [${statusCode}]: ${orderData?.body || ''}` });
 
     let nomusBody: any = {};
-    try { nomusBody = JSON.parse(orderData.body); } catch { /* ok */ }
+    try { nomusBody = await nomusRes.json(); } catch { /* ok */ }
+
+    if (statusCode < 200 || statusCode >= 300) return jsonResponse({ error: `Erro Nomus [${statusCode}]: ${JSON.stringify(nomusBody)}` });
 
     return jsonResponse({ success: true, nomus_response: nomusBody, message: 'Pedido criado no ERP com sucesso' });
 
