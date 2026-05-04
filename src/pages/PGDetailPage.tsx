@@ -572,19 +572,31 @@ const PGDetailPage = () => {
         }
       );
 
-      // Se POST retornar 405 (API Nomus mudou), retenta com PUT na coleção
+      // Se POST retornar 405, tenta PUT e depois PATCH (API Nomus pode ter mudado)
       if (!existingNomusId && orderRes.status === 405) {
-        const retryPut = await fetch("/api/nomus/rest/pedidos", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json", "Accept": "application/json" },
-          body: JSON.stringify({ codigoPedido, ...basePayload }),
-        });
-        if (retryPut.ok) {
-          const d = await retryPut.json().catch(() => null);
-          returnedNomusId = d?.id ?? d?.Id ?? null;
-        } else {
-          const errBody = await retryPut.json().catch(() => ({}));
-          throw new Error(`Erro Nomus [${retryPut.status}]: ${JSON.stringify(errBody)}`);
+        const fullPayload = { codigoPedido, ...basePayload };
+        let resolved = false;
+        for (const method of ["PUT", "PATCH"]) {
+          const retry = await fetch("/api/nomus/rest/pedidos", {
+            method,
+            headers: { "Content-Type": "application/json", "Accept": "application/json" },
+            body: JSON.stringify(fullPayload),
+          });
+          if (retry.ok) {
+            const d = await retry.json().catch(() => null);
+            returnedNomusId = d?.id ?? d?.Id ?? null;
+            resolved = true;
+            break;
+          }
+          if (retry.status !== 405) {
+            const errBody = await retry.json().catch(() => ({}));
+            throw new Error(`Erro Nomus [${retry.status}]: ${JSON.stringify(errBody)}`);
+          }
+        }
+        if (!resolved) {
+          throw new Error(
+            "API Nomus rejeitou POST, PUT e PATCH com 405. Verifique se o usuário 'integradorerp' tem permissão para criar pedidos no Nomus ERP."
+          );
         }
       } else if (!orderRes.ok) {
         const errBody = await orderRes.json().catch(() => ({}));
