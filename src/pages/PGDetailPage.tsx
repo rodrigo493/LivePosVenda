@@ -183,19 +183,12 @@ const PGDetailPage = () => {
   const resolveNomusClientId = async (name: string): Promise<number | null> => {
     const q = name.trim();
     if (!q) return null;
-    const words = q.split(/\s+/);
-    // Tenta nome completo, depois primeiras 2 palavras, depois só a primeira
-    const terms = [q, ...(words.length > 2 ? [words.slice(0, 2).join(" ")] : []), words[0]];
-    for (const term of terms) {
-      for (const field of ["nome", "razaoSocial"]) {
-        const list = await nomusGet(field, term);
-        if (list.length > 0) {
-          const exact = list.find((p: any) =>
-            [p.nome, p.razaoSocial].some((n: string) => n?.toUpperCase() === q.toUpperCase())
-          );
-          return ((exact ?? list[0]) as any).id as number;
-        }
-      }
+    for (const field of ["nome", "razaoSocial"]) {
+      const list = await nomusGet(field, q);
+      const exact = list.find((p: any) =>
+        [p.nome, p.razaoSocial].some((n: string) => n?.toUpperCase() === q.toUpperCase())
+      );
+      if (exact) return (exact as any).id as number;
     }
     return null;
   };
