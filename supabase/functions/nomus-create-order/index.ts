@@ -50,14 +50,34 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Cache miss → busca direto no Nomus por nome
+    if (!idPessoaCliente && client_name && !/^\d+$/.test(client_name.trim())) {
+      const term = encodeURIComponent(client_name.trim());
+      const res = await fetch(
+        `${NOMUS_API_URL}/rest/pessoas?query=nomeFantasia==*${term}*,razaoSocial==*${term}*,nome==*${term}*`,
+        { headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' } }
+      );
+      if (res.ok) {
+        const list = await res.json().catch(() => []);
+        const found = Array.isArray(list) && list.length > 0 ? list[0] : null;
+        if (found?.id) {
+          idPessoaCliente = Number(found.id);
+          await supabase.from("nomus_id_cache").upsert(
+            { entity_type: "cliente", entity_key: client_name.trim(), nomus_id: idPessoaCliente },
+            { onConflict: "entity_type,entity_key" }
+          );
+        }
+      }
+    }
+
     if (!idPessoaCliente) {
       return jsonResponse({
-        error: `ID do cliente "${client_name}" não encontrado. Cadastre o ID Nomus deste cliente na tela de configuração.`,
+        error: `Cliente "${client_name}" não encontrado no ERP Nomus.`,
         missing_client: client_name,
       });
     }
 
-    // Resolve product IDs — from direct param or cache
+    // Resolve product IDs — direct param → cache → live Nomus lookup
     const itensPedido = await Promise.all((items || []).map(async (item: any, idx: number) => {
       let idProduto: number | null = item.product_id_nomus || null;
       if (!idProduto && item.product_code) {
@@ -67,7 +87,28 @@ Deno.serve(async (req) => {
         });
         if (cached) idProduto = cached;
       }
-      if (!idProduto) throw new Error(`ID do produto "${item.product_code}" não encontrado. Cadastre o ID Nomus deste produto na tela de configuração.`);
+      // Cache miss → busca direto no Nomus por código exato
+      if (!idProduto && item.product_code) {
+        const res = await fetch(
+          `${NOMUS_API_URL}/rest/produtos?query=codigo==${encodeURIComponent(item.product_code)}`,
+          { headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' } }
+        );
+        if (res.ok) {
+          const list = await res.json().catch(() => []);
+          const found = Array.isArray(list)
+            ? list.find((p: any) => p.codigo === item.product_code)
+            : null;
+          if (found?.id) {
+            idProduto = Number(found.id);
+            // Salva no cache para próximas vezes
+            await supabase.from("nomus_id_cache").upsert(
+              { entity_type: "produto", entity_key: item.product_code, nomus_id: idProduto },
+              { onConflict: "entity_type,entity_key" }
+            );
+          }
+        }
+      }
+      if (!idProduto) throw new Error(`ID do produto "${item.product_code}" não encontrado no ERP Nomus.`);
       return {
         idProduto,
         item: String(idx + 1),
