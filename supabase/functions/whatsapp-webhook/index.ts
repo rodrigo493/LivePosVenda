@@ -500,18 +500,25 @@ Deno.serve(async (req) => {
         return "📎 Arquivo";
       };
 
+      // Helper: check if an object contains WhatsApp crypto download fields
+      const hasCryptoFields = (obj: any) =>
+        obj && (obj.url || obj.URL || obj.Url || obj.directPath || obj.mediaKey || obj.MediaKey);
+
+      // 1. Try m.content if it's an object with crypto fields or mimetype
       if (typeof m.content === "object" && m.content !== null) {
         const c = m.content as any;
-        mediaMime = c.mimetype || null;
-        directMediaUrl = c.URL || c.url || c.mediaUrl || c.directPath || null;
-        const hasCryptoInContent = !!(c.url || c.URL || c.Url || c.directPath || c.mediaKey || c.MediaKey);
-        if (hasCryptoInContent || mediaMime) {
+        if (hasCryptoFields(c) || c.mimetype) {
+          mediaMime = c.mimetype || "application/octet-stream";
+          directMediaUrl = c.URL || c.url || c.mediaUrl || c.directPath || null;
           mediaMeta = c as Record<string, unknown>;
-          if (!mediaMime) mediaMime = "application/octet-stream";
+          messageText = resolveMediaText(mediaMime);
           console.log("MEDIA_CONTENT keys:", Object.keys(c).join(","), "| mime:", mediaMime);
         }
-        messageText = resolveMediaText(mediaMime || "");
-      } else {
+      }
+
+      // 2. If content object didn't yield crypto fields, check named sub-objects and text
+      //    (runs even if m.content is an object without crypto fields)
+      if (!mediaMeta) {
         const rawContent: string | null = (typeof m.text === "string" && m.text) ? m.text
           : (typeof m.content === "string" && m.content) ? m.content : null;
         if (rawContent && rawContent.trim().startsWith("{") && rawContent.includes("mimetype")) {
@@ -520,45 +527,37 @@ Deno.serve(async (req) => {
             mediaMime = parsed.mimetype || null;
             directMediaUrl = parsed.url || parsed.mediaUrl || null;
             messageText = resolveMediaText(mediaMime || "");
-            const hasCryptoInParsed = !!(parsed.url || parsed.URL || parsed.directPath || parsed.mediaKey || parsed.MediaKey);
-            if (mediaMime || hasCryptoInParsed) {
+            if (mediaMime || hasCryptoFields(parsed)) {
               if (!mediaMime) mediaMime = "application/octet-stream";
               mediaMeta = parsed;
             }
           } catch { messageText = "📎 Mídia"; }
-        } else if (!rawContent) {
-          // Helper: if the named sub-object is null, fall back to the top-level
-          // message object itself — some Uazapi versions inline the crypto fields.
-          const hasCryptoFields = (obj: any) =>
-            obj && (obj.url || obj.URL || obj.Url || obj.directPath || obj.mediaKey || obj.MediaKey);
-
-          if (m.PTT === true || m.audioMessage) {
-            messageText = "🎵 Áudio";
-            const am = m.audioMessage as any;
-            mediaMime = am?.mimetype || (m as any).mimetype || "audio/ogg";
-            directMediaUrl = am?.url || am?.mediaUrl || (m as any).url || null;
-            mediaMeta = hasCryptoFields(am) ? am : hasCryptoFields(m) ? (m as any) : null;
-            console.log("AUDIO_PTT audioMessage keys:", am ? Object.keys(am).join(",") : "null", "| m keys:", Object.keys(m).join(","), "| PTT:", m.PTT, "| mediaMeta:", !!mediaMeta);
-          } else if (m.imageMessage) {
-            messageText = "📷 Imagem";
-            const im = m.imageMessage as any;
-            mediaMime = im?.mimetype || "image/jpeg";
-            directMediaUrl = im?.url || im?.mediaUrl || null;
-            mediaMeta = hasCryptoFields(im) ? im : hasCryptoFields(m) ? (m as any) : null;
-          } else if (m.videoMessage) {
-            messageText = "🎥 Vídeo";
-            const vm = m.videoMessage as any;
-            mediaMime = vm?.mimetype || "video/mp4";
-            directMediaUrl = vm?.url || vm?.mediaUrl || null;
-            mediaMeta = hasCryptoFields(vm) ? vm : hasCryptoFields(m) ? (m as any) : null;
-          } else if (m.documentMessage) {
-            messageText = "📎 Arquivo";
-            const dm = m.documentMessage as any;
-            mediaMime = dm?.mimetype || "application/octet-stream";
-            directMediaUrl = dm?.url || dm?.mediaUrl || null;
-            mediaMeta = hasCryptoFields(dm) ? dm : hasCryptoFields(m) ? (m as any) : null;
-          }
-        } else {
+        } else if (m.PTT === true || m.audioMessage) {
+          messageText = "🎵 Áudio";
+          const am = m.audioMessage as any;
+          mediaMime = am?.mimetype || (m as any).mimetype || "audio/ogg";
+          directMediaUrl = am?.url || am?.mediaUrl || (m as any).url || null;
+          mediaMeta = hasCryptoFields(am) ? am : hasCryptoFields(m) ? (m as any) : null;
+          console.log("AUDIO_PTT audioMessage keys:", am ? Object.keys(am).join(",") : "null", "| m keys:", Object.keys(m).join(","), "| PTT:", m.PTT, "| mediaMeta:", !!mediaMeta);
+        } else if (m.imageMessage) {
+          messageText = "📷 Imagem";
+          const im = m.imageMessage as any;
+          mediaMime = im?.mimetype || "image/jpeg";
+          directMediaUrl = im?.url || im?.mediaUrl || null;
+          mediaMeta = hasCryptoFields(im) ? im : hasCryptoFields(m) ? (m as any) : null;
+        } else if (m.videoMessage) {
+          messageText = "🎥 Vídeo";
+          const vm = m.videoMessage as any;
+          mediaMime = vm?.mimetype || "video/mp4";
+          directMediaUrl = vm?.url || vm?.mediaUrl || null;
+          mediaMeta = hasCryptoFields(vm) ? vm : hasCryptoFields(m) ? (m as any) : null;
+        } else if (m.documentMessage) {
+          messageText = "📎 Arquivo";
+          const dm = m.documentMessage as any;
+          mediaMime = dm?.mimetype || "application/octet-stream";
+          directMediaUrl = dm?.url || dm?.mediaUrl || null;
+          mediaMeta = hasCryptoFields(dm) ? dm : hasCryptoFields(m) ? (m as any) : null;
+        } else if (rawContent) {
           messageText = rawContent;
         }
       }
