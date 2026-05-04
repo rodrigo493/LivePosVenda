@@ -48,7 +48,7 @@ export function HeaderAlerts() {
   const { user, hasRole } = useAuth();
   const isAdmin = hasRole("admin");
   // Admin recebe alertas apenas das próprias conversas (assigned_to ou instância vinculada)
-  const { data: conversations = [] } = useWhatsAppConversations(isAdmin ? user?.id : undefined);
+  const { data: conversations = [] } = useWhatsAppConversations(isAdmin ? user?.id : undefined, null, true);
   const { data: overdueCount = 0 } = useOverdueTasks();
   const { ackAt, ack, isAcking } = useUnansweredAck();
   const { data: newLeads = [] } = useNewLeads();

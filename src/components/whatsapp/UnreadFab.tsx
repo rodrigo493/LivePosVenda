@@ -23,7 +23,7 @@ export function UnreadFab() {
   const navigate = useNavigate();
   const { user, hasRole } = useAuth();
   const isAdmin = hasRole("admin");
-  const { data: conversations = [] } = useWhatsAppConversations(isAdmin ? user?.id : undefined);
+  const { data: conversations = [] } = useWhatsAppConversations(isAdmin ? user?.id : undefined, null, true);
 
   const unreadConvs = conversations.filter((c) => c.unread_count > 0);
   const totalUnread = unreadConvs.reduce((sum, c) => sum + c.unread_count, 0);

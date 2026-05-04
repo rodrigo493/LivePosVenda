@@ -16,16 +16,18 @@ export interface Conversation {
 
 // filterUserId: null = todos (admin), string = filtrar pelas conversas do usuário
 // instanceId: string = filtrar por instância específica (abas multi-instância de não-admin)
+// strictOwnership: true = pula Level 3 (fallback de instância) — usar em alertas pessoais
 export function useWhatsAppConversations(
   filterUserId?: string | null,
-  instanceId?: string | null
+  instanceId?: string | null,
+  strictOwnership?: boolean
 ) {
   const { user, hasRole } = useAuth();
   const isAdmin = hasRole("admin");
   const userId = user?.id ?? null;
 
   return useQuery({
-    queryKey: ["whatsapp-conversations", userId, isAdmin, filterUserId ?? "all", instanceId ?? "all"],
+    queryKey: ["whatsapp-conversations", userId, isAdmin, filterUserId ?? "all", instanceId ?? "all", strictOwnership ?? false],
     staleTime: 0,
     refetchOnMount: "always",
     refetchInterval: 15_000,
@@ -100,8 +102,10 @@ export function useWhatsAppConversations(
         }
 
         // Nível 3: user_id da instância da última mensagem (fallback para quem não tem ticket)
+        // Pulado quando strictOwnership=true (alertas pessoais) para evitar atribuição indevida
+        // de clientes sem dono ao admin que possui a instância principal do WhatsApp.
         const afterLevel2 = clientIds.filter((id) => !clientOwnerMap.has(id));
-        if (afterLevel2.length) {
+        if (afterLevel2.length && !strictOwnership) {
           const { data: instanceRows } = await (supabase as any)
             .from("pipeline_whatsapp_instances")
             .select("id, user_id")
