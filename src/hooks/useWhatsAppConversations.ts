@@ -97,23 +97,14 @@ export function useWhatsAppConversations(
         }
       }
 
-      // ── Step 5: instâncias explícitas (abas multi-instância de não-admin) ──
-      const instanceClientIds = new Set<string>();
-      if (instanceId) {
-        for (const msg of messages) {
-          if ((msg as any).instance_id === instanceId && msg.client_id) {
-            instanceClientIds.add(msg.client_id);
-          }
-        }
-      }
-
       // ── Step 6: filtra clientes ───────────────────────────────────────
       const clients = (allClients || []).filter((client) => {
         if (!targetUserId) return true; // "Todos": sem filtro
 
         if (instanceId) {
-          // Aba de instância explícita (não-admin multi-instância)
-          return instanceClientIds.has(client.id);
+          // Aba de instância explícita: mostra apenas clientes cuja ÚLTIMA
+          // mensagem veio desta instância (ownership dinâmico — handoff automático)
+          return lastInstancePerClient.get(client.id) === instanceId;
         }
 
         // Aba de usuário: mostra apenas clientes atribuídos a este usuário
