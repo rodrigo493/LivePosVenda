@@ -93,24 +93,46 @@ async function decryptWhatsAppMedia(
 
     if (encrypted.length < 26) { dbg.cdnError = "encrypted_too_short"; return null; }
 
-    // Uazapi (WuzAPI fork) uses HKDF WITHOUT null byte in the info string.
-    // Standard WhatsApp (whatsmeow) uses WITH null byte. Try no-null first.
+    // Try multiple decryption variants to handle different Uazapi/WuzAPI versions:
+    // V1/V2: HKDF-derived IV (standard whatsmeow format), with/without null byte
+    // V3/V4: Embedded IV — first 16 bytes of CDN file as IV (some forks prepend IV)
+    // V5/V6: Baileys key ordering — cipherKey=exp[48:80], IV=exp[32:48]
+    // V7: Direct mediaKey as AES key + embedded IV (no HKDF, rare variant)
     const encWithoutMac = encrypted.slice(0, encrypted.length - 10);
+    const embeddedIV = encrypted.slice(0, 16);
+    const ciphertextAfterIV = encrypted.slice(16, encrypted.length - 10);
     let decrypted: Uint8Array | null = null;
-    for (const suffix of ["", "\x00"]) {
+    outer: for (const suffix of ["", "\x00"]) {
       const info = new TextEncoder().encode(`WhatsApp ${mediaType} Keys${suffix}`);
       const exp = await hkdfSha256(mediaKeyBytes, new Uint8Array(32), info, 112);
-      const iv = exp.subarray(0, 16);
-      const cipherKey = exp.subarray(16, 48);
+      const attempts = [
+        { label: suffix ? "hkdf_null" : "hkdf_no_null", iv: exp.subarray(0, 16), key: exp.subarray(16, 48), data: encWithoutMac },
+        { label: suffix ? "hkdf_null_emb_iv" : "hkdf_no_null_emb_iv", iv: embeddedIV, key: exp.subarray(16, 48), data: ciphertextAfterIV },
+        { label: suffix ? "baileys_null" : "baileys_no_null", iv: exp.subarray(32, 48), key: exp.subarray(48, 80), data: encWithoutMac },
+      ];
+      for (const a of attempts) {
+        if (a.data.length === 0 || a.data.length % 16 !== 0) continue;
+        try {
+          const aesKey = await crypto.subtle.importKey("raw", a.key, { name: "AES-CBC" }, false, ["decrypt"]);
+          const buf = await crypto.subtle.decrypt({ name: "AES-CBC", iv: a.iv }, aesKey, a.data);
+          decrypted = new Uint8Array(buf);
+          dbg.decryptVariant = a.label;
+          dbg.cdnBytes = decrypted.length;
+          console.log("CDN decrypt ok variant=", a.label, decrypted.length, "bytes");
+          break outer;
+        } catch { /* try next */ }
+      }
+    }
+    // V7: direct mediaKey as cipher key + embedded IV (no HKDF)
+    if (!decrypted && ciphertextAfterIV.length > 0 && ciphertextAfterIV.length % 16 === 0) {
       try {
-        const aesKey = await crypto.subtle.importKey("raw", cipherKey, { name: "AES-CBC" }, false, ["decrypt"]);
-        const buf = await crypto.subtle.decrypt({ name: "AES-CBC", iv }, aesKey, encWithoutMac);
+        const aesKey = await crypto.subtle.importKey("raw", mediaKeyBytes.slice(0, 32), { name: "AES-CBC" }, false, ["decrypt"]);
+        const buf = await crypto.subtle.decrypt({ name: "AES-CBC", iv: embeddedIV }, aesKey, ciphertextAfterIV);
         decrypted = new Uint8Array(buf);
-        dbg.decryptVariant = suffix ? "hkdf_null" : "hkdf_no_null";
+        dbg.decryptVariant = "direct_key_emb_iv";
         dbg.cdnBytes = decrypted.length;
-        console.log("CDN decrypt ok variant=", dbg.decryptVariant, decrypted.length, "bytes");
-        break;
-      } catch { /* try next */ }
+        console.log("CDN decrypt ok variant=direct_key_emb_iv", decrypted.length, "bytes");
+      } catch { /* failed */ }
     }
 
     if (!decrypted) { dbg.cdnError = "all_variants_failed"; return null; }
@@ -215,7 +237,17 @@ async function downloadAndStoreMedia(
     // Strategy 1: Direct WhatsApp CDN decryption — bypasses Uazapi download API entirely.
     // Uses the mediaKey + CDN URL from the webhook payload (present in most Uazapi versions).
     if (mediaMeta) {
-      const cdnUrl = String(mediaMeta.url || mediaMeta.URL || mediaMeta.Url || "");
+      let cdnUrl = String(mediaMeta.url || mediaMeta.URL || mediaMeta.Url || "");
+      // Some Uazapi versions (stickers) put only the bare domain in URL (e.g. "https://web.whatsapp.net").
+      // In that case, reconstruct the full URL by appending directPath (which contains the path + auth params).
+      if (cdnUrl && !cdnUrl.includes("/v/") && !cdnUrl.includes("/o1/") && !cdnUrl.includes(".enc")) {
+        const dp = String(mediaMeta.directPath || mediaMeta.DirectPath || "");
+        if (dp) {
+          cdnUrl = `${cdnUrl.replace(/\/$/, "")}${dp.startsWith("/") ? dp : "/" + dp}`;
+          dbg.usedDirectPath = true;
+          console.log("CDN URL constructed from directPath:", cdnUrl.slice(0, 100));
+        }
+      }
       const mediaKeyRaw = mediaMeta.mediaKey || mediaMeta.MediaKey;
       if (cdnUrl.startsWith("https://") && mediaKeyRaw) {
         dbg.strategy1 = "attempt";
@@ -394,24 +426,48 @@ Deno.serve(async (req) => {
     // Format: { EventType: "message_acks", data: { Key: { Id, FromMe }, Status } }
     // Status: 2=server_ack, 3=delivery_ack(delivered), 4=read, 5=played(read)
     const ackEventType = (bodyEventType || "").toLowerCase().replace(/[^a-z_]/g, "");
-    if (ackEventType === "message_acks" || ackEventType === "chatmessage_status" || ackEventType === "message_status" || ackEventType === "messageack" || ackEventType === "msg_ack") {
-      const d = body?.data || body?.message || {};
+    const isAckEvent =
+      ackEventType === "message_acks" ||
+      ackEventType === "messageacks" ||
+      ackEventType === "chatmessage_status" ||
+      ackEventType === "message_status" ||
+      ackEventType === "messageack" ||
+      ackEventType === "messageacknowledged" ||
+      ackEventType === "msg_ack" ||
+      ackEventType === "ack" ||
+      ackEventType.includes("ack");
+
+    if (isAckEvent) {
+      // Uazapi pode mandar dados dentro de body.data, body.message ou no próprio body
+      const d = body?.data ?? body?.message ?? body ?? {};
       console.log("ACK_EVENT d keys:", Object.keys(d).join(","), "| d:", JSON.stringify(d).slice(0, 300));
-      const msgId: string = d?.Key?.Id || d?.key?.id || d?.id || d?.messageId || d?.MessageID || d?.messageid || "";
-      const fromMe: boolean = d?.Key?.FromMe ?? d?.key?.fromMe ?? d?.fromMe ?? false;
-      const rawStatus = d?.Status ?? d?.status ?? d?.Ack ?? d?.ack ?? 0;
+
+      // Tenta extrair o ID da mensagem de várias estruturas possíveis
+      const msgId: string =
+        d?.Key?.Id || d?.Key?.ID ||
+        d?.key?.id || d?.key?.Id ||
+        d?.id || d?.Id || d?.ID ||
+        d?.messageId || d?.MessageID || d?.messageid ||
+        d?.message_id || d?.msgId || d?.MsgId || "";
+
+      const rawStatus = d?.Status ?? d?.status ?? d?.Ack ?? d?.ack ?? body?.Status ?? body?.status ?? 0;
       const statusNum = typeof rawStatus === "number" ? rawStatus : parseInt(String(rawStatus), 10);
 
-      if (msgId && fromMe) {
+      if (msgId) {
         const newStatus = statusNum >= 4 ? "read" : statusNum === 3 ? "delivered" : null;
         if (newStatus) {
-          await admin
+          const { count } = await admin
             .from("whatsapp_messages")
             .update({ status: newStatus })
             .eq("manychat_message_id", msgId)
-            .eq("direction", "outbound");
-          console.log("Ack update:", msgId, "->", newStatus, "statusNum:", statusNum);
+            .eq("direction", "outbound")
+            .select("*", { count: "exact", head: true });
+          console.log("Ack update:", msgId, "->", newStatus, "statusNum:", statusNum, "rows:", count);
+        } else {
+          console.log("Ack event ignored (statusNum not 3/4+):", msgId, "statusNum:", statusNum);
         }
+      } else {
+        console.log("Ack event: msgId not found. body keys:", Object.keys(body || {}).join(","), "| d:", JSON.stringify(d).slice(0, 300));
       }
 
       return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } });
