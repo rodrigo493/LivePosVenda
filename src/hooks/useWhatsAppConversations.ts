@@ -12,7 +12,7 @@ export interface Conversation {
   unread_count: number;
 }
 
-// filterUserId: null = todos (admin), string = filtrar por instância vinculada ao usuário
+// filterUserId: null = todos (admin), string = filtrar por assigned_to do cliente
 export function useWhatsAppConversations(filterUserId?: string | null) {
   const { user, hasRole } = useAuth();
   const isAdmin = hasRole("admin");
@@ -29,60 +29,36 @@ export function useWhatsAppConversations(filterUserId?: string | null) {
         ? (filterUserId ?? null)
         : userId;
 
-      // ── Step 1: resolve instance_id do usuário alvo ───────────────────
-      // Quando há um usuário alvo, filtra as mensagens pela instância vinculada a ele.
-      // Isso garante que "Renata" veja apenas conversas do seu número.
-      let instanceId: string | null = null;
-      if (targetUserId) {
-        const { data: inst } = await supabase
-          .from("pipeline_whatsapp_instances" as any)
-          .select("id")
-          .eq("user_id", targetUserId)
-          .eq("active", true)
-          .limit(1)
-          .maybeSingle();
-        instanceId = (inst as any)?.id ?? null;
-      }
-
-      // ── Step 2: busca mensagens filtradas por instância (quando disponível) ──
-      let msgQuery = supabase
-        .from("whatsapp_messages")
-        .select("client_id, message_text, direction, created_at")
-        .order("created_at", { ascending: false })
-        .limit(5000);
-
-      if (instanceId) {
-        // Filtra pelo número da instância do usuário
-        msgQuery = (msgQuery as any).eq("instance_id", instanceId);
-      } else if (!isAdmin && targetUserId) {
-        // Não-admin sem instância: fallback para assigned_to (comportamento anterior)
-      }
-
-      const { data: messages, error: msgError } = await msgQuery;
-
-      if (msgError) throw msgError;
-      if (!messages?.length) return [];
-
-      // ── Step 3: busca clientes únicos referenciados pelas mensagens ──
-      const clientIds = [...new Set(messages.map((m) => m.client_id).filter(Boolean))];
-      if (!clientIds.length) return [];
-
+      // ── Step 1: busca clientes filtrados por assigned_to ──────────────
+      // Usamos assigned_to como filtro primário — é mais confiável que instance_id
+      // porque mensagens históricas podem não ter instance_id preenchido.
       let clientQuery = supabase
         .from("clients")
-        .select("id, name, phone, whatsapp, whatsapp_last_read_at, assigned_to")
-        .in("id", clientIds);
+        .select("id, name, phone, whatsapp, whatsapp_last_read_at, assigned_to");
 
-      // Aplica filtro de assigned_to apenas quando não há filtro por instância
-      if (!instanceId) {
-        if (isAdmin && targetUserId) {
-          clientQuery = clientQuery.eq("assigned_to", targetUserId);
-        } else if (!isAdmin && targetUserId) {
-          clientQuery = clientQuery.or(`assigned_to.eq.${targetUserId},assigned_to.is.null`);
-        }
+      if (isAdmin && targetUserId) {
+        clientQuery = clientQuery.eq("assigned_to", targetUserId);
+      } else if (!isAdmin && targetUserId) {
+        clientQuery = clientQuery.or(`assigned_to.eq.${targetUserId},assigned_to.is.null`);
       }
+      // isAdmin && !targetUserId → sem filtro (todos os clientes)
 
       const { data: clients, error: clientError } = await clientQuery;
       if (clientError) throw clientError;
+      if (!clients?.length) return [];
+
+      const clientIds = clients.map((c) => c.id);
+
+      // ── Step 2: busca mensagens dos clientes filtrados ────────────────
+      const { data: messages, error: msgError } = await supabase
+        .from("whatsapp_messages")
+        .select("client_id, message_text, direction, created_at")
+        .in("client_id", clientIds)
+        .order("created_at", { ascending: false })
+        .limit(5000);
+
+      if (msgError) throw msgError;
+      if (!messages?.length) return [];
 
       // ── Step 4: monta mapa client_id → client ──
       const clientMap = new Map<string, typeof clients[number]>(
