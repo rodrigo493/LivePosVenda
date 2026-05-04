@@ -508,12 +508,31 @@ Deno.serve(async (req) => {
     let senderChatId: string | null = null;
 
     // Uazapi actual format: { EventType, message: { fromMe, sender_pn, chatid, text, senderName, messageid }, chat }
+    function extractVCardPhone(vcard: string): string {
+      const waidMatch = vcard.match(/waid=(\d+)/);
+      if (waidMatch) return waidMatch[1];
+      const telMatch = vcard.match(/TEL[^:]*:([^\n]+)/);
+      if (telMatch) return telMatch[1].replace(/\D/g, "");
+      return "";
+    }
+
     if (body?.EventType && body?.message) {
       const m = body.message;
       console.log("MSG_DEBUG keys:", Object.keys(m).join(","), "| text:", m.text, "| content type:", typeof m.content, "| PTT:", m.PTT, "| EventType:", body.EventType);
       // dump full message for media debugging
       if (!m.text && !m.content || typeof m.content === "object" || m.PTT || m.audioMessage || m.imageMessage || m.videoMessage || m.documentMessage) {
         console.log("MEDIA_PAYLOAD:", JSON.stringify(m).slice(0, 2000));
+      }
+      let contactData: { name: string; phone: string; raw_vcard: string } | null = null;
+      if (m.contactMessage?.vcard) {
+        const vcardName = m.contactMessage.displayName || m.contactMessage.vcard.match(/FN:([^\n]+)/)?.[1] || "Contato";
+        const vcardPhone = extractVCardPhone(m.contactMessage.vcard);
+        contactData = {
+          name: vcardName.trim(),
+          phone: vcardPhone,
+          raw_vcard: m.contactMessage.vcard,
+        };
+        console.log("VCARD_DETECTED name:", vcardName, "phone:", vcardPhone);
       }
       if (m.fromMe === true || m.wasSentByApi === true) return new Response("OK", { status: 200 });
       senderChatId = m.chatid || m.sender_pn || null;
@@ -529,6 +548,11 @@ Deno.serve(async (req) => {
       // Helper: check if an object contains WhatsApp crypto download fields
       const hasCryptoFields = (obj: any) =>
         obj && (obj.url || obj.URL || obj.Url || obj.directPath || obj.mediaKey || obj.MediaKey);
+
+      // vCard contact message: set messageText immediately
+      if (contactData) {
+        messageText = `👤 ${contactData.name}`;
+      }
 
       // 1. Try m.content if it's an object with crypto fields or mimetype
       if (typeof m.content === "object" && m.content !== null) {
@@ -759,6 +783,7 @@ Deno.serve(async (req) => {
       manychat_message_id: waMessageId,
       status: "received",
       instance_id: instanceId,
+      contact_data: contactData ?? null,
     });
 
     if (msgErr) {
