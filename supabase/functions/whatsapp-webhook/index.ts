@@ -491,8 +491,9 @@ Deno.serve(async (req) => {
         console.log("MEDIA_PAYLOAD:", JSON.stringify(m).slice(0, 2000));
       }
       if (m.fromMe === true || m.wasSentByApi === true) return new Response("OK", { status: 200 });
-      senderPhone = (m.sender_pn || m.chatid || m.sender || "").toString().replace("@s.whatsapp.net", "").replace(/\D/g, "");
       senderChatId = m.chatid || m.sender_pn || null;
+      if (senderChatId?.includes("@g.us")) return new Response("OK", { status: 200 });
+      senderPhone = (m.sender_pn || m.chatid || m.sender || "").toString().replace("@s.whatsapp.net", "").replace(/\D/g, "");
       const resolveMediaText = (mime: string) => {
         if (mime.startsWith("image/")) return "📷 Imagem";
         if (mime.startsWith("video/")) return "🎥 Vídeo";
@@ -567,6 +568,8 @@ Deno.serve(async (req) => {
       // Uazapi legacy format
       const d = body.data;
       if (d.fromMe === true || d.key?.fromMe === true) return new Response("OK", { status: 200 });
+      senderChatId = d.chatid || d.sender || d.phone || null;
+      if (senderChatId?.includes("@g.us")) return new Response("OK", { status: 200 });
       senderPhone = (d.phone || d.sender || d.chatid || "").toString().replace("@s.whatsapp.net", "").replace(/\D/g, "");
       const rawD = d.text || d.message || d.body || null;
       if (rawD && rawD.trim().startsWith("{") && rawD.includes("mimetype")) {
@@ -587,6 +590,8 @@ Deno.serve(async (req) => {
       // Evolution API format
       const key = body.data.key;
       if (key.fromMe === true) return new Response("OK", { status: 200 });
+      senderChatId = key.remoteJid || null;
+      if (senderChatId?.includes("@g.us")) return new Response("OK", { status: 200 });
       senderPhone = (key.remoteJid || "").replace("@s.whatsapp.net", "").replace(/\D/g, "");
       messageText = body.data.message?.conversation || body.data.message?.extendedTextMessage?.text || null;
       senderName = body.data.pushName || null;
