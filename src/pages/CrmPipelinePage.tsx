@@ -1336,7 +1336,7 @@ const CrmPipelinePage = () => {
 
           const { data: newEquipment, error: eqError } = await supabase
             .from("equipments")
-            .insert({ model_id, client_id: client.id, serial_number: serial_number || "" })
+            .insert({ model_id, client_id: client.id, serial_number: serial_number || null })
             .select("*, equipment_models(name)")
             .single();
           if (eqError) throw eqError;

@@ -928,7 +928,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
     mutationFn: async ({ model_id, serial_number, batch_number }: { model_id: string; serial_number?: string; batch_number?: string }) => {
       const { data, error } = await supabase
         .from("equipments")
-        .insert({ model_id, client_id: clientId, serial_number: serial_number || "", batch_number: batch_number || null })
+        .insert({ model_id, client_id: clientId, serial_number: serial_number || null, batch_number: batch_number || null })
         .select("*, equipment_models(name)")
         .single();
       if (error) throw error;
