@@ -68,23 +68,26 @@ export function useWhatsAppConversations(
       if (!allClients?.length) return [];
 
       // ── Step 4: resolve o responsável de cada cliente ─────────────────
-      // Hierarquia: clients.assigned_to → tickets.assigned_to (ticket mais recente)
+      // Hierarquia:
+      //   1. clients.assigned_to  (campo manual)
+      //   2. tickets.assigned_to  (ticket mais recente do CRM)
+      //   3. pipeline_whatsapp_instances.user_id da última mensagem (fallback)
       // Usado quando filtrando por aba de usuário (não Todos, não instanceId explícito).
       let clientOwnerMap = new Map<string, string>(); // client_id → user_id efetivo
 
       if (targetUserId && !instanceId) {
-        // Constrói o mapa a partir de clients.assigned_to
+        // Nível 1: clients.assigned_to
         for (const c of allClients) {
           if (c.assigned_to) clientOwnerMap.set(c.id, c.assigned_to);
         }
 
-        // Complementa com tickets.assigned_to para clientes ainda sem dono
-        const unownedIds = clientIds.filter((id) => !clientOwnerMap.has(id));
-        if (unownedIds.length) {
+        // Nível 2: tickets.assigned_to para clientes ainda sem dono
+        const afterLevel1 = clientIds.filter((id) => !clientOwnerMap.has(id));
+        if (afterLevel1.length) {
           const { data: tickets } = await (supabase as any)
             .from("tickets")
             .select("client_id, assigned_to")
-            .in("client_id", unownedIds)
+            .in("client_id", afterLevel1)
             .not("assigned_to", "is", null)
             .is("deleted_at", null)
             .order("created_at", { ascending: false });
@@ -92,6 +95,27 @@ export function useWhatsAppConversations(
           for (const t of (tickets ?? []) as any[]) {
             if (t.client_id && t.assigned_to && !clientOwnerMap.has(t.client_id)) {
               clientOwnerMap.set(t.client_id, t.assigned_to);
+            }
+          }
+        }
+
+        // Nível 3: user_id da instância da última mensagem (fallback para quem não tem ticket)
+        const afterLevel2 = clientIds.filter((id) => !clientOwnerMap.has(id));
+        if (afterLevel2.length) {
+          const { data: instanceRows } = await (supabase as any)
+            .from("pipeline_whatsapp_instances")
+            .select("id, user_id")
+            .not("user_id", "is", null);
+
+          const instanceUserIdMap = new Map<string, string>(
+            ((instanceRows ?? []) as any[]).map((i: any) => [i.id, i.user_id])
+          );
+
+          for (const clientId of afterLevel2) {
+            const lastInst = lastInstancePerClient.get(clientId);
+            if (lastInst) {
+              const instUser = instanceUserIdMap.get(lastInst);
+              if (instUser) clientOwnerMap.set(clientId, instUser);
             }
           }
         }
