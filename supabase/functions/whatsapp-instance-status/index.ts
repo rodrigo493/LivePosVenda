@@ -223,6 +223,26 @@ Deno.serve(async (req) => {
           .eq("id", instance_id);
         if (updateErr) console.error("Failed to update phone_number:", updateErr);
       }
+
+      // ── 4. Garante webhook com message_acks configurado ───────────────
+      // Sem isso, eventos de entrega/leitura não chegam e os ticks não aparecem
+      try {
+        const webhookUrl = `${SUPABASE_URL}/functions/v1/whatsapp-webhook`;
+        await fetch(`${baseUrl}/webhook`, {
+          method: "POST",
+          headers: { token, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "set",
+            url: webhookUrl,
+            events: ["messages", "message_acks"],
+            enabled: true,
+            excludeMessages: ["wasSentByApi"],
+          }),
+        });
+        console.log(`[webhook setup] events configured for instance ${instance_id}`);
+      } catch (e) {
+        console.error("[webhook setup] failed (non-fatal):", e);
+      }
     }
 
     console.log(`[result] state=${state} hasQR=${!!qrcode} phone=${phone}`);
