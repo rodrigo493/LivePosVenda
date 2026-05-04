@@ -51,10 +51,12 @@ export function useWhatsAppConversations(
         }
       }
 
-      // ── Step 2: busca mensagens recentes incluindo instance_id ────────
+      // ── Step 2: busca mensagens recentes (últimos 90 dias) incluindo instance_id ──
+      const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
       const { data: messages, error: msgError } = await supabase
         .from("whatsapp_messages")
         .select("client_id, message_text, direction, created_at, instance_id")
+        .gte("created_at", ninetyDaysAgo)
         .order("created_at", { ascending: false })
         .limit(5000);
 

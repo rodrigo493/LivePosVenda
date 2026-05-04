@@ -64,7 +64,7 @@ interface ActiveChat {
 }
 
 export default function ChatPage() {
-  const { user, hasRole } = useAuth();
+  const { user, hasRole, rolesLoading } = useAuth();
   const isAdmin = hasRole("admin");
   // Padrão: null = Todos. Muda para user.id quando detectamos que o usuário tem instância vinculada.
   const [userFilter, setUserFilter] = useState<string | null>(null);
@@ -81,13 +81,13 @@ export default function ChatPage() {
     ? (myInstances.some((i) => i.id === activeInstanceId) ? activeInstanceId : (myInstances[0]?.id ?? null))
     : null;
 
-  // Inicializa o filtro admin com o próprio usuário se ele tem instância (apenas 1x)
+  // Inicializa userFilter para admin assim que roles carregarem (não depende de instâncias)
   useEffect(() => {
-    if (!hasInitFilter.current && myInstances.length > 0 && user?.id) {
+    if (!hasInitFilter.current && user?.id && !rolesLoading) {
       hasInitFilter.current = true;
       if (isAdmin) setUserFilter(user.id);
     }
-  }, [myInstances, user?.id, isAdmin]);
+  }, [user?.id, isAdmin, rolesLoading]);
 
   const { data: conversations, isLoading } = useWhatsAppConversations(
     isAdmin ? userFilter : undefined,
