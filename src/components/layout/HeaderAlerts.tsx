@@ -6,6 +6,7 @@ import { useOverdueTasks } from "@/hooks/useOverdueTasks";
 import { useUnansweredAck } from "@/hooks/useUnansweredAck";
 import { useNewLeads, useClearNewLead, useClearAllNewLeads } from "@/hooks/useNewLeads";
 import { useResetMyAlerts } from "@/hooks/useResetMyAlerts";
+import { useAuth } from "@/hooks/useAuth";
 import {
   Popover,
   PopoverContent,
@@ -44,7 +45,10 @@ function formatRelative(iso: string): string {
 
 export function HeaderAlerts() {
   const navigate = useNavigate();
-  const { data: conversations = [] } = useWhatsAppConversations();
+  const { user, hasRole } = useAuth();
+  const isAdmin = hasRole("admin");
+  // Admin recebe alertas apenas das próprias conversas (assigned_to ou instância vinculada)
+  const { data: conversations = [] } = useWhatsAppConversations(isAdmin ? user?.id : undefined);
   const { data: overdueCount = 0 } = useOverdueTasks();
   const { ackAt, ack, isAcking } = useUnansweredAck();
   const { data: newLeads = [] } = useNewLeads();

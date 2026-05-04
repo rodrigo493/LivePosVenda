@@ -16,6 +16,26 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Client } from "@/types/database";
 
+function useInstanceUserMap(): Map<string, string> {
+  const { data } = useQuery<Map<string, string>>({
+    queryKey: ["instance-user-map"],
+    staleTime: 300_000,
+    queryFn: async () => {
+      const { data: insts } = await (supabase as any)
+        .from("pipeline_whatsapp_instances")
+        .select("id, user_id")
+        .eq("active", true)
+        .not("user_id", "is", null);
+      const map = new Map<string, string>();
+      for (const inst of (insts ?? []) as any[]) {
+        if (inst.id && inst.user_id) map.set(inst.id as string, inst.user_id as string);
+      }
+      return map;
+    },
+  });
+  return data ?? new Map();
+}
+
 interface ChatUser {
   id: string;
   full_name: string | null;
@@ -117,6 +137,7 @@ export default function ChatPage() {
     },
   });
 
+  const instanceUserMap = useInstanceUserMap();
   const { data: allClients } = useClients();
   const { data: chatUsers } = useChatUsers();
   const isMobile = useIsMobile();
@@ -316,7 +337,7 @@ export default function ChatPage() {
                 {chatUsers.map((u) => (
                   <button
                     key={u.id}
-                    onClick={() => setUserFilter(u.id === userFilter ? null : u.id)}
+                    onClick={() => { if (u.id !== userFilter) setUserFilter(u.id); }}
                     className={`shrink-0 text-xs px-2.5 py-1 rounded-full border transition-colors ${
                       userFilter === u.id
                         ? "bg-zinc-900 text-white border-zinc-900"
@@ -371,7 +392,12 @@ export default function ChatPage() {
               <div className="p-8 text-center text-muted-foreground">
                 <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-20" />
                 <p className="text-sm">{search ? "Nenhum resultado." : "Nenhuma conversa ainda."}</p>
-                {isAdmin && !search && (
+                {isAdmin && !search && userFilter !== null && (
+                  <p className="text-xs mt-2 opacity-60 leading-relaxed">
+                    Vincule esta instância ao usuário<br />em Configurações → WhatsApp.
+                  </p>
+                )}
+                {isAdmin && !search && userFilter === null && (
                   <p className="text-xs mt-2 font-mono opacity-60">
                     msgs: {diagCount ?? "…"} | clients: {diagClientCount ?? "…"} | convs: {conversations?.length ?? 0}
                   </p>
@@ -420,10 +446,12 @@ export default function ChatPage() {
                             {conv.last_message}
                           </p>
                           <div className="flex items-center gap-1 shrink-0">
-                            {isAdmin && userFilter === null && conv.assigned_to && (() => {
-                              const name = chatUsers?.find(u => u.id === conv.assigned_to)?.full_name?.split(" ")[0];
+                            {isAdmin && userFilter === null && (() => {
+                              const ownerId = conv.assigned_to
+                                ?? (conv.last_instance_id ? instanceUserMap.get(conv.last_instance_id) ?? null : null);
+                              const name = chatUsers?.find(u => u.id === ownerId)?.full_name?.split(" ")[0];
                               return name ? (
-                                <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 leading-tight">
                                   {name}
                                 </span>
                               ) : null;
