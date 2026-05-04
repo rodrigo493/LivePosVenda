@@ -387,6 +387,10 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   const [showBlockingModal, setShowBlockingModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // ── Problemas Produção form state ────────────────────────────
+  const [producaoDesc, setProducaoDesc] = useState("");
+  const [producaoSending, setProducaoSending] = useState(false);
+
   // ── 3-dots admin menu state ───────────────────────────────────
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [unpauseOpen, setUnpauseOpen] = useState(false);
@@ -1055,6 +1059,29 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
     setIsEditingInfo(false);
   };
 
+  // ── Problemas Produção: envia para SquadOS ───────────────────
+  const handleEnviarProducao = async () => {
+    if (!producaoDesc.trim()) { toast.error("Descreva o problema antes de enviar."); return; }
+    const clientName = clientProfile?.name || ticket?.clients?.name || "";
+    setProducaoSending(true);
+    try {
+      const res = await fetch("https://squad.liveuni.com.br/api/problemas-producao/webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-webhook-secret": "squad-problemas-webhook-2026" },
+        body: JSON.stringify({ description: producaoDesc.trim(), client_name: clientName, received_at: new Date().toISOString() }),
+      });
+      if (res.status === 401) throw new Error("Autenticação inválida com o SquadOS.");
+      if (res.status === 400) throw new Error("Campo obrigatório faltando na requisição.");
+      if (!res.ok) throw new Error(`Erro inesperado: ${res.status}`);
+      toast.success("Problema enviado ao SquadOS com sucesso");
+      setProducaoDesc("");
+    } catch (err: any) {
+      toast.error(err?.message || "Falha ao enviar para o SquadOS.");
+    } finally {
+      setProducaoSending(false);
+    }
+  };
+
   // Check if we're in a sub-tab (client-level view)
   const isSubView = activeTab.startsWith("client-");
   const goBackToCard = () => setActiveTab("info");
@@ -1420,6 +1447,12 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
 
               <TabsTrigger value="whatsapp" className="text-xs rounded-none border-b-2 border-transparent data-[state=active]:border-emerald-500 data-[state=active]:shadow-none px-3 pb-2 gap-1 data-[state=active]:text-emerald-600">
                 <MessageSquare className="h-3 w-3" /> WhatsApp
+              </TabsTrigger>
+
+              <div className="h-5 w-px bg-border mx-2 self-center" />
+
+              <TabsTrigger value="problemas-producao" className="text-xs rounded-none border-b-2 border-transparent data-[state=active]:border-amber-500 data-[state=active]:shadow-none px-3 pb-2 gap-1 data-[state=active]:text-amber-600">
+                <AlertTriangle className="h-3 w-3" /> Problemas Produção
               </TabsTrigger>
             </TabsList>
           </div>
@@ -2685,6 +2718,35 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                         })}
                       </div>
                     )}
+                  </div>
+                </TabsContent>
+
+                {/* ── Tab: Problemas Produção ──────────────── */}
+                <TabsContent value="problemas-producao" className="mt-0 space-y-4">
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+                      Problemas Produção
+                    </p>
+                    <p className="text-xs text-muted-foreground mb-3">
+                      Descreva o problema de produção para enviar ao SquadOS.
+                    </p>
+                    <Textarea
+                      placeholder="Descreva o problema de produção..."
+                      value={producaoDesc}
+                      onChange={(e) => setProducaoDesc(e.target.value)}
+                      className="min-h-[140px] text-sm resize-none"
+                    />
+                    <div className="flex justify-end mt-3">
+                      <Button
+                        onClick={handleEnviarProducao}
+                        disabled={producaoSending || !producaoDesc.trim()}
+                        className="gap-1.5 bg-amber-500 hover:bg-amber-600 text-white"
+                        size="sm"
+                      >
+                        <Send className="h-3.5 w-3.5" />
+                        {producaoSending ? "Enviando..." : "Enviar para SquadOS"}
+                      </Button>
+                    </div>
                   </div>
                 </TabsContent>
 
