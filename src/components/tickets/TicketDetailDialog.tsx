@@ -414,19 +414,20 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   const { data: allPipelines = [] } = usePipelines();
   const { data: allUsers = [] } = useAllUsers();
 
-  // Resolve a instância WhatsApp do pipeline deste card
+  // Resolve a instância WhatsApp do responsável pelo card
   const pipelineId = ticket?.pipeline_id ?? null;
+  const responsibleUserId = localAssignedTo ?? user?.id ?? null;
   const { data: pipelineInstanceId = null } = useQuery<string | null>({
-    queryKey: ["pipeline-instance-id", pipelineId, user?.id],
-    enabled: !!pipelineId && !!user?.id && open,
+    queryKey: ["pipeline-instance-id", pipelineId, responsibleUserId],
+    enabled: !!pipelineId && !!responsibleUserId && open,
     staleTime: 300_000,
     queryFn: async () => {
-      // 1. Tenta instância vinculada ao usuário logado nesse pipeline
+      // 1. Tenta instância vinculada ao responsável pelo card nesse pipeline
       const { data: userInst } = await (supabase as any)
         .from("pipeline_whatsapp_instances")
         .select("id")
         .eq("pipeline_id", pipelineId)
-        .eq("user_id", user!.id)
+        .eq("user_id", responsibleUserId)
         .eq("active", true)
         .limit(1)
         .maybeSingle();

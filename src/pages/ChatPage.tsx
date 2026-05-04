@@ -7,6 +7,7 @@ import { WhatsAppChat } from "@/components/whatsapp/WhatsAppChat";
 import { useWhatsAppConversations, useMarkConversationRead } from "@/hooks/useWhatsAppConversations";
 import { useUserWhatsAppInstances } from "@/hooks/useUserWhatsAppInstances";
 import { useClients } from "@/hooks/useClients";
+import { useAllUsers } from "@/hooks/useUserAccess";
 import { useAuth } from "@/hooks/useAuth";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { motion, AnimatePresence } from "framer-motion";
@@ -138,7 +139,15 @@ export default function ChatPage() {
   });
 
   const instanceUserMap = useInstanceUserMap();
+  // Mapa reverso: user_id → instance_id (para admin enviar pelo responsável)
+  const userInstanceMap = useMemo(() => {
+    const m = new Map<string, string>();
+    instanceUserMap.forEach((userId, instanceId) => m.set(userId, instanceId));
+    return m;
+  }, [instanceUserMap]);
+
   const { data: allClients } = useClients();
+  const { data: allUsers = [] } = useAllUsers();
   const { data: chatUsers } = useChatUsers();
   const isMobile = useIsMobile();
   const [selectedChat, setSelectedChat] = useState<ActiveChat | null>(null);
@@ -224,6 +233,20 @@ export default function ChatPage() {
       (c.client_phone || "").includes(term)
     );
   }, [conversations, search]);
+
+  // Conversa selecionada completa (para pegar assigned_to)
+  const selectedConv = useMemo(
+    () => conversations?.find((c) => c.client_id === selectedChat?.client_id) ?? null,
+    [conversations, selectedChat?.client_id]
+  );
+
+  // Instância do responsável pela conversa (admin envia pelo número do responsável)
+  const adminChatInstanceId = useMemo(() => {
+    if (!isAdmin || !selectedConv) return undefined;
+    const ownerId = selectedConv.assigned_to
+      ?? (selectedConv.last_instance_id ? instanceUserMap.get(selectedConv.last_instance_id) ?? null : null);
+    return ownerId ? userInstanceMap.get(ownerId) : undefined;
+  }, [isAdmin, selectedConv, instanceUserMap, userInstanceMap]);
 
   const conversationClientIds = useMemo(() =>
     new Set((conversations || []).map((c) => c.client_id)),
@@ -453,12 +476,12 @@ export default function ChatPage() {
                             {conv.last_message}
                           </p>
                           <div className="flex items-center gap-1 shrink-0">
-                            {isAdmin && userFilter === null && (() => {
+                            {isAdmin && (() => {
                               const ownerId = conv.assigned_to
                                 ?? (conv.last_instance_id ? instanceUserMap.get(conv.last_instance_id) ?? null : null);
-                              const name = chatUsers?.find(u => u.id === ownerId)?.full_name?.split(" ")[0];
+                              const name = allUsers.find(u => u.user_id === ownerId)?.full_name?.split(" ")[0];
                               return name ? (
-                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 leading-tight">
+                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 leading-tight whitespace-nowrap">
                                   {name}
                                 </span>
                               ) : null;
@@ -550,7 +573,7 @@ export default function ChatPage() {
                   clientName={selectedChat.client_name}
                   hideHeader
                   className="flex flex-col flex-1 min-h-0 p-4"
-                  instanceId={effectiveInstanceId ?? undefined}
+                  instanceId={isAdmin ? adminChatInstanceId : (effectiveInstanceId ?? undefined)}
                 />
               </div>
             </motion.div>
