@@ -25,10 +25,22 @@ function useChatUsers() {
     queryKey: ["chat-users"],
     staleTime: 60_000,
     queryFn: async () => {
+      // Apenas usuários que têm pelo menos uma instância WhatsApp ativa
+      const { data: instances } = await (supabase as any)
+        .from("pipeline_whatsapp_instances")
+        .select("user_id")
+        .eq("active", true)
+        .not("user_id", "is", null);
+
+      const userIds = [...new Set(((instances ?? []) as any[]).map((i) => i.user_id))] as string[];
+      if (!userIds.length) return [];
+
       const { data } = await (supabase as any)
         .from("profiles")
         .select("user_id, full_name")
+        .in("user_id", userIds)
         .order("full_name");
+
       return ((data ?? []) as any[]).map((p) => ({ id: p.user_id, full_name: p.full_name })) as ChatUser[];
     },
   });
