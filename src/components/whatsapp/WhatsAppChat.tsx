@@ -374,7 +374,7 @@ function ForwardModal({ msg, onClose }: { msg: any; onClose: () => void }) {
   );
 }
 
-export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hideHeader, className }: WhatsAppChatProps) {
+export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hideHeader, className, instanceId }: WhatsAppChatProps) {
   const qc = useQueryClient();
   const { data: messages, isLoading } = useWhatsAppMessages(clientId, ticketId);
   const [draft, setDraft] = useState("");
@@ -497,6 +497,7 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
             media_base64: base64,
             media_mime_type: blob.type || "audio/webm",
             media_filename: `audio_${Date.now()}.webm`,
+            ...(instanceId ? { instance_id: instanceId } : {}),
           }),
         }
       );
@@ -602,6 +603,7 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token;
       const body: Record<string, any> = { client_id: clientId, ticket_id: ticketId, phone: clientPhone, message: messageText };
+      if (instanceId) body.instance_id = instanceId;
       if (mediaFile) { body.media_base64 = mediaFile.base64; body.media_mime_type = mediaFile.mime; body.media_filename = mediaFile.name; }
       const res = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-whatsapp`,
