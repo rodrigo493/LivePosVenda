@@ -27,9 +27,9 @@ function useChatUsers() {
     queryFn: async () => {
       const { data } = await (supabase as any)
         .from("profiles")
-        .select("id, full_name")
+        .select("user_id, full_name")
         .order("full_name");
-      return (data ?? []) as ChatUser[];
+      return ((data ?? []) as any[]).map((p) => ({ id: p.user_id, full_name: p.full_name })) as ChatUser[];
     },
   });
 }
@@ -292,7 +292,7 @@ export default function ChatPage() {
                         : "bg-transparent text-muted-foreground border-border hover:border-zinc-400"
                     }`}
                   >
-                    {u.full_name?.split(" ")[0] ?? "Usuário"}
+                    {u.full_name?.split(" ")[0] || "Usuário"}
                   </button>
                 ))}
               </div>
