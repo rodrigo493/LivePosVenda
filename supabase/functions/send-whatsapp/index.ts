@@ -45,7 +45,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { client_id, ticket_id, message, phone, media_base64, media_mime_type, media_filename } = await req.json();
+    const { client_id, ticket_id, message, phone, media_base64, media_mime_type, media_filename, instance_id } = await req.json();
 
     if (!client_id || !phone) {
       return new Response(
@@ -70,12 +70,27 @@ Deno.serve(async (req) => {
     const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     // Resolve which Uazapi instance to use for this send.
-    // Priority: (1) last inbound message on the ticket → (2) pipeline distribution → (3) fallback token
+    // Priority: (0) explicit instance_id → (1) last inbound on ticket → (2) pipeline distribution → (3) user instance → (4) last inbound client → (5) fallback
     let useToken = UAZAPI_INSTANCE_TOKEN;
     let useBaseUrl = UAZAPI_BASE_URL;
     let useInstanceId: string | null = null;
 
-    if (ticket_id) {
+    // Priority 0: instance_id explícito enviado pelo cliente
+    if (instance_id) {
+      const { data: explicitInst } = await adminClient
+        .from("pipeline_whatsapp_instances")
+        .select("id, instance_token, base_url")
+        .eq("id", instance_id)
+        .eq("active", true)
+        .maybeSingle();
+      if ((explicitInst as any)?.instance_token) {
+        useToken = (explicitInst as any).instance_token;
+        useBaseUrl = (explicitInst as any).base_url || UAZAPI_BASE_URL;
+        useInstanceId = (explicitInst as any).id;
+      }
+    }
+
+    if (!useInstanceId && ticket_id) {
       // 1. Look at the last inbound message on the ticket to reuse the same number
       const { data: lastMsg } = await adminClient
         .from("whatsapp_messages")
