@@ -5,6 +5,12 @@ const corsHeaders = {
 
 const SQUAD_URL = 'https://squad.liveuni.com.br/api/problemas-producao/webhook';
 
+interface Attachment {
+  url: string;
+  name: string;
+  type: string;
+}
+
 function jsonResponse(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -17,7 +23,11 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { description, client_name } = body as { description?: string; client_name?: string };
+    const { description, client_name, attachments } = body as {
+      description?: string;
+      client_name?: string;
+      attachments?: Attachment[];
+    };
 
     if (!description?.trim() || !client_name?.trim()) {
       return jsonResponse({ error: 'description e client_name são obrigatórios' }, 400);
@@ -33,6 +43,7 @@ Deno.serve(async (req) => {
         description: description.trim(),
         client_name: client_name.trim(),
         received_at: new Date().toISOString(),
+        attachments: attachments ?? [],
       }),
     });
 
