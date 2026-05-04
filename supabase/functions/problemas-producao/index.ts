@@ -16,9 +16,6 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
   try {
-    const SQUAD_TOKEN = Deno.env.get('SQUAD_TOKEN');
-    if (!SQUAD_TOKEN) return jsonResponse({ error: 'SQUAD_TOKEN not configured' }, 500);
-
     const body = await req.json();
     const { description, client_name } = body as { description?: string; client_name?: string };
 
@@ -30,7 +27,7 @@ Deno.serve(async (req) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-webhook-secret': SQUAD_TOKEN,
+        'x-webhook-secret': 'squad-problemas-webhook-2026',
       },
       body: JSON.stringify({
         description: description.trim(),
