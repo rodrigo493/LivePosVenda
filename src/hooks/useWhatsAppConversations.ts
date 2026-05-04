@@ -47,30 +47,15 @@ export function useWhatsAppConversations(
       if (msgError) throw msgError;
       if (!messages?.length) return [];
 
-      // ── Step 2: determina o instance_id da mensagem MAIS RECENTE por cliente ──
-      // Mensagens já vêm em ordem decrescente → o primeiro por cliente = mais recente.
-      const lastInstancePerClient = new Map<string, string>(); // client_id → instance_id
+      // ── Step 2: registra o instance_id da mensagem mais recente por cliente ──
+      const lastInstancePerClient = new Map<string, string>();
       for (const msg of messages) {
         if (msg.client_id && !lastInstancePerClient.has(msg.client_id) && (msg as any).instance_id) {
           lastInstancePerClient.set(msg.client_id, (msg as any).instance_id);
         }
       }
 
-      // ── Step 3: resolve mapa instance_id → user_id quando necessário ─
-      // Só carrega quando filtramos por usuário sem instanceId explícito.
-      let instanceOwnerMap = new Map<string, string>(); // instance_id → user_id
-      if (targetUserId && !instanceId) {
-        const { data: insts } = await (supabase as any)
-          .from("pipeline_whatsapp_instances")
-          .select("id, user_id")
-          .eq("active", true)
-          .not("user_id", "is", null);
-        for (const inst of (insts ?? []) as any[]) {
-          if (inst.id && inst.user_id) instanceOwnerMap.set(inst.id as string, inst.user_id as string);
-        }
-      }
-
-      // ── Step 4: busca todos os clientes que aparecem nas mensagens ────
+      // ── Step 3: busca todos os clientes que aparecem nas mensagens ────
       const clientIds = [...new Set(messages.map((m) => m.client_id).filter(Boolean))];
       if (!clientIds.length) return [];
 
@@ -82,10 +67,39 @@ export function useWhatsAppConversations(
       if (clientError) throw clientError;
       if (!allClients?.length) return [];
 
-      // ── Step 5: filtra clientes ───────────────────────────────────────
+      // ── Step 4: resolve o responsável de cada cliente ─────────────────
+      // Hierarquia: clients.assigned_to → tickets.assigned_to (ticket mais recente)
+      // Usado quando filtrando por aba de usuário (não Todos, não instanceId explícito).
+      let clientOwnerMap = new Map<string, string>(); // client_id → user_id efetivo
+
+      if (targetUserId && !instanceId) {
+        // Constrói o mapa a partir de clients.assigned_to
+        for (const c of allClients) {
+          if (c.assigned_to) clientOwnerMap.set(c.id, c.assigned_to);
+        }
+
+        // Complementa com tickets.assigned_to para clientes ainda sem dono
+        const unownedIds = clientIds.filter((id) => !clientOwnerMap.has(id));
+        if (unownedIds.length) {
+          const { data: tickets } = await (supabase as any)
+            .from("tickets")
+            .select("client_id, assigned_to")
+            .in("client_id", unownedIds)
+            .not("assigned_to", "is", null)
+            .is("deleted_at", null)
+            .order("created_at", { ascending: false });
+
+          for (const t of (tickets ?? []) as any[]) {
+            if (t.client_id && t.assigned_to && !clientOwnerMap.has(t.client_id)) {
+              clientOwnerMap.set(t.client_id, t.assigned_to);
+            }
+          }
+        }
+      }
+
+      // ── Step 5: instâncias explícitas (abas multi-instância de não-admin) ──
       const instanceClientIds = new Set<string>();
       if (instanceId) {
-        // Aba de instância explícita (não-admin com múltiplas instâncias)
         for (const msg of messages) {
           if ((msg as any).instance_id === instanceId && msg.client_id) {
             instanceClientIds.add(msg.client_id);
@@ -93,30 +107,28 @@ export function useWhatsAppConversations(
         }
       }
 
+      // ── Step 6: filtra clientes ───────────────────────────────────────
       const clients = (allClients || []).filter((client) => {
         if (!targetUserId) return true; // "Todos": sem filtro
 
         if (instanceId) {
-          // Aba de instância explícita: filtra pela instância selecionada
+          // Aba de instância explícita (não-admin multi-instância)
           return instanceClientIds.has(client.id);
         }
 
-        // Aba de usuário: conversa pertence ao usuário se:
-        // 1. A ÚLTIMA mensagem veio da instância deste usuário, OU
-        // 2. O cliente está diretamente atribuído a este usuário (fallback)
-        const lastInst = lastInstancePerClient.get(client.id);
-        const instanceOwner = lastInst ? instanceOwnerMap.get(lastInst) : null;
-        return instanceOwner === targetUserId || client.assigned_to === targetUserId;
+        // Aba de usuário: mostra apenas clientes atribuídos a este usuário
+        // (via clients.assigned_to ou tickets.assigned_to)
+        return clientOwnerMap.get(client.id) === targetUserId;
       });
 
       if (!clients.length) return [];
 
-      // ── Step 6: monta mapa client_id → client ──
+      // ── Step 7: monta mapa client_id → client ──
       const clientMap = new Map<string, typeof clients[number]>(
         (clients || []).map((c) => [c.id, c])
       );
 
-      // ── Step 7: agrega por cliente ──
+      // ── Step 8: agrega por cliente ──
       const map = new Map<string, Conversation>();
       for (const msg of messages) {
         if (!msg.client_id) continue;
@@ -139,8 +151,8 @@ export function useWhatsAppConversations(
             last_message_at: msg.created_at,
             last_message_direction: (msg.direction as "inbound" | "outbound") ?? "outbound",
             unread_count: isUnread ? 1 : 0,
-            assigned_to: client.assigned_to ?? null,
-            last_instance_id: (msg as any).instance_id ?? null,
+            assigned_to: clientOwnerMap.get(client.id) ?? client.assigned_to ?? null,
+            last_instance_id: lastInstancePerClient.get(client.id) ?? null,
           });
         } else if (isUnread) {
           const conv = map.get(msg.client_id)!;
@@ -148,7 +160,7 @@ export function useWhatsAppConversations(
         }
       }
 
-      // ── Step 8: deduplica por telefone (últimos 8 dígitos) ──
+      // ── Step 9: deduplica por telefone (últimos 8 dígitos) ──
       const byPhone = new Map<string, Conversation>();
       for (const conv of map.values()) {
         const phoneKey = conv.client_phone
