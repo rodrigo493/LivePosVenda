@@ -17,14 +17,16 @@ function normalizeState(raw: unknown): "open" | "close" | "connecting" {
 }
 
 function resolveRawState(data: any): string {
-  // Tenta campos string primeiro (evita pegar o objeto "status" do nível raiz)
+  // uazapiGO v2: status.connected=true é o sinal mais confiável — short-circuit imediato
+  if (data?.status?.connected === true) return "connected";
+
+  // Prioridade: campos de instância antes de state genérico (evita "connecting" falso)
   const candidates = [
+    data?.instance?.status,          // uazapiGO: instance.status = "connected"
+    data?.instance?.state,
+    typeof data?.status === "string" ? data.status : undefined,
     data?.state,
     data?.State,
-    typeof data?.status === "string" ? data.status : undefined,
-    data?.instance?.state,
-    data?.instance?.status,          // uazapiGO: instance.status = "connected"
-    data?.status?.connected === true ? "connected" : undefined, // uazapiGO: status.connected = true
     data?.data?.state,
   ];
   for (const c of candidates) {
@@ -158,7 +160,17 @@ Deno.serve(async (req) => {
     let statusData: any = {};
     try { statusData = JSON.parse(statusRaw); } catch { /* ignorar */ }
 
+    // Se a API retornou erro HTTP, não tratar como "close" (evita loop connect desnecessário)
+    if (!statusRes.ok) {
+      console.error(`[GET /instance/status] HTTP ${statusRes.status} — tratando como erro, não como desconexão`);
+      return new Response(
+        JSON.stringify({ error: `Uazapi status HTTP ${statusRes.status}`, state: "connecting" }),
+        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     const rawState = resolveRawState(statusData);
+    console.log(`[resolveRawState] rawState=${rawState} instance.status=${statusData?.instance?.status} status.connected=${statusData?.status?.connected} state=${statusData?.state}`);
     let state = normalizeState(rawState);
 
     let qrcode: string | null = null;

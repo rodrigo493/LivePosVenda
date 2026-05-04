@@ -15,7 +15,7 @@ async function getStatus(instanceId: string): Promise<WaState> {
         Authorization: `Bearer ${token}`,
         apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
       },
-      body: JSON.stringify({ instance_id: instanceId }),
+      body: JSON.stringify({ instance_id: instanceId, skip_connect: true }),
     }
   );
   if (!res.ok) return null;
@@ -36,6 +36,7 @@ export function useMyWhatsAppStatus(userId: string | undefined) {
       .from("pipeline_whatsapp_instances" as any)
       .select("id")
       .eq("user_id", userId)
+      .eq("active", true)
       .limit(1)
       .maybeSingle()
       .then(({ data }) => setInstanceId((data as any)?.id ?? null));
