@@ -594,7 +594,21 @@ const PDDetailPage = () => {
         }
       );
 
-      if (!orderRes.ok) {
+      // Se POST retornar 405 (API Nomus mudou), retenta com PUT na coleção
+      if (!existingNomusId && orderRes.status === 405) {
+        const retryPut = await fetch("/api/nomus/rest/pedidos", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", "Accept": "application/json" },
+          body: JSON.stringify({ codigoPedido, ...basePayload }),
+        });
+        if (retryPut.ok) {
+          const d = await retryPut.json().catch(() => null);
+          returnedNomusId = d?.id ?? d?.Id ?? null;
+        } else {
+          const errBody = await retryPut.json().catch(() => ({}));
+          throw new Error(`Erro Nomus [${retryPut.status}]: ${JSON.stringify(errBody)}`);
+        }
+      } else if (!orderRes.ok) {
         const errBody = await orderRes.json().catch(() => ({}));
         const isDuplicate = orderRes.status === 406 &&
           JSON.stringify(errBody).includes("nomeEClienteUnico");
