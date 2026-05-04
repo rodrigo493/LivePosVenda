@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { MessageSquare, Search, UserPlus, LayoutGrid, ArrowLeft } from "lucide-react";
 import { ChannelIcon } from "@/components/ui/ChannelIcon";
 import { Input } from "@/components/ui/input";
@@ -53,7 +53,34 @@ interface ActiveChat {
 export default function ChatPage() {
   const { user, hasRole } = useAuth();
   const isAdmin = hasRole("admin");
+  // Padrão: null = Todos. Muda para user.id quando detectamos que o usuário tem instância vinculada.
   const [userFilter, setUserFilter] = useState<string | null>(null);
+  const hasInitFilter = useRef(false);
+
+  // Detecta se o usuário logado tem instância WhatsApp vinculada
+  const { data: myInstance } = useQuery({
+    queryKey: ["my-chat-instance", user?.id],
+    enabled: !!user?.id,
+    staleTime: 300_000,
+    queryFn: async () => {
+      const { data } = await (supabase as any)
+        .from("pipeline_whatsapp_instances")
+        .select("id")
+        .eq("user_id", user!.id)
+        .eq("active", true)
+        .limit(1)
+        .maybeSingle();
+      return (data as any) ?? null;
+    },
+  });
+
+  // Inicializa o filtro com o próprio usuário se ele tem instância (apenas 1x)
+  useEffect(() => {
+    if (!hasInitFilter.current && myInstance && user?.id) {
+      hasInitFilter.current = true;
+      setUserFilter(user.id);
+    }
+  }, [myInstance, user?.id]);
 
   const { data: conversations, isLoading } = useWhatsAppConversations(isAdmin ? userFilter : undefined);
 

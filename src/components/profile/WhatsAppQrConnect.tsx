@@ -16,7 +16,7 @@ interface StatusResponse {
   phone: string | null;
 }
 
-async function fetchInstanceStatus(instanceId: string): Promise<StatusResponse> {
+async function fetchInstanceStatus(instanceId: string, skipConnect = false): Promise<StatusResponse> {
   const { data: sessionData } = await supabase.auth.getSession();
   const token = sessionData?.session?.access_token ?? "";
   const res = await fetch(
@@ -28,7 +28,7 @@ async function fetchInstanceStatus(instanceId: string): Promise<StatusResponse> 
         Authorization: `Bearer ${token}`,
         apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
       },
-      body: JSON.stringify({ instance_id: instanceId }),
+      body: JSON.stringify({ instance_id: instanceId, skip_connect: skipConnect }),
     }
   );
   if (!res.ok) {
@@ -46,6 +46,9 @@ export function WhatsAppQrConnect({ instance }: { instance: Instance }) {
   const [error, setError] = useState<string | null>(null);
   const wasConnected = useRef(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Tracks if QR was received; prevents /instance/connect from being called again
+  // on every poll (which would reset the QR session and invalidate the code)
+  const hasQrRef = useRef(false);
 
   const stopPolling = () => {
     if (intervalRef.current) {
@@ -56,9 +59,18 @@ export function WhatsAppQrConnect({ instance }: { instance: Instance }) {
 
   const poll = useCallback(async () => {
     try {
-      const result = await fetchInstanceStatus(instance.id);
+      // skip_connect=true once QR is received: prevent each poll from
+      // calling /instance/connect and resetting the QR session
+      const result = await fetchInstanceStatus(instance.id, hasQrRef.current);
       setStatus(result);
       setError(null);
+
+      if (result.qrcode) {
+        hasQrRef.current = true;
+      } else if (result.state !== "connecting") {
+        // QR expired or connection reset — allow a fresh connect on next poll
+        hasQrRef.current = false;
+      }
 
       if (result.state === "open" && !wasConnected.current) {
         wasConnected.current = true;
@@ -77,10 +89,10 @@ export function WhatsAppQrConnect({ instance }: { instance: Instance }) {
     }
   }, [instance.id]);
 
-  // Verificação inicial: apenas checa se já está conectado (sem iniciar polling contínuo)
+  // Verificação inicial: apenas checa se já está conectado (skip_connect=true — não inicia QR)
   useEffect(() => {
     let cancelled = false;
-    fetchInstanceStatus(instance.id)
+    fetchInstanceStatus(instance.id, true)
       .then((result) => {
         if (cancelled) return;
         setStatus(result);
@@ -104,6 +116,7 @@ export function WhatsAppQrConnect({ instance }: { instance: Instance }) {
     setError(null);
     setLoading(true);
     wasConnected.current = false;
+    hasQrRef.current = false; // fresh connect — allow /instance/connect on first poll
     stopPolling();
     poll();
     intervalRef.current = setInterval(poll, 3_000);

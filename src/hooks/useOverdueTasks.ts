@@ -5,7 +5,6 @@ import { useAuth } from "@/hooks/useAuth";
 export function useOverdueTasks() {
   const { user, roles } = useAuth();
   const isAdmin = roles.includes("admin");
-  const today = new Date().toISOString().split("T")[0];
 
   return useQuery({
     queryKey: ["overdue-tasks-count", user?.id, isAdmin],
@@ -13,12 +12,30 @@ export function useOverdueTasks() {
     staleTime: 0,
     refetchInterval: 60_000,
     queryFn: async () => {
+      const today = new Date().toISOString().split("T")[0];
+
+      // Busca overdue_ack_at do perfil do usuário
+      const { data: profile } = await (supabase as any)
+        .from("profiles")
+        .select("overdue_ack_at")
+        .eq("id", user!.id)
+        .maybeSingle();
+
+      // Apenas mostra tarefas que ficaram atrasadas APÓS o último reset
+      const ackDate = (profile as any)?.overdue_ack_at
+        ? new Date((profile as any).overdue_ack_at).toISOString().split("T")[0]
+        : null;
+
       let q = (supabase as any)
         .from("tasks")
         .select("id", { count: "exact", head: true })
         .neq("status", "concluida")
         .not("due_date", "is", null)
         .lt("due_date", today);
+
+      if (ackDate) {
+        q = q.gt("due_date", ackDate);
+      }
 
       if (!isAdmin) q = q.eq("assigned_to", user!.id);
 

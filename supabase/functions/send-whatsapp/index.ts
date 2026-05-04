@@ -76,7 +76,7 @@ Deno.serve(async (req) => {
     let useInstanceId: string | null = null;
 
     if (ticket_id) {
-      // 1. Look at the last inbound message to reuse the same number the client messaged on
+      // 1. Look at the last inbound message on the ticket to reuse the same number
       const { data: lastMsg } = await adminClient
         .from("whatsapp_messages")
         .select("instance_id, pipeline_whatsapp_instances(id, instance_token, base_url)")
@@ -92,7 +92,7 @@ Deno.serve(async (req) => {
         useBaseUrl = inst.base_url || UAZAPI_BASE_URL;
         useInstanceId = inst.id;
       } else {
-        // 2. No inbound history — pick by distribution from the ticket's pipeline
+        // 2. No inbound history on ticket — pick by distribution from the ticket's pipeline
         const { data: ticket } = await adminClient
           .from("tickets")
           .select("pipeline_id")
@@ -117,6 +117,43 @@ Deno.serve(async (req) => {
             if (!useInstanceId) { const last = (instances as any[])[instances.length - 1]; useToken = last.instance_token; useBaseUrl = last.base_url || UAZAPI_BASE_URL; useInstanceId = last.id; }
           }
         }
+      }
+    }
+
+    // 3. Sem ticket ou sem resultado: busca último inbound do cliente (chat direto sem ticket)
+    if (!useInstanceId && client_id) {
+      const { data: clientMsg } = await adminClient
+        .from("whatsapp_messages")
+        .select("instance_id, pipeline_whatsapp_instances(id, instance_token, base_url)")
+        .eq("client_id", client_id)
+        .eq("direction", "inbound")
+        .not("instance_id", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const clientInst = (clientMsg as any)?.pipeline_whatsapp_instances;
+      if (clientInst?.instance_token) {
+        useToken = clientInst.instance_token;
+        useBaseUrl = clientInst.base_url || UAZAPI_BASE_URL;
+        useInstanceId = clientInst.id;
+      }
+    }
+
+    // 4. Usa instância vinculada ao usuário logado
+    if (!useInstanceId) {
+      const { data: userInst } = await adminClient
+        .from("pipeline_whatsapp_instances")
+        .select("id, instance_token, base_url")
+        .eq("user_id", user.id)
+        .eq("active", true)
+        .limit(1)
+        .maybeSingle();
+
+      if ((userInst as any)?.instance_token) {
+        useToken = (userInst as any).instance_token;
+        useBaseUrl = (userInst as any).base_url || UAZAPI_BASE_URL;
+        useInstanceId = (userInst as any).id;
       }
     }
 

@@ -12,7 +12,7 @@ export interface Conversation {
   unread_count: number;
 }
 
-// filterUserId: null = todos (admin), string = filtrar por assigned_to
+// filterUserId: null = todos (admin), string = filtrar por instância vinculada ao usuário
 export function useWhatsAppConversations(filterUserId?: string | null) {
   const { user, hasRole } = useAuth();
   const isAdmin = hasRole("admin");
@@ -25,22 +25,45 @@ export function useWhatsAppConversations(filterUserId?: string | null) {
     refetchInterval: 15_000,
     enabled: !!userId,
     queryFn: async () => {
-      // Determina qual filtro de assigned_to aplicar
       const targetUserId: string | null = isAdmin
-        ? (filterUserId ?? null)   // admin: usa o filtro escolhido (null = todos)
-        : userId;                  // não-admin: filtra pelo próprio userId + não-atribuídos
+        ? (filterUserId ?? null)
+        : userId;
 
-      // ── Step 1: busca mensagens (sem JOIN para evitar problemas de RLS no PostgREST) ──
-      const { data: messages, error: msgError } = await supabase
+      // ── Step 1: resolve instance_id do usuário alvo ───────────────────
+      // Quando há um usuário alvo, filtra as mensagens pela instância vinculada a ele.
+      // Isso garante que "Renata" veja apenas conversas do seu número.
+      let instanceId: string | null = null;
+      if (targetUserId) {
+        const { data: inst } = await supabase
+          .from("pipeline_whatsapp_instances" as any)
+          .select("id")
+          .eq("user_id", targetUserId)
+          .eq("active", true)
+          .limit(1)
+          .maybeSingle();
+        instanceId = (inst as any)?.id ?? null;
+      }
+
+      // ── Step 2: busca mensagens filtradas por instância (quando disponível) ──
+      let msgQuery = supabase
         .from("whatsapp_messages")
         .select("client_id, message_text, direction, created_at")
         .order("created_at", { ascending: false })
         .limit(5000);
 
+      if (instanceId) {
+        // Filtra pelo número da instância do usuário
+        msgQuery = (msgQuery as any).eq("instance_id", instanceId);
+      } else if (!isAdmin && targetUserId) {
+        // Não-admin sem instância: fallback para assigned_to (comportamento anterior)
+      }
+
+      const { data: messages, error: msgError } = await msgQuery;
+
       if (msgError) throw msgError;
       if (!messages?.length) return [];
 
-      // ── Step 2: busca clientes únicos referenciados pelas mensagens ──
+      // ── Step 3: busca clientes únicos referenciados pelas mensagens ──
       const clientIds = [...new Set(messages.map((m) => m.client_id).filter(Boolean))];
       if (!clientIds.length) return [];
 
@@ -49,22 +72,24 @@ export function useWhatsAppConversations(filterUserId?: string | null) {
         .select("id, name, phone, whatsapp, whatsapp_last_read_at, assigned_to")
         .in("id", clientIds);
 
-      // Aplica filtro de responsável
-      if (isAdmin && targetUserId) {
-        clientQuery = clientQuery.eq("assigned_to", targetUserId);
-      } else if (!isAdmin && targetUserId) {
-        clientQuery = clientQuery.or(`assigned_to.eq.${targetUserId},assigned_to.is.null`);
+      // Aplica filtro de assigned_to apenas quando não há filtro por instância
+      if (!instanceId) {
+        if (isAdmin && targetUserId) {
+          clientQuery = clientQuery.eq("assigned_to", targetUserId);
+        } else if (!isAdmin && targetUserId) {
+          clientQuery = clientQuery.or(`assigned_to.eq.${targetUserId},assigned_to.is.null`);
+        }
       }
 
       const { data: clients, error: clientError } = await clientQuery;
       if (clientError) throw clientError;
 
-      // ── Step 3: monta mapa client_id → client ──
+      // ── Step 4: monta mapa client_id → client ──
       const clientMap = new Map<string, typeof clients[number]>(
         (clients || []).map((c) => [c.id, c])
       );
 
-      // ── Step 4: agrega por cliente ──
+      // ── Step 5: agrega por cliente ──
       const map = new Map<string, Conversation>();
       for (const msg of messages) {
         if (!msg.client_id) continue;
@@ -94,7 +119,7 @@ export function useWhatsAppConversations(filterUserId?: string | null) {
         }
       }
 
-      // ── Step 5: deduplica por telefone (últimos 8 dígitos) ──
+      // ── Step 6: deduplica por telefone (últimos 8 dígitos) ──
       const byPhone = new Map<string, Conversation>();
       for (const conv of map.values()) {
         const phoneKey = conv.client_phone

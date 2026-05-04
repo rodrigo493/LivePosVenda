@@ -1,10 +1,11 @@
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { MessageSquare, UserPlus, X } from "lucide-react";
+import { MessageSquare, UserPlus, X, RotateCcw } from "lucide-react";
 import { useWhatsAppConversations } from "@/hooks/useWhatsAppConversations";
 import { useOverdueTasks } from "@/hooks/useOverdueTasks";
 import { useUnansweredAck } from "@/hooks/useUnansweredAck";
 import { useNewLeads, useClearNewLead, useClearAllNewLeads } from "@/hooks/useNewLeads";
+import { useResetMyAlerts } from "@/hooks/useResetMyAlerts";
 import {
   Popover,
   PopoverContent,
@@ -49,6 +50,7 @@ export function HeaderAlerts() {
   const { data: newLeads = [] } = useNewLeads();
   const clearNewLead = useClearNewLead();
   const clearAllNewLeads = useClearAllNewLeads();
+  const { reset: resetMyAlerts, isResetting } = useResetMyAlerts();
 
   const ackDate = ackAt ? new Date(ackAt) : null;
 
@@ -197,6 +199,17 @@ export function HeaderAlerts() {
           TAREFA ATRASADA
         </button>
       )}
+
+      {/* ── ZERAR MEUS ALERTAS ── */}
+      <button
+        onClick={resetMyAlerts}
+        disabled={isResetting}
+        title="Zerar todos os meus alertas"
+        className="flex items-center gap-1 px-2 py-[5px] rounded-full border border-muted-foreground/30 bg-transparent text-muted-foreground text-[10px] uppercase tracking-wide hover:border-orange-500/60 hover:text-orange-400 transition-all disabled:opacity-40 whitespace-nowrap"
+      >
+        <RotateCcw className={`h-3 w-3 ${isResetting ? "animate-spin" : ""}`} />
+        Zerar alertas
+      </button>
 
       {/* ── CARD SEM RESPOSTA ── */}
       {unansweredConvs.length > 0 && (

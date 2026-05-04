@@ -7,17 +7,35 @@ const corsHeaders = {
 };
 
 // uazapiGO v2 state mapping → nosso padrão interno
-// Baileys retorna "open" nativamente; alguns wrappers normalizam para "connected"
+// A API retorna: { instance: { status: "connected" }, status: { connected: true, jid: "..." } }
+// "status" no nível raiz é um OBJETO, não string — devemos usar instance.status ou status.connected
 function normalizeState(raw: unknown): "open" | "close" | "connecting" {
   const s = String(raw ?? "").toLowerCase();
   if (s === "open" || s === "connected") return "open";
   if (s === "connecting") return "connecting";
-  return "close"; // disconnected ou qualquer outro
+  return "close";
+}
+
+function resolveRawState(data: any): string {
+  // Tenta campos string primeiro (evita pegar o objeto "status" do nível raiz)
+  const candidates = [
+    data?.state,
+    data?.State,
+    typeof data?.status === "string" ? data.status : undefined,
+    data?.instance?.state,
+    data?.instance?.status,          // uazapiGO: instance.status = "connected"
+    data?.status?.connected === true ? "connected" : undefined, // uazapiGO: status.connected = true
+    data?.data?.state,
+  ];
+  for (const c of candidates) {
+    if (typeof c === "string" && c) return c;
+  }
+  return "disconnected";
 }
 
 // Extrai QR code de qualquer campo possível na resposta uazapiGO
 function extractQr(data: any): string | null {
-  return (
+  const qr =
     data?.qrcode ??
     data?.qr ??
     data?.base64 ??
@@ -27,8 +45,9 @@ function extractQr(data: any): string | null {
     data?.instance?.qr ??
     data?.data?.qrcode ??
     data?.data?.qr ??
-    null
-  );
+    null;
+  // QR vazio ("") conta como nulo
+  return qr && String(qr).length > 0 ? qr : null;
 }
 
 // Extrai telefone conectado da resposta uazapiGO
@@ -38,11 +57,14 @@ function extractPhone(data: any): string | null {
     data?.wid ??
     data?.instance?.phone ??
     data?.instance?.wid ??
+    data?.instance?.owner ??         // uazapiGO: instance.owner = "5519997296617"
+    data?.status?.jid ??             // uazapiGO: status.jid = "55...@s.whatsapp.net"
     data?.data?.phone ??
     null;
   if (!raw) return null;
   const str = String(raw);
-  return str.includes("@") ? str.split("@")[0] : str;
+  // Remove parte depois de ":" ou "@": "5519997296617:14@s.whatsapp.net" → "5519997296617"
+  return str.split(/[:@]/)[0];
 }
 
 Deno.serve(async (req) => {
@@ -74,7 +96,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    let body: { instance_id?: string };
+    let body: { instance_id?: string; skip_connect?: boolean };
     try {
       body = await req.json();
     } catch {
@@ -83,7 +105,7 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    const { instance_id } = body;
+    const { instance_id, skip_connect } = body;
     if (!instance_id) {
       return new Response(JSON.stringify({ error: "instance_id required" }), {
         status: 400,
@@ -136,8 +158,7 @@ Deno.serve(async (req) => {
     let statusData: any = {};
     try { statusData = JSON.parse(statusRaw); } catch { /* ignorar */ }
 
-    const rawState =
-      statusData?.state ?? statusData?.State ?? statusData?.status ?? statusData?.instance?.state ?? "disconnected";
+    const rawState = resolveRawState(statusData);
     let state = normalizeState(rawState);
 
     let qrcode: string | null = null;
@@ -148,7 +169,7 @@ Deno.serve(async (req) => {
       qrcode = extractQr(statusData);
     }
 
-    if (state === "close") {
+    if (state === "close" && !skip_connect) {
       // ── 2. Inicia conexão (gera QR) via POST /instance/connect ────────
       const connectRes = await fetch(`${baseUrl}/instance/connect`, {
         method: "POST",
