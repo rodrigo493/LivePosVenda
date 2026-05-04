@@ -25,51 +25,59 @@ export function useWhatsAppConversations(filterUserId?: string | null) {
     refetchInterval: 15_000,
     enabled: !!userId,
     queryFn: async () => {
-      let query = supabase
-        .from("whatsapp_messages")
-        .order("created_at", { ascending: false });
-
       // Determina qual filtro de assigned_to aplicar
       const targetUserId: string | null = isAdmin
         ? (filterUserId ?? null)   // admin: usa o filtro escolhido (null = todos)
         : userId;                  // não-admin: filtra pelo próprio userId + não-atribuídos
 
+      // ── Step 1: busca mensagens (sem JOIN para evitar problemas de RLS no PostgREST) ──
+      const { data: messages, error: msgError } = await supabase
+        .from("whatsapp_messages")
+        .select("client_id, message_text, direction, created_at")
+        .order("created_at", { ascending: false })
+        .limit(5000);
+
+      if (msgError) throw msgError;
+      if (!messages?.length) return [];
+
+      // ── Step 2: busca clientes únicos referenciados pelas mensagens ──
+      const clientIds = [...new Set(messages.map((m) => m.client_id).filter(Boolean))];
+      if (!clientIds.length) return [];
+
+      let clientQuery = supabase
+        .from("clients")
+        .select("id, name, phone, whatsapp, whatsapp_last_read_at, assigned_to")
+        .in("id", clientIds);
+
+      // Aplica filtro de responsável
       if (isAdmin && targetUserId) {
-        // Admin com filtro específico: vê apenas o usuário selecionado
-        query = query.select(
-          "client_id, message_text, direction, created_at, clients!inner(name, phone, whatsapp, whatsapp_last_read_at)"
-        ).eq("clients.assigned_to", targetUserId) as typeof query;
-      } else if (isAdmin && !targetUserId) {
-        // Admin sem filtro: vê todos
-        query = query.select(
-          "client_id, message_text, direction, created_at, clients(name, phone, whatsapp, whatsapp_last_read_at)"
-        ) as typeof query;
-      } else if (targetUserId) {
-        // Não-admin: vê conversas atribuídas a si + não-atribuídas
-        query = query.select(
-          "client_id, message_text, direction, created_at, clients!inner(name, phone, whatsapp, whatsapp_last_read_at)"
-        ).or(`assigned_to.eq.${targetUserId},assigned_to.is.null`, { foreignTable: "clients" }) as typeof query;
-      } else {
-        // Fallback sem userId (não deve ocorrer, enabled: !!userId)
-        query = query.select(
-          "client_id, message_text, direction, created_at, clients(name, phone, whatsapp, whatsapp_last_read_at)"
-        ) as typeof query;
+        clientQuery = clientQuery.eq("assigned_to", targetUserId);
+      } else if (!isAdmin && targetUserId) {
+        clientQuery = clientQuery.or(`assigned_to.eq.${targetUserId},assigned_to.is.null`);
       }
 
-      const { data, error } = await query;
-      if (error) throw error;
+      const { data: clients, error: clientError } = await clientQuery;
+      if (clientError) throw clientError;
 
+      // ── Step 3: monta mapa client_id → client ──
+      const clientMap = new Map<string, typeof clients[number]>(
+        (clients || []).map((c) => [c.id, c])
+      );
+
+      // ── Step 4: agrega por cliente ──
       const map = new Map<string, Conversation>();
-      for (const msg of data || []) {
+      for (const msg of messages) {
         if (!msg.client_id) continue;
-        const client = msg.clients as any;
+        const client = clientMap.get(msg.client_id);
         if (!client || !client.name) continue;
+
         const lastReadAt = client.whatsapp_last_read_at ? new Date(client.whatsapp_last_read_at).getTime() : null;
         const msgTime = new Date(msg.created_at).getTime();
         const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
         const isUnread = msg.direction === "inbound" &&
           msgTime > thirtyDaysAgo &&
           (lastReadAt === null || msgTime > lastReadAt);
+
         if (!map.has(msg.client_id)) {
           map.set(msg.client_id, {
             client_id: msg.client_id,
@@ -86,7 +94,7 @@ export function useWhatsAppConversations(filterUserId?: string | null) {
         }
       }
 
-      // Deduplica por telefone (últimos 8 dígitos)
+      // ── Step 5: deduplica por telefone (últimos 8 dígitos) ──
       const byPhone = new Map<string, Conversation>();
       for (const conv of map.values()) {
         const phoneKey = conv.client_phone

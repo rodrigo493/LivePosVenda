@@ -7,9 +7,10 @@ const corsHeaders = {
 };
 
 // uazapiGO v2 state mapping → nosso padrão interno
+// Baileys retorna "open" nativamente; alguns wrappers normalizam para "connected"
 function normalizeState(raw: unknown): "open" | "close" | "connecting" {
   const s = String(raw ?? "").toLowerCase();
-  if (s === "connected") return "open";
+  if (s === "open" || s === "connected") return "open";
   if (s === "connecting") return "connecting";
   return "close"; // disconnected ou qualquer outro
 }

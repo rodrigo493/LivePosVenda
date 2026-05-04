@@ -68,6 +68,18 @@ export default function ChatPage() {
     },
   });
 
+  const { data: diagClientCount } = useQuery({
+    queryKey: ["diag-client-count"],
+    staleTime: 0,
+    enabled: isAdmin,
+    queryFn: async () => {
+      const { count } = await supabase
+        .from("clients")
+        .select("*", { count: "exact", head: true });
+      return count ?? 0;
+    },
+  });
+
   const { data: allClients } = useClients();
   const { data: chatUsers } = useChatUsers();
   const isMobile = useIsMobile();
@@ -303,7 +315,7 @@ export default function ChatPage() {
                 <p className="text-sm">{search ? "Nenhum resultado." : "Nenhuma conversa ainda."}</p>
                 {isAdmin && !search && (
                   <p className="text-xs mt-2 font-mono opacity-60">
-                    whatsapp_messages: {diagCount ?? "…"}
+                    msgs: {diagCount ?? "…"} | clients: {diagClientCount ?? "…"} | convs: {conversations?.length ?? 0}
                   </p>
                 )}
               </div>
