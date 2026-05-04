@@ -423,12 +423,16 @@ Deno.serve(async (req) => {
 
     // Handle delivery/read receipts from Uazapi
     // Uazapi/WuzAPI sends ack events when contacts receive or read our messages.
-    // Format: { EventType: "message_acks", data: { Key: { Id, FromMe }, Status } }
+    // Formatos suportados:
+    //   message_acks: { EventType: "message_acks", data: { Key: { Id }, Status } }
+    //   messages_update: { EventType: "messages_update", data: [{ Key: { Id }, Update: { Status } }] }
     // Status: 2=server_ack, 3=delivery_ack(delivered), 4=read, 5=played(read)
     const ackEventType = (bodyEventType || "").toLowerCase().replace(/[^a-z_]/g, "");
     const isAckEvent =
       ackEventType === "message_acks" ||
       ackEventType === "messageacks" ||
+      ackEventType === "messages_update" ||
+      ackEventType === "messagesupdate" ||
       ackEventType === "chatmessage_status" ||
       ackEventType === "message_status" ||
       ackEventType === "messageack" ||
@@ -438,51 +442,57 @@ Deno.serve(async (req) => {
       ackEventType.includes("ack");
 
     if (isAckEvent) {
-      // Uazapi pode mandar dados dentro de body.data, body.message ou no próprio body
-      const d = body?.data ?? body?.message ?? body ?? {};
-      console.log("ACK_EVENT d keys:", Object.keys(d).join(","), "| d:", JSON.stringify(d).slice(0, 300));
+      // messages_update manda data como array; outros eventos mandam objeto simples
+      const rawData = body?.data ?? body?.message ?? body ?? {};
+      const items: any[] = Array.isArray(rawData) ? rawData : [rawData];
+      console.log("ACK_EVENT items:", items.length, "| first:", JSON.stringify(items[0]).slice(0, 300));
 
-      // Tenta extrair o ID da mensagem de várias estruturas possíveis
-      const msgId: string =
-        d?.Key?.Id || d?.Key?.ID ||
-        d?.key?.id || d?.key?.Id ||
-        d?.id || d?.Id || d?.ID ||
-        d?.messageId || d?.MessageID || d?.messageid ||
-        d?.message_id || d?.msgId || d?.MsgId || "";
+      for (const d of items) {
+        // Tenta extrair o ID da mensagem de várias estruturas possíveis
+        const msgId: string =
+          d?.Key?.Id || d?.Key?.ID ||
+          d?.key?.id || d?.key?.Id ||
+          d?.id || d?.Id || d?.ID ||
+          d?.messageId || d?.MessageID || d?.messageid ||
+          d?.message_id || d?.msgId || d?.MsgId || "";
 
-      const rawStatus = d?.Status ?? d?.status ?? d?.Ack ?? d?.ack ?? body?.Status ?? body?.status ?? 0;
-      const statusNum = typeof rawStatus === "number" ? rawStatus : parseInt(String(rawStatus), 10);
+        // messages_update usa Update.Status; message_acks usa Status diretamente
+        const rawStatus =
+          d?.Update?.Status ?? d?.Update?.status ?? d?.update?.Status ?? d?.update?.status ??
+          d?.Status ?? d?.status ?? d?.Ack ?? d?.ack ?? body?.Status ?? body?.status ?? 0;
+        const statusNum = typeof rawStatus === "number" ? rawStatus : parseInt(String(rawStatus), 10);
 
-      if (msgId) {
-        const newStatus = statusNum >= 4 ? "read" : statusNum === 3 ? "delivered" : null;
-        if (newStatus) {
-          // Tenta match exato primeiro (caso o ID venha no formato completo)
-          const { count: exactCount } = await admin
-            .from("whatsapp_messages")
-            .update({ status: newStatus })
-            .eq("manychat_message_id", msgId)
-            .eq("direction", "outbound")
-            .select("*", { count: "exact", head: true });
-
-          // Se não encontrou, tenta com sufixo — Uazapi salva como "phone:rawId"
-          // mas ACK chega com só o rawId
-          let totalCount = exactCount ?? 0;
-          if (!totalCount) {
-            const { count: suffixCount } = await admin
+        if (msgId) {
+          const newStatus = statusNum >= 4 ? "read" : statusNum === 3 ? "delivered" : null;
+          if (newStatus) {
+            // Tenta match exato primeiro (caso o ID venha no formato completo)
+            const { count: exactCount } = await admin
               .from("whatsapp_messages")
               .update({ status: newStatus })
-              .like("manychat_message_id", `%:${msgId}`)
+              .eq("manychat_message_id", msgId)
               .eq("direction", "outbound")
               .select("*", { count: "exact", head: true });
-            totalCount = suffixCount ?? 0;
-          }
 
-          console.log("Ack update:", msgId, "->", newStatus, "statusNum:", statusNum, "rows:", totalCount);
+            // Se não encontrou, tenta com sufixo — Uazapi salva como "phone:rawId"
+            // mas ACK chega com só o rawId
+            let totalCount = exactCount ?? 0;
+            if (!totalCount) {
+              const { count: suffixCount } = await admin
+                .from("whatsapp_messages")
+                .update({ status: newStatus })
+                .like("manychat_message_id", `%:${msgId}`)
+                .eq("direction", "outbound")
+                .select("*", { count: "exact", head: true });
+              totalCount = suffixCount ?? 0;
+            }
+
+            console.log("Ack update:", msgId, "->", newStatus, "statusNum:", statusNum, "rows:", totalCount);
+          } else {
+            console.log("Ack event ignored (statusNum not 3/4+):", msgId, "statusNum:", statusNum);
+          }
         } else {
-          console.log("Ack event ignored (statusNum not 3/4+):", msgId, "statusNum:", statusNum);
+          console.log("Ack event: msgId not found. d:", JSON.stringify(d).slice(0, 300));
         }
-      } else {
-        console.log("Ack event: msgId not found. body keys:", Object.keys(body || {}).join(","), "| d:", JSON.stringify(d).slice(0, 300));
       }
 
       return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } });
