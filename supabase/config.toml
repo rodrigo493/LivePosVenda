@@ -1,5 +1,8 @@
 project_id = "ehqkggiuouczmafmlzls"
 
+[functions.problemas-producao]
+verify_jwt = false
+
 [functions.ai-daily-report]
 verify_jwt = false
 
