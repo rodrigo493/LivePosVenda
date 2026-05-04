@@ -356,6 +356,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   const [newNote, setNewNote] = useState("");
   const [activeTab, setActiveTab] = useState("info");
   const [newEquipmentOpen, setNewEquipmentOpen] = useState(false);
+  const [editEquipmentOpen, setEditEquipmentOpen] = useState(false);
+  const [editEquipmentTarget, setEditEquipmentTarget] = useState<any>(null);
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [histDevice, setHistDevice] = useState("");
   const [histProblem, setHistProblem] = useState("");
@@ -981,6 +983,26 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
       toast.success("Equipamento registrado");
     },
     onError: () => toast.error("Erro ao criar equipamento"),
+  });
+
+  const updateEquipment = useMutation({
+    mutationFn: async ({ id, model_id, serial_number, batch_number }: { id: string; model_id: string; serial_number?: string; batch_number?: string }) => {
+      const { data, error } = await supabase
+        .from("equipments")
+        .update({ model_id, serial_number: serial_number || null, batch_number: batch_number || null })
+        .eq("id", id)
+        .select("*, equipment_models(name)")
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["client-equipments", clientId] });
+      qc.invalidateQueries({ queryKey: ["equipments"] });
+      setEditEquipmentOpen(false);
+      toast.success("Equipamento atualizado");
+    },
+    onError: () => toast.error("Erro ao atualizar equipamento"),
   });
 
   const createTicket = useMutation({
@@ -1844,7 +1866,17 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                             <span className="text-sm font-semibold">{eq.equipment_models?.name || "—"}</span>
                             {eq.id === equipmentId && <Badge className="text-[9px] h-4">Atual</Badge>}
                           </div>
-                          <StatusBadge status={eq.warranty_status} />
+                          <div className="flex items-center gap-1">
+                            <StatusBadge status={eq.warranty_status} />
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 shrink-0"
+                              onClick={() => { setEditEquipmentTarget(eq); setEditEquipmentOpen(true); }}
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
                         </div>
                         <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
                           <span>Série: <strong className="text-foreground">{eq.serial_number || "—"}</strong></span>
@@ -2766,6 +2798,45 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
         ]}
         onSubmit={async (values) => {
           await createEquipment.mutateAsync({
+            model_id: values.model_id,
+            serial_number: values.serial_number,
+            batch_number: values.batch_number,
+          });
+        }}
+      />
+      <CrudDialog
+        open={editEquipmentOpen}
+        onOpenChange={setEditEquipmentOpen}
+        title="Editar Equipamento"
+        initialValues={{
+          model_id: editEquipmentTarget?.model_id || "",
+          serial_number: editEquipmentTarget?.serial_number || "",
+          batch_number: editEquipmentTarget?.batch_number || "",
+        }}
+        fields={[
+          {
+            name: "model_id",
+            label: "Nome do Aparelho",
+            type: "select",
+            required: true,
+            options: equipmentModels?.map((model: any) => ({ value: model.id, label: model.name })) || [],
+          },
+          {
+            name: "serial_number",
+            label: "Número de Série",
+            type: "text",
+            placeholder: "Ex: SN-123456",
+          },
+          {
+            name: "batch_number",
+            label: "Número da Nota Fiscal",
+            type: "text",
+            placeholder: "Ex: NF-00123",
+          },
+        ]}
+        onSubmit={async (values) => {
+          await updateEquipment.mutateAsync({
+            id: editEquipmentTarget?.id,
             model_id: values.model_id,
             serial_number: values.serial_number,
             batch_number: values.batch_number,
