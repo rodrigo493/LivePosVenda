@@ -562,6 +562,7 @@ const PGDetailPage = () => {
 
       let returnedNomusId: number | null = existingNomusId;
       let isUpdate = !!existingNomusId;
+      let nomusApiOk = true;
 
       const orderRes = await fetch(
         existingNomusId ? `/api/nomus/rest/pedidos/${existingNomusId}` : "/api/nomus/rest/pedidos",
@@ -572,8 +573,22 @@ const PGDetailPage = () => {
         }
       );
 
+      // PUT 405 → tenta PATCH no mesmo ID; se falhar, aceita (pedido já existe no Nomus)
+      if (existingNomusId && orderRes.status === 405) {
+        const patchRes = await fetch(`/api/nomus/rest/pedidos/${existingNomusId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", "Accept": "application/json" },
+          body: JSON.stringify(basePayload),
+        });
+        if (patchRes.ok) {
+          const d = await patchRes.json().catch(() => null);
+          returnedNomusId = d?.id ?? d?.Id ?? existingNomusId;
+        } else {
+          nomusApiOk = false;
+          toast.warning(`Pedido #${existingNomusId} já existe no Nomus mas não pôde ser atualizado via API. Verifique manualmente se necessário.`);
+        }
       // Se POST retornar 405, tenta PUT e depois PATCH (API Nomus pode ter mudado)
-      if (!existingNomusId && orderRes.status === 405) {
+      } else if (!existingNomusId && orderRes.status === 405) {
         const fullPayload = { codigoPedido, ...basePayload };
         let resolved = false;
         for (const method of ["PUT", "PATCH"]) {
@@ -633,7 +648,8 @@ const PGDetailPage = () => {
         ...(returnedNomusId ? { nomus_order_id: returnedNomusId } : {}),
       }).eq("id", id!);
 
-      toast.success(isUpdate ? "Pedido atualizado no ERP!" : "Pedido criado no ERP com sucesso!");
+      if (nomusApiOk) toast.success(isUpdate ? "Pedido atualizado no ERP!" : "Pedido criado no ERP com sucesso!");
+      else toast.success("PG aprovada. Pedido já existia no Nomus — verifique lá se precisar editar.");
       qc.invalidateQueries({ queryKey: ["warranty_claim_detail", id] });
     } catch (err: any) {
       if (import.meta.env.DEV) console.error("Approve error:", err);
