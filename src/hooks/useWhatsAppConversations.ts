@@ -82,9 +82,7 @@ export function useWhatsAppConversations(filterUserId?: string | null) {
         if (!targetUserId) return true; // "Todos": sem filtro
         const byAssignment = client.assigned_to === targetUserId;
         const byInstance = instanceClientIds.has(client.id);
-        if (isAdmin) return byAssignment || byInstance;
-        // Não-admin: vê os próprios + não-atribuídos
-        return byAssignment || byInstance || client.assigned_to === null;
+        return byAssignment || byInstance;
       });
 
       if (!clients.length) return [];
