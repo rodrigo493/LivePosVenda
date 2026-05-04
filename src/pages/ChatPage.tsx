@@ -78,7 +78,7 @@ export default function ChatPage() {
   const [activeInstanceId, setActiveInstanceId] = useState<string | null>(null);
   // Quando há múltiplas instâncias, default para a primeira se nenhuma está selecionada
   const effectiveInstanceId = hasMultipleInstances
-    ? (activeInstanceId ?? myInstances[0]?.id ?? null)
+    ? (myInstances.some((i) => i.id === activeInstanceId) ? activeInstanceId : (myInstances[0]?.id ?? null))
     : null;
 
   // Inicializa o filtro admin com o próprio usuário se ele tem instância (apenas 1x)
