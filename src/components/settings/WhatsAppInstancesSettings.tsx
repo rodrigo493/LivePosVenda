@@ -174,7 +174,16 @@ function InstanceRow({
       <div className="rounded-lg border border-primary/30 p-3 space-y-3 bg-muted/20">
         <p className="text-xs font-medium text-muted-foreground">Editar número WhatsApp</p>
         <div className="grid grid-cols-2 gap-2">
-          {field("Nome de exibição *", "instance_name", "ex: Vendas #1")}
+          <div className="space-y-1">
+            <Label className="text-xs">Nome de exibição *</Label>
+            <Input
+              className="h-8 text-xs"
+              placeholder="ex: Pós venda"
+              value={form.instance_name}
+              onChange={e => setForm(f => ({ ...f, instance_name: e.target.value }))}
+            />
+            <p className="text-[10px] text-muted-foreground leading-tight">Nome visível para quem recebe mensagens desta instância</p>
+          </div>
           {field("Número (display)", "phone_number", "ex: 48996068686")}
           {field("instanceName Uazapi *", "uazapi_instance_name", "ex: RODRIGO")}
           {field("Token da instância *", "instance_token", "c6a355b6-...")}
@@ -305,7 +314,16 @@ function AddInstanceForm({
     <div className="rounded-lg border border-dashed p-3 space-y-3 bg-muted/20">
       <p className="text-xs font-medium text-muted-foreground">Novo número WhatsApp</p>
       <div className="grid grid-cols-2 gap-2">
-        {field("Nome de exibição *", "instance_name", "ex: Vendas #1")}
+        <div className="space-y-1">
+          <Label className="text-xs">Nome de exibição *</Label>
+          <Input
+            className="h-8 text-xs"
+            placeholder="ex: Pós venda"
+            value={form.instance_name}
+            onChange={e => setForm(f => ({ ...f, instance_name: e.target.value }))}
+          />
+          <p className="text-[10px] text-muted-foreground leading-tight">Nome visível para quem recebe mensagens desta instância</p>
+        </div>
         {field("Número (display)", "phone_number", "ex: 48996068686")}
         {field("instanceName Uazapi *", "uazapi_instance_name", "ex: RODRIGO")}
         {field("Token da instância *", "instance_token", "c6a355b6-...")}
