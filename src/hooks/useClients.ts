@@ -4,13 +4,20 @@ import { ClientInsert } from "@/types/database";
 import { useAuth } from "@/hooks/useAuth";
 
 export function useClients() {
+  const { user, hasRole } = useAuth();
+  const isAdmin = hasRole("admin");
+  const userId = user?.id ?? null;
+
   return useQuery({
-    queryKey: ["clients"],
+    queryKey: ["clients", isAdmin ? "all" : userId],
+    enabled: !!userId,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("clients")
-        .select("*")
-        .order("name");
+      let query = supabase.from("clients").select("*").order("name");
+      // Não-admin vê apenas clientes que criou ou é responsável
+      if (!isAdmin && userId) {
+        query = (query as any).or(`created_by.eq.${userId},assigned_to.eq.${userId}`);
+      }
+      const { data, error } = await query;
       if (error) throw error;
       return data;
     },
