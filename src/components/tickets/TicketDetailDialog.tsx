@@ -63,6 +63,7 @@ interface Props {
   ticket: any;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  initialTab?: string;
 }
 
 // ─── Data Hooks (ticket-level) ─────────────────────────────────
@@ -340,7 +341,7 @@ function EditableField({ value, onSave, saving, placeholder, icon, label, border
 
 // ─── Main Dialog ───────────────────────────────────────────────
 
-export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
+export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: Props) {
   const navigate = useNavigate();
   const { user, hasRole } = useAuth();
   const qc = useQueryClient();
@@ -354,7 +355,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   const [isEditingInfo, setIsEditingInfo] = useState(false);
   const [editClient, setEditClient] = useState<Record<string, string>>({});
   const [newNote, setNewNote] = useState("");
-  const [activeTab, setActiveTab] = useState("info");
+  const [activeTab, setActiveTab] = useState(initialTab ?? "info");
+  const [editingTask, setEditingTask] = useState<any>(null);
   const [newEquipmentOpen, setNewEquipmentOpen] = useState(false);
   const [editEquipmentOpen, setEditEquipmentOpen] = useState(false);
   const [editEquipmentTarget, setEditEquipmentTarget] = useState<any>(null);
@@ -615,6 +617,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
     setIsEditingInfo(false);
     setLocalPipelineId(ticket.pipeline_id ?? null);
     setLocalAssignedTo(ticket.assigned_to ?? null);
+    setActiveTab(initialTab ?? "info");
     // Reset PS form on new ticket open
     setPsModelo(ticket.equipments?.equipment_models?.name || "");
     setPsSintoma(ticket.description?.slice(0, 400) || "");
@@ -2164,6 +2167,9 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                         <div className="flex items-center gap-1">
                           <StatusBadge status={task.priority} />
                           <Badge variant={task.status === "concluida" ? "default" : "secondary"} className="text-[10px]">{task.status}</Badge>
+                          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setEditingTask(task)}>
+                            <Pencil className="h-3 w-3" />
+                          </Button>
                         </div>
                       </div>
                       {task.description && <p className="text-xs text-muted-foreground">{task.description}</p>}
@@ -2908,6 +2914,11 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
         onOpenChange={setCreateTaskOpen}
         defaultClientId={clientId ?? undefined}
         defaultTicketId={ticketId ?? undefined}
+      />
+      <TaskCreateDialog
+        open={!!editingTask}
+        onOpenChange={(o) => !o && setEditingTask(null)}
+        task={editingTask}
       />
     </Dialog>
 

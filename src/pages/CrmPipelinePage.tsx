@@ -167,8 +167,10 @@ const CrmPipelinePage = () => {
   const [batchOpen, setBatchOpen] = useState(false);
   const [excelImportOpen, setExcelImportOpen] = useState(false);
   const [detailTicket, setDetailTicket] = useState<any>(null);
+  const [detailInitialTab, setDetailInitialTab] = useState("info");
   const clearNewLead = useClearNewLead();
-  const handleOpenTicket = useCallback((ticket: any) => {
+  const handleOpenTicket = useCallback((ticket: any, tab = "info") => {
+    setDetailInitialTab(tab);
     setDetailTicket(ticket);
     if (ticket?.new_lead) clearNewLead(ticket.id);
   }, [clearNewLead]);
@@ -1018,6 +1020,7 @@ const CrmPipelinePage = () => {
                   pipelineName={currentPipeline?.name ?? ""}
                   onQuickTask={handleQuickTask}
                   onClickTicket={handleOpenTicket}
+                  onTaskClick={(ticket) => handleOpenTicket(ticket, "client-tasks")}
                   onNewTicket={() => setClientDialog(true)}
                   isAdmin={isAdmin}
                 />
@@ -1048,7 +1051,7 @@ const CrmPipelinePage = () => {
       <CrmSyncImportDialog open={syncOpen} onOpenChange={setSyncOpen} />
       <CrmBatchSyncDialog open={batchOpen} onOpenChange={setBatchOpen} />
       <PipelineExcelImportDialog open={excelImportOpen} onOpenChange={setExcelImportOpen} />
-      <TicketDetailDialog ticket={detailTicket} open={!!detailTicket} onOpenChange={(o) => !o && setDetailTicket(null)} />
+      <TicketDetailDialog ticket={detailTicket} open={!!detailTicket} onOpenChange={(o) => { if (!o) { setDetailTicket(null); setDetailInitialTab("info"); } }} initialTab={detailInitialTab} />
 
       {/* ── Modal: Transferir responsável ── */}
       <Dialog open={bulkModal === "transfer"} onOpenChange={(o) => !o && setBulkModal(null)}>
@@ -1414,6 +1417,7 @@ function StageColumn({
   pipelineName,
   onQuickTask,
   onClickTicket,
+  onTaskClick,
   onNewTicket,
   isAdmin,
 }: {
@@ -1423,6 +1427,7 @@ function StageColumn({
   pipelineName: string;
   onQuickTask: (ticketId: string, clientId: string) => void;
   onClickTicket: (ticket: any) => void;
+  onTaskClick: (ticket: any) => void;
   onNewTicket: () => void;
   isAdmin: boolean;
 }) {
@@ -1512,6 +1517,7 @@ function StageColumn({
               stageKey={stage.key}
               onQuickTask={() => onQuickTask(ticket.id, ticket.client_id)}
               onClick={() => onClickTicket(ticket)}
+              onTaskClick={() => onTaskClick(ticket)}
               isAdmin={isAdmin}
             />
           ))}
@@ -1531,7 +1537,7 @@ function StageColumn({
   );
 }
 
-function SortableCard({ ticket, pipelineName, stageKey, onQuickTask, onClick, isAdmin }: { ticket: any; pipelineName: string; stageKey: string; onQuickTask: () => void; onClick: () => void; isAdmin: boolean }) {
+function SortableCard({ ticket, pipelineName, stageKey, onQuickTask, onClick, onTaskClick, isAdmin }: { ticket: any; pipelineName: string; stageKey: string; onQuickTask: () => void; onClick: () => void; onTaskClick: () => void; isAdmin: boolean }) {
   const {
     attributes,
     listeners,
@@ -1549,7 +1555,7 @@ function SortableCard({ ticket, pipelineName, stageKey, onQuickTask, onClick, is
 
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <PipelineCard ticket={ticket} pipelineName={pipelineName} stageKey={stageKey} onQuickTask={onQuickTask} onClick={onClick} isAdmin={isAdmin} />
+      <PipelineCard ticket={ticket} pipelineName={pipelineName} stageKey={stageKey} onQuickTask={onQuickTask} onClick={onClick} onTaskClick={onTaskClick} isAdmin={isAdmin} />
     </div>
   );
 }
@@ -1591,7 +1597,7 @@ function formatTaskDateTime(due_date: string | null, due_time: string | null): s
   return date;
 }
 
-function PipelineCard({ ticket, pipelineName, stageKey, onQuickTask, onClick, isAdmin }: { ticket: any; pipelineName: string; stageKey: string; onQuickTask: () => void; onClick: () => void; isAdmin: boolean }) {
+function PipelineCard({ ticket, pipelineName, stageKey, onQuickTask, onClick, onTaskClick, isAdmin }: { ticket: any; pipelineName: string; stageKey: string; onQuickTask: () => void; onClick: () => void; onTaskClick: () => void; isAdmin: boolean }) {
   const typeInfo = TICKET_TYPE_LABELS[ticket.ticket_type] || { label: ticket.ticket_type, color: "bg-zinc-700 text-zinc-300" };
   const unreadWpp = ticket._unreadWhatsapp || 0;
   const isNewLead = ticket._isNewLead || false;
@@ -1731,13 +1737,16 @@ function PipelineCard({ ticket, pipelineName, stageKey, onQuickTask, onClick, is
             <ListTodo className="h-2.5 w-2.5" /> Criar tarefa
           </Button>
           {nextTask && (
-            <div className="flex items-center gap-1 min-w-0 flex-1 bg-zinc-700/40 rounded px-1.5 py-0.5">
+            <button
+              className="flex items-center gap-1 min-w-0 flex-1 bg-zinc-700/40 hover:bg-zinc-600/50 rounded px-1.5 py-0.5 transition-colors text-left"
+              onClick={(e) => { e.stopPropagation(); onTaskClick(); }}
+            >
               <CalendarClock className="h-2.5 w-2.5 text-zinc-400 shrink-0" />
               <span className="text-[9px] text-zinc-300 truncate flex-1">{nextTask.title}</span>
               <span className="text-[9px] text-zinc-500 shrink-0 tabular-nums">
                 {formatTaskDateTime(nextTask.due_date, nextTask.due_time)}
               </span>
-            </div>
+            </button>
           )}
         </div>
       </div>
