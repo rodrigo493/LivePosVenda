@@ -17,7 +17,7 @@ export function useUnansweredAck() {
       const { data } = await (supabase as any)
         .from("profiles")
         .select("unanswered_ack_at")
-        .eq("id", userId)
+        .eq("user_id", userId)   // profiles usa user_id como FK, não id
         .maybeSingle();
       return (data as any)?.unanswered_ack_at ?? null;
     },
@@ -31,7 +31,7 @@ export function useUnansweredAck() {
       await (supabase as any)
         .from("profiles")
         .update({ unanswered_ack_at: now })
-        .eq("id", userId);
+        .eq("user_id", userId);
       qc.invalidateQueries({ queryKey: ["unanswered-ack", userId] });
     } finally {
       setIsAcking(false);

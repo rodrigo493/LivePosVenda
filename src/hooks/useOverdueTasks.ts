@@ -14,14 +14,13 @@ export function useOverdueTasks() {
     queryFn: async () => {
       const today = new Date().toISOString().split("T")[0];
 
-      // Busca overdue_ack_at do perfil do usuário
+      // Busca overdue_ack_at do perfil (profiles usa user_id, não id)
       const { data: profile } = await (supabase as any)
         .from("profiles")
         .select("overdue_ack_at")
-        .eq("id", user!.id)
+        .eq("user_id", user!.id)
         .maybeSingle();
 
-      // Apenas mostra tarefas que ficaram atrasadas APÓS o último reset
       const ackDate = (profile as any)?.overdue_ack_at
         ? new Date((profile as any).overdue_ack_at).toISOString().split("T")[0]
         : null;
@@ -33,6 +32,7 @@ export function useOverdueTasks() {
         .not("due_date", "is", null)
         .lt("due_date", today);
 
+      // Só mostra tarefas que ficaram atrasadas APÓS o último reset
       if (ackDate) {
         q = q.gt("due_date", ackDate);
       }

@@ -239,7 +239,7 @@ export function HeaderAlerts() {
               {unansweredConvs.slice(0, 6).map((conv) => (
                 <button
                   key={conv.client_id}
-                  onClick={() => navigate(`/chat?client=${conv.client_id}`)}
+                  onClick={() => { ack(); navigate(`/chat?client=${conv.client_id}`); }}
                   className="w-full flex items-center gap-2.5 px-3 py-2.5 border-b last:border-0 border-border/50 hover:bg-muted/60 text-left transition-colors"
                 >
                   <div className="h-7 w-7 rounded-full bg-orange-500/20 flex items-center justify-center text-xs font-bold text-orange-400 shrink-0">
@@ -257,7 +257,7 @@ export function HeaderAlerts() {
             </div>
             {unansweredConvs.length > 6 && (
               <button
-                onClick={() => navigate("/chat")}
+                onClick={() => { ack(); navigate("/chat"); }}
                 className="w-full px-3 py-2 text-xs text-orange-400 hover:bg-muted/50 text-center transition-colors border-t border-border"
               >
                 Ver todos ({unansweredConvs.length}) →

@@ -4,7 +4,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 
 export function useResetMyAlerts() {
-  const { user } = useAuth();
+  const { user, hasRole } = useAuth();
+  const isAdmin = hasRole("admin");
   const qc = useQueryClient();
   const [isResetting, setIsResetting] = useState(false);
 
@@ -12,10 +13,11 @@ export function useResetMyAlerts() {
     if (!user?.id || isResetting) return;
     setIsResetting(true);
     try {
-      const { error } = await (supabase as any).rpc("reset_my_alerts");
+      // Admin zera alertas de TODOS os usuários; não-admin zera apenas os seus
+      const rpc = isAdmin ? "admin_reset_all_alerts" : "reset_my_alerts";
+      const { error } = await (supabase as any).rpc(rpc);
       if (error) throw error;
 
-      // Invalida todas as queries de alertas
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["unanswered-ack"] }),
         qc.invalidateQueries({ queryKey: ["overdue-tasks-count"] }),
