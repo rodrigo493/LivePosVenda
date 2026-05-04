@@ -2168,7 +2168,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                       {task.description && <p className="text-xs text-muted-foreground">{task.description}</p>}
                       <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
                         {task.due_date && <span className="flex items-center gap-0.5"><Calendar className="h-3 w-3" />{fmtDate(task.due_date)}</span>}
-                        <span>{fmtDate(task.created_at)}</span>
+                        {task.due_time && <span className="flex items-center gap-0.5"><Clock className="h-3 w-3" />{task.due_time.slice(0, 5)}</span>}
                       </div>
                     </div>
                   ))}

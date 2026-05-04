@@ -10,8 +10,6 @@ import { WeeklyCalendar } from "@/components/tasks/WeeklyCalendar";
 import { TaskCreateDialog } from "@/components/tasks/TaskCreateDialog";
 import { useTasks } from "@/hooks/useTasks";
 import type { TaskRow } from "@/hooks/useTasks";
-import { useNavigate } from "react-router-dom";
-import { toast } from "sonner";
 
 type ViewMode = "semana" | "dia";
 
@@ -27,7 +25,7 @@ export default function TasksAgendaPage() {
   const [createDefaultDate, setCreateDefaultDate] = useState<string | undefined>();
   const [createDefaultTime, setCreateDefaultTime] = useState<string | undefined>();
 
-  const navigate = useNavigate();
+  const [editingTask, setEditingTask] = useState<TaskRow | null>(null);
   const { data: tasks = [] } = useTasks();
 
   const weekDays = useMemo(
@@ -154,15 +152,7 @@ export default function TasksAgendaPage() {
       <WeeklyCalendar
         days={days}
         tasks={tasks}
-        onTaskClick={(task: TaskRow) => {
-          if (task.ticket_id) {
-            navigate(`/crm?open_ticket=${task.ticket_id}`);
-          } else {
-            toast.info(`${task.title}${task.due_time ? ` — ${task.due_time.slice(0, 5)}` : ""}`, {
-              description: task.clients?.name ?? task.description ?? undefined,
-            });
-          }
-        }}
+        onTaskClick={(task: TaskRow) => setEditingTask(task)}
         onSlotClick={handleSlotClick}
       />
 
@@ -172,6 +162,13 @@ export default function TasksAgendaPage() {
         onOpenChange={setCreateOpen}
         defaultDate={createDefaultDate}
         defaultTime={createDefaultTime}
+      />
+
+      {/* ── Edit/Delete dialog ── */}
+      <TaskCreateDialog
+        open={!!editingTask}
+        onOpenChange={(open) => { if (!open) setEditingTask(null); }}
+        task={editingTask}
       />
     </div>
   );
