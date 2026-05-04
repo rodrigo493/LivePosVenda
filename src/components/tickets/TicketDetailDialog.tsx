@@ -408,6 +408,36 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
   const { data: allPipelines = [] } = usePipelines();
   const { data: allUsers = [] } = useAllUsers();
 
+  // Resolve a instância WhatsApp do pipeline deste card
+  const pipelineId = ticket?.pipeline_id ?? null;
+  const { data: pipelineInstanceId = null } = useQuery<string | null>({
+    queryKey: ["pipeline-instance-id", pipelineId, user?.id],
+    enabled: !!pipelineId && !!user?.id && open,
+    staleTime: 300_000,
+    queryFn: async () => {
+      // 1. Tenta instância vinculada ao usuário logado nesse pipeline
+      const { data: userInst } = await (supabase as any)
+        .from("pipeline_whatsapp_instances")
+        .select("id")
+        .eq("pipeline_id", pipelineId)
+        .eq("user_id", user!.id)
+        .eq("active", true)
+        .limit(1)
+        .maybeSingle();
+      if ((userInst as any)?.id) return (userInst as any).id as string;
+
+      // 2. Fallback: qualquer instância ativa do pipeline
+      const { data: anyInst } = await (supabase as any)
+        .from("pipeline_whatsapp_instances")
+        .select("id")
+        .eq("pipeline_id", pipelineId)
+        .eq("active", true)
+        .limit(1)
+        .maybeSingle();
+      return (anyInst as any)?.id ?? null;
+    },
+  });
+
   const enabledId = open && ticketId ? ticketId : undefined;
   const enabledClientId = open && clientId ? clientId : undefined;
 
@@ -2580,6 +2610,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: Props) {
                     ticketId={ticketId}
                     clientPhone={clientProfile?.whatsapp || clientProfile?.phone || ticket.clients?.whatsapp || ticket.clients?.phone}
                     clientName={clientProfile?.name || ticket.clients?.name}
+                    instanceId={pipelineInstanceId ?? undefined}
                   />
                 </TabsContent>
 
