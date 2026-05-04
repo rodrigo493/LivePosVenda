@@ -29,17 +29,17 @@ export function useWhatsAppConversations(filterUserId?: string | null) {
         ? (filterUserId ?? null)
         : userId;
 
-      // ── Step 1: resolve instance_id do usuário alvo ───────────────────
-      let instanceId: string | null = null;
+      // ── Step 1: resolve TODAS as instâncias ativas do usuário alvo ──────
+      const instanceIds = new Set<string>();
       if (targetUserId) {
-        const { data: inst } = await supabase
+        const { data: insts } = await supabase
           .from("pipeline_whatsapp_instances" as any)
           .select("id")
           .eq("user_id", targetUserId)
-          .eq("active", true)
-          .limit(1)
-          .maybeSingle();
-        instanceId = (inst as any)?.id ?? null;
+          .eq("active", true);
+        for (const inst of (insts as any[]) ?? []) {
+          if (inst?.id) instanceIds.add(inst.id);
+        }
       }
 
       // ── Step 2: busca mensagens recentes incluindo instance_id ────────
@@ -52,14 +52,11 @@ export function useWhatsAppConversations(filterUserId?: string | null) {
       if (msgError) throw msgError;
       if (!messages?.length) return [];
 
-      // ── Step 3: constrói set de clientes que têm mensagens da instância
-      // Filtro client-side com OR: assigned_to OU instance_id nas mensagens.
-      // Isso funciona para mensagens históricas (sem instance_id) via assigned_to,
-      // e para mensagens recentes via instance_id.
+      // ── Step 3: constrói set de clientes que têm mensagens de qualquer instância do usuário
       const instanceClientIds = new Set<string>();
-      if (instanceId) {
+      if (instanceIds.size > 0) {
         for (const msg of messages) {
-          if ((msg as any).instance_id === instanceId && msg.client_id) {
+          if ((msg as any).instance_id && instanceIds.has((msg as any).instance_id) && msg.client_id) {
             instanceClientIds.add(msg.client_id);
           }
         }
