@@ -2797,7 +2797,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
                         <div className="flex flex-wrap gap-2 mt-2">
                           {producaoFiles.map((file, i) => (
                             <div
-                              key={i}
+                              key={`${file.name}-${file.size}`}
                               className="flex items-center gap-1.5 bg-muted rounded-md px-2 py-1.5 text-xs max-w-[180px]"
                             >
                               {file.type.startsWith("image/") ? (
