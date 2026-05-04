@@ -504,12 +504,13 @@ Deno.serve(async (req) => {
         const c = m.content as any;
         mediaMime = c.mimetype || null;
         directMediaUrl = c.URL || c.url || c.mediaUrl || c.directPath || null;
-        messageText = resolveMediaText(mediaMime || "");
-        // capture crypto metadata for all media types
-        if (mediaMime) {
+        const hasCryptoInContent = !!(c.url || c.URL || c.Url || c.directPath || c.mediaKey || c.MediaKey);
+        if (hasCryptoInContent || mediaMime) {
           mediaMeta = c as Record<string, unknown>;
+          if (!mediaMime) mediaMime = "application/octet-stream";
           console.log("MEDIA_CONTENT keys:", Object.keys(c).join(","), "| mime:", mediaMime);
         }
+        messageText = resolveMediaText(mediaMime || "");
       } else {
         const rawContent: string | null = (typeof m.text === "string" && m.text) ? m.text
           : (typeof m.content === "string" && m.content) ? m.content : null;
@@ -519,7 +520,11 @@ Deno.serve(async (req) => {
             mediaMime = parsed.mimetype || null;
             directMediaUrl = parsed.url || parsed.mediaUrl || null;
             messageText = resolveMediaText(mediaMime || "");
-            if (mediaMime) mediaMeta = parsed;
+            const hasCryptoInParsed = !!(parsed.url || parsed.URL || parsed.directPath || parsed.mediaKey || parsed.MediaKey);
+            if (mediaMime || hasCryptoInParsed) {
+              if (!mediaMime) mediaMime = "application/octet-stream";
+              mediaMeta = parsed;
+            }
           } catch { messageText = "📎 Mídia"; }
         } else if (!rawContent) {
           // Helper: if the named sub-object is null, fall back to the top-level
@@ -698,6 +703,16 @@ Deno.serve(async (req) => {
     if (mediaMime) {
       console.log("downloading media: mime=", mediaMime, "chatId=", senderChatId, "msgid=", waMessageId, "hasMeta=", !!mediaMeta);
       mediaUrl = await downloadAndStoreMedia(admin, instanceBaseUrl, instanceToken, waMessageId, mediaMime, clientId, senderChatId, mediaMeta, mediaDbg);
+    } else if (messageText && ["📎","🎵","📷","🎥"].some(e => messageText!.startsWith(e))) {
+      const m2 = (body as any)?.message;
+      mediaDbg.error = "no_mime_set";
+      mediaDbg.contentType = typeof m2?.content;
+      mediaDbg.contentKeys = typeof m2?.content === "object" && m2.content ? Object.keys(m2.content as any).join(",") : null;
+      mediaDbg.hasAudioMsg = !!(m2?.audioMessage);
+      mediaDbg.hasDocMsg = !!(m2?.documentMessage);
+      mediaDbg.hasImgMsg = !!(m2?.imageMessage);
+      mediaDbg.contentSlice = typeof m2?.content === "object" ? JSON.stringify(m2?.content).slice(0, 400) : String(m2?.content || "").slice(0, 200);
+      console.log("MEDIA_NO_MIME:", JSON.stringify(mediaDbg));
     }
 
     const { error: msgErr } = await admin.from("whatsapp_messages").insert({
