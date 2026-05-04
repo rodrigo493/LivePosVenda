@@ -40,21 +40,26 @@ Deno.serve(async (req) => {
 
     // ── Parse form body (Elementor sends URL-encoded) ──────────────────────
     const ct = req.headers.get("content-type") || "";
-    let name = "", email = "", phone = "";
+    let name = "", email = "", phone = "", company = "", segment = "", message = "";
 
     if (ct.includes("application/x-www-form-urlencoded")) {
       const text = await req.text();
       const p = new URLSearchParams(text);
-      // Elementor field IDs discovered from form inspection:
-      name  = p.get("form_fields[name]")             || p.get("form_fields[field_name]") || "";
-      email = p.get("form_fields[field_7b8ed01]")     || p.get("form_fields[email]")      || "";
-      phone = p.get("form_fields[field_40eae3a]")     || p.get("form_fields[field_45ffc33]") || p.get("form_fields[field_3343125]") || p.get("form_fields[telefone]") || p.get("form_fields[phone]") || "";
+      name    = p.get("form_fields[name]")          || p.get("form_fields[field_name]") || "";
+      email   = p.get("form_fields[email]")          || p.get("form_fields[field_7b8ed01]") || "";
+      phone   = p.get("form_fields[field_45ffc33]")  || p.get("form_fields[field_40eae3a]") || p.get("form_fields[field_3343125]") || p.get("form_fields[telefone]") || p.get("form_fields[phone]") || "";
+      company = p.get("form_fields[field_4e51b5a]")  || "";
+      segment = p.get("form_fields[field_ec0b3c7]")  || "";
+      message = p.get("form_fields[message]")        || "";
     } else {
       const body = await req.json().catch(() => ({})) as Record<string, unknown>;
       const ff   = (body.form_fields ?? {}) as Record<string, string>;
-      name  = (body.name  as string) || ff.name  || ff.field_name      || "";
-      email = (body.email as string) || ff.email || ff.field_7b8ed01   || "";
-      phone = (body.phone as string) || ff.phone || ff.field_40eae3a || ff.field_45ffc33 || ff.field_3343125 || ff.telefone || "";
+      name    = (body.name  as string) || ff.name    || ff.field_name     || "";
+      email   = (body.email as string) || ff.email   || ff.field_7b8ed01  || "";
+      phone   = (body.phone as string) || ff.phone   || ff.field_45ffc33  || ff.field_40eae3a || ff.field_3343125 || ff.telefone || "";
+      company = ff.field_4e51b5a || "";
+      segment = ff.field_ec0b3c7 || "";
+      message = ff.message       || "";
     }
 
     if (!name.trim() && !phone.trim()) {
@@ -142,9 +147,12 @@ Deno.serve(async (req) => {
     const title = `${name.trim() || phone} — ${sourceName}`;
     const description = [
       `Lead capturado via formulário do site.`,
-      name  ? `Nome: ${name}`   : "",
-      email ? `Email: ${email}` : "",
-      phone ? `WhatsApp: ${phone}` : "",
+      name    ? `Nome: ${name}`              : "",
+      email   ? `Email: ${email}`            : "",
+      phone   ? `WhatsApp: ${phone}`         : "",
+      company ? `Empresa: ${company}`        : "",
+      segment ? `Área de atuação: ${segment}`: "",
+      message ? `Mensagem: ${message}`       : "",
     ].filter(Boolean).join("\n");
 
     const { data: ticket, error: te } = await db
