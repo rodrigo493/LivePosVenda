@@ -1101,9 +1101,9 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
       const attachments: { url: string; name: string; type: string }[] = [];
       if (producaoFiles.length > 0) {
         const results = await Promise.all(
-          producaoFiles.map(async (file) => {
+          producaoFiles.map(async (file, i) => {
             const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-            const path = `${ticket.id}/${Date.now()}-${safeName}`;
+            const path = `${ticket.id}/${Date.now()}-${i}-${safeName}`;
             const { error: uploadError } = await supabase.storage
               .from("problemas-producao")
               .upload(path, file);
