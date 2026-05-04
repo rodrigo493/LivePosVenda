@@ -8,6 +8,22 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { CHAT_HISTORY_LIMIT } from "@/constants/limits";
 import { useWhatsAppConversations } from "@/hooks/useWhatsAppConversations";
+import { ContactCard } from "@/components/whatsapp/ContactCard";
+
+type WhatsAppMessageWithContact = {
+  id: string;
+  client_id: string | null;
+  ticket_id: string | null;
+  direction: string | null;
+  message_text: string | null;
+  media_url: string | null;
+  media_mime_type: string | null;
+  status: string | null;
+  created_at: string;
+  sender_name?: string | null;
+  contact_data?: { name: string; phone: string; raw_vcard?: string } | null;
+  [key: string]: unknown;
+};
 
 interface WhatsAppChatProps {
   clientId: string;
@@ -686,7 +702,7 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
                     {group.date}
                   </span>
                 </div>
-                {group.msgs.map((msg: any) => {
+                {group.msgs.map((msg: WhatsAppMessageWithContact) => {
                   const outbound = msg.direction === "outbound";
                   const isTextMsg = !!msg.message_text && !msg.message_text.startsWith("🎵") && !msg.message_text.startsWith("📷") && !msg.message_text.startsWith("🎥") && !msg.message_text.startsWith("📎");
                   const hasMedia = !!msg.media_url;
@@ -752,7 +768,9 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
                           {!outbound && msg.sender_name && (
                             <p className="text-[10px] font-semibold text-muted-foreground mb-0.5">{msg.sender_name}</p>
                           )}
-                          {msg.message_text?.startsWith("🎵") ? (
+                          {msg.contact_data ? (
+                            <ContactCard contactData={msg.contact_data as { name: string; phone: string; raw_vcard?: string }} />
+                          ) : msg.message_text?.startsWith("🎵") ? (
                             msg.media_url
                               ? <AudioPlayer src={msg.media_url} outbound={outbound} />
                               : <span className="text-[12px] opacity-70 flex items-center gap-1.5">
