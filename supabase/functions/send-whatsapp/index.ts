@@ -120,7 +120,24 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 3. Sem ticket ou sem resultado: busca último inbound do cliente (chat direto sem ticket)
+    // 3. Usa instância vinculada ao usuário logado (prioridade sobre histórico do cliente)
+    if (!useInstanceId) {
+      const { data: userInst } = await adminClient
+        .from("pipeline_whatsapp_instances")
+        .select("id, instance_token, base_url")
+        .eq("user_id", user.id)
+        .eq("active", true)
+        .limit(1)
+        .maybeSingle();
+
+      if ((userInst as any)?.instance_token) {
+        useToken = (userInst as any).instance_token;
+        useBaseUrl = (userInst as any).base_url || UAZAPI_BASE_URL;
+        useInstanceId = (userInst as any).id;
+      }
+    }
+
+    // 4. Fallback: busca último inbound do cliente (usuário sem instância própria)
     if (!useInstanceId && client_id) {
       const { data: clientMsg } = await adminClient
         .from("whatsapp_messages")
@@ -137,23 +154,6 @@ Deno.serve(async (req) => {
         useToken = clientInst.instance_token;
         useBaseUrl = clientInst.base_url || UAZAPI_BASE_URL;
         useInstanceId = clientInst.id;
-      }
-    }
-
-    // 4. Usa instância vinculada ao usuário logado
-    if (!useInstanceId) {
-      const { data: userInst } = await adminClient
-        .from("pipeline_whatsapp_instances")
-        .select("id, instance_token, base_url")
-        .eq("user_id", user.id)
-        .eq("active", true)
-        .limit(1)
-        .maybeSingle();
-
-      if ((userInst as any)?.instance_token) {
-        useToken = (userInst as any).instance_token;
-        useBaseUrl = (userInst as any).base_url || UAZAPI_BASE_URL;
-        useInstanceId = (userInst as any).id;
       }
     }
 
