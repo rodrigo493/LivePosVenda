@@ -74,17 +74,16 @@ export default function ProfilePage() {
     },
   });
 
-  const { data: instance } = useQuery({
-    queryKey: ["my_whatsapp_instance", user?.id],
+  const { data: instances } = useQuery({
+    queryKey: ["my_whatsapp_instances", user?.id],
     enabled: !!user?.id,
     queryFn: async () => {
       const { data } = await supabase
         .from("pipeline_whatsapp_instances" as any)
         .select("id, instance_name, phone_number, base_url")
         .eq("user_id", user!.id)
-        .limit(1)
-        .maybeSingle();
-      return (data as any) ?? null;
+        .order("instance_name");
+      return ((data as any[]) ?? []);
     },
   });
 
@@ -186,12 +185,12 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        {/* WhatsApp — só aparece se tiver instância vinculada */}
-        {instance && (
-          <div className="bg-card rounded-xl border shadow-card p-6">
-            <WhatsAppQrConnect instance={instance} />
+        {/* WhatsApp — um card por instância vinculada ao usuário */}
+        {instances && instances.map((inst) => (
+          <div key={inst.id} className="bg-card rounded-xl border shadow-card p-6">
+            <WhatsAppQrConnect instance={inst} />
           </div>
-        )}
+        ))}
       </div>
     </div>
   );
