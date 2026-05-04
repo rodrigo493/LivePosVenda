@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Clock, User, Tag, FileText, MessageSquare, Calendar, Package,
-  AlertTriangle, Send, Pencil, Check, X, Wrench, Shield, ClipboardList,
+  AlertTriangle, Send, Pencil, Check, X, Wrench, Shield, ClipboardList, Paperclip,
   ExternalLink, Receipt, Settings2, ArrowLeft, Cpu, Plus, ChevronDown, History, CheckSquare, Brain,
   BookOpen, Upload, Trash2, MoreVertical, Copy, PauseCircle, PlayCircle,
   ShoppingCart, Search, Minus, XCircle,
@@ -392,6 +392,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
   // ── Problemas Produção form state ────────────────────────────
   const [producaoDesc, setProducaoDesc] = useState("");
   const [producaoSending, setProducaoSending] = useState(false);
+  const [producaoFiles, setProducaoFiles] = useState<File[]>([]);
+  const producaoFileInputRef = useRef<HTMLInputElement>(null);
 
   // ── 3-dots admin menu state ───────────────────────────────────
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -1061,6 +1063,32 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
     fields.forEach((f) => { if ((editClient[f] ?? "") !== (orig?.[f] || "")) clientChanges[f] = editClient[f] ?? ""; });
     if (Object.keys(clientChanges).length > 0) updateClientProfile.mutate(clientChanges);
     setIsEditingInfo(false);
+  };
+
+  function formatBytes(bytes: number) {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = Array.from(e.target.files ?? []);
+    const remaining = 5 - producaoFiles.length;
+
+    if (selected.length > remaining) {
+      toast.warning(`Máximo 5 arquivos. ${selected.length - remaining} ignorado(s).`);
+    }
+
+    const toAdd = selected.slice(0, remaining).filter((file) => {
+      if (file.size > 10 * 1024 * 1024) {
+        toast.error(`"${file.name}" excede 10 MB e foi ignorado.`);
+        return false;
+      }
+      return true;
+    });
+
+    setProducaoFiles((prev) => [...prev, ...toAdd]);
+    e.target.value = "";
   };
 
   // ── Problemas Produção: envia para SquadOS ───────────────────
@@ -2740,6 +2768,65 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
                       onChange={(e) => setProducaoDesc(e.target.value)}
                       className="min-h-[140px] text-sm resize-none"
                     />
+
+                    {/* Seletor de arquivos */}
+                    <div className="mt-2">
+                      <input
+                        ref={producaoFileInputRef}
+                        type="file"
+                        multiple
+                        accept=".jpg,.jpeg,.png,.pdf"
+                        className="hidden"
+                        onChange={handleFileSelect}
+                      />
+                      <button
+                        type="button"
+                        disabled={producaoSending || producaoFiles.length >= 5}
+                        onClick={() => producaoFileInputRef.current?.click()}
+                        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
+                      >
+                        <Paperclip className="h-3.5 w-3.5" />
+                        Anexar arquivos
+                        {producaoFiles.length > 0 && (
+                          <span className="text-[10px]">({producaoFiles.length}/5)</span>
+                        )}
+                      </button>
+
+                      {/* Chips de preview */}
+                      {producaoFiles.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {producaoFiles.map((file, i) => (
+                            <div
+                              key={i}
+                              className="flex items-center gap-1.5 bg-muted rounded-md px-2 py-1.5 text-xs max-w-[180px]"
+                            >
+                              {file.type.startsWith("image/") ? (
+                                <img
+                                  src={URL.createObjectURL(file)}
+                                  alt={file.name}
+                                  className="h-8 w-8 rounded object-cover shrink-0"
+                                />
+                              ) : (
+                                <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-[10px] font-medium">{file.name}</p>
+                                <p className="text-[9px] text-muted-foreground">{formatBytes(file.size)}</p>
+                              </div>
+                              <button
+                                onClick={() =>
+                                  setProducaoFiles((prev) => prev.filter((_, idx) => idx !== i))
+                                }
+                                className="text-muted-foreground hover:text-destructive shrink-0 ml-1"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
                     <div className="flex justify-end mt-3">
                       <Button
                         onClick={handleEnviarProducao}
