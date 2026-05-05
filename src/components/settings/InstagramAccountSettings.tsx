@@ -8,25 +8,8 @@ import { CheckCircle, AlertCircle, RefreshCw, Unlink } from "lucide-react";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const INSTAGRAM_APP_ID = import.meta.env.VITE_INSTAGRAM_APP_ID;
-const REDIRECT_URI = `${window.location.origin}/configuracoes`;
-const OAUTH_URL = `https://www.facebook.com/v21.0/dialog/oauth?client_id=${INSTAGRAM_APP_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=pages_show_list,instagram_manage_messages,instagram_manage_comments&response_type=code&auth_type=rerequest&state=${Date.now()}`;
-
-async function callOAuth(code: string) {
-  const { data: session } = await supabase.auth.getSession();
-  const token = session?.session?.access_token;
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/instagram-oauth`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${token}`,
-      "apikey": import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-    },
-    body: JSON.stringify({ code, redirect_uri: REDIRECT_URI }),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.detail?.error?.message ?? data.error ?? "Erro ao conectar");
-  return data;
-}
+const REDIRECT_URI = `${SUPABASE_URL}/functions/v1/instagram-oauth`;
+const OAUTH_URL = `https://www.facebook.com/v21.0/dialog/oauth?client_id=${INSTAGRAM_APP_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=pages_show_list,instagram_manage_messages,instagram_manage_comments&response_type=code&auth_type=rerequest`;
 
 export function InstagramAccountSettings() {
   const qc = useQueryClient();
@@ -44,19 +27,11 @@ export function InstagramAccountSettings() {
   });
 
   const connectMut = useMutation({
-    mutationFn: (code: string) => callOAuth(code),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["instagram_account"] });
-      toast.success("Conta Instagram conectada com sucesso!");
-      const url = new URL(window.location.href);
-      url.searchParams.delete("code");
-      window.history.replaceState({}, "", url.toString());
+    mutationFn: async () => {
+      await qc.invalidateQueries({ queryKey: ["instagram_account"] });
     },
-    onError: (e: Error) => {
-      toast.error(e.message);
-      const url = new URL(window.location.href);
-      url.searchParams.delete("code");
-      window.history.replaceState({}, "", url.toString());
+    onSuccess: () => {
+      toast.success("Conta Instagram conectada com sucesso!");
     },
   });
 
@@ -77,14 +52,13 @@ export function InstagramAccountSettings() {
 
   useEffect(() => {
     const url = new URL(window.location.href);
-    const code = url.searchParams.get("code");
-    if (!code) return;
-    const guardKey = `ig_code_${code.slice(0, 12)}`;
-    if (sessionStorage.getItem(guardKey)) return; // already processing
-    sessionStorage.setItem(guardKey, "1");
-    url.searchParams.delete("code");
+    const connected = url.searchParams.get("ig_connected");
+    const igError = url.searchParams.get("ig_error");
+    url.searchParams.delete("ig_connected");
+    url.searchParams.delete("ig_error");
     window.history.replaceState({}, "", url.toString());
-    connectMut.mutate(code);
+    if (connected) connectMut.mutate();
+    if (igError) toast.error(igError);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
