@@ -391,11 +391,11 @@ Deno.serve(async (req) => {
     const incomingToken = headerToken || bodyToken;
 
     // Look up the instance in DB by token
-    let pipelineInstance: { id: string; pipeline_id: string; base_url: string; instance_token: string } | null = null;
+    let pipelineInstance: { id: string; pipeline_id: string; base_url: string; instance_token: string; user_id: string | null } | null = null;
     if (incomingToken) {
       const { data: instances } = await admin
         .from("pipeline_whatsapp_instances")
-        .select("id, pipeline_id, base_url, instance_token")
+        .select("id, pipeline_id, base_url, instance_token, user_id")
         .eq("instance_token", incomingToken)
         .eq("active", true)
         .order("created_at", { ascending: true })
@@ -416,6 +416,8 @@ Deno.serve(async (req) => {
     const instancePipelineId: string | null = pipelineInstance?.pipeline_id ?? null;
     const instanceBaseUrl: string = pipelineInstance?.base_url ?? UAZAPI_BASE_URL;
     const instanceToken: string = pipelineInstance?.instance_token ?? UAZAPI_INSTANCE_TOKEN;
+    // Responsável = user_id da instância que recebeu a mensagem. Fallback: POSVENDA_USER_ID global.
+    const instanceUserId: string | null = pipelineInstance?.user_id ?? POSVENDA_USER_ID;
 
     // Log all webhook events with EventType for debugging ack format
     const bodyEventType = body?.EventType || body?.event || body?.type || "";
@@ -695,7 +697,7 @@ Deno.serve(async (req) => {
             status: "aberto",
             pipeline_stage: "sem_atendimento",
             pipeline_position: 0,
-            assigned_to: POSVENDA_USER_ID,
+            assigned_to: instanceUserId,
             ticket_number: "",
             origin: "whatsapp",
             channel: "whatsapp",
@@ -734,7 +736,7 @@ Deno.serve(async (req) => {
           status: "aberto",
           pipeline_stage: "sem_atendimento",
           pipeline_position: 0,
-          assigned_to: POSVENDA_USER_ID,
+          assigned_to: instanceUserId,
           ticket_number: "",
           origin: "whatsapp",
           channel: "whatsapp",
