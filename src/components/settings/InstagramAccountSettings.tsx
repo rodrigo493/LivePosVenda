@@ -9,7 +9,7 @@ import { CheckCircle, AlertCircle, RefreshCw, Unlink } from "lucide-react";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const INSTAGRAM_APP_ID = import.meta.env.VITE_INSTAGRAM_APP_ID;
 const REDIRECT_URI = `${window.location.origin}/instagram-oauth`;
-const OAUTH_URL = `https://www.facebook.com/v21.0/dialog/oauth?client_id=${INSTAGRAM_APP_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=pages_show_list,instagram_manage_messages,instagram_manage_comments&response_type=code&auth_type=rerequest`;
+const OAUTH_URL = `https://www.facebook.com/v21.0/dialog/oauth?client_id=${INSTAGRAM_APP_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=pages_show_list,instagram_manage_messages,instagram_manage_comments,business_management&response_type=code&auth_type=rerequest`;
 
 export function InstagramAccountSettings() {
   const qc = useQueryClient();

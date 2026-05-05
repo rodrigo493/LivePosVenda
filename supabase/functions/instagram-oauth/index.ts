@@ -42,21 +42,39 @@ async function exchangeAndSave(code: string, redirectUri: string): Promise<{ use
   const longToken = llData.access_token ?? tokenData.access_token;
   const expiresIn = llData.expires_in ?? 5183944;
 
-  // 3. Busca Pages do usuário
+  // 3a. Busca Pages do usuário (acesso direto)
   const pagesRes = await fetch(
     `https://graph.facebook.com/v21.0/me/accounts?` +
     `fields=id,instagram_business_account{id,username,profile_picture_url}&` +
     `access_token=${longToken}`
   );
   const pagesData = await pagesRes.json();
-  console.log("[instagram-oauth] pages response:", JSON.stringify(pagesData));
-  const page = (pagesData.data ?? []).find((p: any) => p.instagram_business_account);
-  if (!page) {
-    const pagesSummary = (pagesData.data ?? []).map((p: any) => `${p.id}(ig:${p.instagram_business_account?.id ?? "none"})`).join(", ");
-    return { error: `Nenhuma conta Instagram Business encontrada. Páginas: [${pagesSummary || "nenhuma"}]` };
+  console.log("[instagram-oauth] me/accounts:", JSON.stringify(pagesData));
+  let igAccount = (pagesData.data ?? []).find((p: any) => p.instagram_business_account)?.instagram_business_account ?? null;
+
+  // 3b. Fallback: busca via Business Manager (quando Page é gerenciada pelo BM)
+  if (!igAccount) {
+    const bizRes = await fetch(
+      `https://graph.facebook.com/v21.0/me/businesses?` +
+      `fields=owned_pages{instagram_business_account{id,username,profile_picture_url}}&` +
+      `access_token=${longToken}`
+    );
+    const bizData = await bizRes.json();
+    console.log("[instagram-oauth] me/businesses:", JSON.stringify(bizData));
+    for (const biz of bizData.data ?? []) {
+      for (const pg of biz.owned_pages?.data ?? []) {
+        if (pg.instagram_business_account) {
+          igAccount = pg.instagram_business_account;
+          break;
+        }
+      }
+      if (igAccount) break;
+    }
   }
 
-  const igAccount = page.instagram_business_account;
+  if (!igAccount) {
+    return { error: "Nenhuma conta Instagram Business encontrada. Verifique se a conta está vinculada a uma Página no Meta Business Suite." };
+  }
   const tokenExpiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
 
   // 4. Salva em instagram_account (upsert)
