@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useMyProfile } from "@/hooks/useMyProfile";
-import { ArrowLeft, Package, Save, Loader2, Send, CalendarIcon, Pencil, X, Wrench, Plus, Trash2, Factory, Truck } from "lucide-react";
+import { ArrowLeft, Package, Save, Loader2, Send, CalendarIcon, Pencil, X, Wrench, Plus, Trash2, Factory, Truck, QrCode, Building2, CreditCard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -105,21 +105,31 @@ const PADetailPage = () => {
   const [quoteNotes, setQuoteNotes] = useState<string>("");
   const [quoteValidUntil, setQuoteValidUntil] = useState<string>("");
   const [savingQuoteDetails, setSavingQuoteDetails] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<"pix" | "transferencia" | "cartao">("pix");
+  const [installments, setInstallments] = useState(1);
   useEffect(() => {
     if (!linkedQuote) return;
     setQuoteNotes((linkedQuote.notes as string) ?? "");
     setQuoteValidUntil((linkedQuote.valid_until as string) ?? "");
     setConsultorId((linkedQuote as any).created_by ?? null);
-  }, [linkedQuote?.id, linkedQuote?.notes, linkedQuote?.valid_until, (linkedQuote as any)?.created_by]);
+    setPaymentMethod(((linkedQuote as any).payment_method as "pix" | "transferencia" | "cartao") ?? "pix");
+    setInstallments((linkedQuote as any).installments ?? 1);
+  }, [linkedQuote?.id, linkedQuote?.notes, linkedQuote?.valid_until, (linkedQuote as any)?.created_by, (linkedQuote as any)?.payment_method, (linkedQuote as any)?.installments]);
 
   async function saveQuoteDetails() {
     const quoteId = await ensureLinkedQuote();
     if (!quoteId) return;
     setSavingQuoteDetails(true);
     try {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("quotes")
-        .update({ notes: quoteNotes || null, valid_until: quoteValidUntil || null, created_by: consultorId || null })
+        .update({
+          notes: quoteNotes || null,
+          valid_until: quoteValidUntil || null,
+          created_by: consultorId || null,
+          payment_method: paymentMethod,
+          installments: paymentMethod === "cartao" ? installments : 1,
+        })
         .eq("id", quoteId);
       if (error) { toast.error(error.message); return; }
       toast.success("Detalhes do orçamento salvos");
@@ -128,6 +138,25 @@ const PADetailPage = () => {
       setSavingQuoteDetails(false);
     }
   }
+
+  const handlePaymentMethodChange = async (method: "pix" | "transferencia" | "cartao") => {
+    setPaymentMethod(method);
+    const quoteId = await ensureLinkedQuote();
+    if (!quoteId) return;
+    await (supabase as any).from("quotes").update({
+      payment_method: method,
+      installments: method === "cartao" ? installments : 1,
+    }).eq("id", quoteId);
+    qc.invalidateQueries({ queryKey: ["pa_linked_quote", id] });
+  };
+
+  const handleInstallmentsBlur = async () => {
+    if (paymentMethod !== "cartao") return;
+    const quoteId = linkedQuote?.id;
+    if (!quoteId) return;
+    await (supabase as any).from("quotes").update({ installments }).eq("id", quoteId);
+    qc.invalidateQueries({ queryKey: ["pa_linked_quote", id] });
+  };
 
   // Nomus ERP fields
   const [nomusFields, setNomusFields] = useState({
@@ -933,6 +962,57 @@ const PADetailPage = () => {
           </div>
         </>
       )}
+
+      {/* Forma de Pagamento */}
+      <div className="bg-card rounded-xl border shadow-sm p-4 mb-6">
+        <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-3">Forma de Pagamento</p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {([
+            { value: "pix", Icon: QrCode, title: "À vista — PIX", desc: "Pagamento instantâneo via PIX" },
+            { value: "transferencia", Icon: Building2, title: "Transferência bancária", desc: "TED ou DOC para conta da empresa" },
+            { value: "cartao", Icon: CreditCard, title: "Cartão — Parcelado c/ juros", desc: "Parcelamento com juros da operadora" },
+          ] as const).map(({ value, Icon, title, desc }) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => handlePaymentMethodChange(value)}
+              className={`flex items-start gap-3 p-3 rounded-xl border-2 transition-all text-left ${
+                paymentMethod === value
+                  ? "border-orange-400 bg-orange-50 dark:bg-orange-950/30"
+                  : "border-border hover:border-muted-foreground/40 bg-background"
+              }`}
+            >
+              <Icon className={`h-5 w-5 mt-0.5 shrink-0 ${paymentMethod === value ? "text-orange-500" : "text-muted-foreground"}`} />
+              <div>
+                <p className={`text-sm font-semibold leading-tight ${paymentMethod === value ? "text-orange-600 dark:text-orange-400" : ""}`}>{title}</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">{desc}</p>
+              </div>
+            </button>
+          ))}
+        </div>
+        {paymentMethod === "cartao" && (
+          <div className="flex items-center gap-3 mt-4 pt-3 border-t flex-wrap">
+            <CreditCard className="h-4 w-4 text-muted-foreground shrink-0" />
+            <span className="text-sm text-muted-foreground">Quantidade de parcelas:</span>
+            <Input
+              type="number"
+              min={1}
+              max={24}
+              value={installments}
+              onChange={e => setInstallments(Math.max(1, Math.min(24, Number(e.target.value) || 1)))}
+              onBlur={handleInstallmentsBlur}
+              className="w-20 h-8 text-sm font-mono"
+            />
+            {totals.charged > 0 && (
+              <span className="text-sm text-muted-foreground">
+                = {installments}x de{" "}
+                <strong className="text-foreground font-mono">R$ {(totals.charged / installments).toFixed(2)}</strong>
+                {" "}(sem juros base — juros da operadora à parte)
+              </span>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Add items buttons */}
       <div className="flex gap-2 mb-4">
