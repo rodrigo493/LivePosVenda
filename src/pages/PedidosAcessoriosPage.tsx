@@ -1,4 +1,4 @@
-import { ShoppingBag, ArrowLeft, Package } from "lucide-react";
+import { ShoppingBag, ArrowLeft, Package, CheckCircle2 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -18,7 +18,7 @@ const PedidosAcessoriosPage = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("service_requests")
-        .select("*, tickets(ticket_number, title, clients(name), equipments(serial_number, equipment_models(name)))")
+        .select("*, nomus_order_id, tickets(ticket_number, title, clients(name), equipments(serial_number, equipment_models(name)))")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data;
@@ -56,6 +56,12 @@ const PedidosAcessoriosPage = () => {
                   <span className="text-sm font-semibold font-mono">{(sr as any).request_number || "PA"}</span>
                   {sr.tickets?.ticket_number && <Badge variant="outline" className="text-[10px] font-mono">{sr.tickets.ticket_number}</Badge>}
                   <StatusBadge status={statusLabels[sr.status] || sr.status} />
+                  {sr.nomus_order_id && (
+                    <Badge variant="outline" className="text-[10px] gap-1 border-emerald-500 text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30">
+                      <CheckCircle2 className="h-3 w-3" />
+                      Nomus
+                    </Badge>
+                  )}
                 </div>
                 <span className="text-sm font-bold font-mono">{fmtCurrency(sr.estimated_cost || 0)}</span>
               </div>

@@ -1,4 +1,4 @@
-import { ShieldCheck, ArrowLeft, Shield } from "lucide-react";
+import { ShieldCheck, ArrowLeft, Shield, CheckCircle2 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -18,7 +18,7 @@ const PedidosGarantiaPage = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("warranty_claims")
-        .select("*, tickets(ticket_number, title, clients(name), equipments(serial_number, equipment_models(name)))")
+        .select("*, nomus_order_id, tickets(ticket_number, title, clients(name), equipments(serial_number, equipment_models(name)))")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data;
@@ -56,6 +56,12 @@ const PedidosGarantiaPage = () => {
                   <span className="text-sm font-semibold font-mono">{claim.claim_number || "PG"}</span>
                   {claim.tickets?.ticket_number && <Badge variant="outline" className="text-[10px] font-mono">{claim.tickets.ticket_number}</Badge>}
                   <StatusBadge status={warrantyStatusLabels[claim.warranty_status] || claim.warranty_status} />
+                  {claim.nomus_order_id && (
+                    <Badge variant="outline" className="text-[10px] gap-1 border-emerald-500 text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30">
+                      <CheckCircle2 className="h-3 w-3" />
+                      Nomus
+                    </Badge>
+                  )}
                 </div>
                 <span className="text-sm font-bold font-mono">{fmtCurrency(claim.internal_cost || 0)}</span>
               </div>

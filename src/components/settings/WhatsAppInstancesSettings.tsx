@@ -7,8 +7,28 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trash2, Plus, Pencil, X, Check, ChevronDown, ChevronRight, MessageSquare } from "lucide-react";
+import { Trash2, Plus, Pencil, X, Check, ChevronDown, ChevronRight, MessageSquare, RefreshCw, Wifi, WifiOff } from "lucide-react";
 import { useAllUsers, UserSummary } from "@/hooks/useUserAccess";
+
+async function checkInstanceWebhook(instanceId: string): Promise<"open" | "close" | "connecting"> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData?.session?.access_token ?? "";
+  const res = await fetch(
+    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-instance-status`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+      },
+      body: JSON.stringify({ instance_id: instanceId, skip_connect: true }),
+    }
+  );
+  if (!res.ok) throw new Error(`Erro ${res.status}`);
+  const data = await res.json();
+  return data.state ?? "close";
+}
 
 interface Pipeline { id: string; name: string; slug: string; }
 interface Instance {
@@ -110,6 +130,8 @@ function InstanceRow({
   const [editing, setEditing] = useState(false);
   const [editingFull, setEditingFull] = useState(false);
   const [pct, setPct] = useState(String(inst.distribution_pct));
+  const [waState, setWaState] = useState<"open" | "close" | "connecting" | null>(null);
+  const [checking, setChecking] = useState(false);
   const [form, setForm] = useState({
     instance_name: inst.instance_name,
     phone_number: inst.phone_number ?? "",
@@ -167,6 +189,25 @@ function InstanceRow({
       user_id: inst.user_id ?? "",
     });
     setEditingFull(true);
+  };
+
+  const verifyWebhook = async () => {
+    setChecking(true);
+    try {
+      const state = await checkInstanceWebhook(inst.id);
+      setWaState(state);
+      if (state === "open") {
+        toast.success(`${inst.instance_name}: conectado — webhook configurado no Uazapi!`);
+      } else if (state === "connecting") {
+        toast.warning(`${inst.instance_name}: aguardando conexão (QR pendente)`);
+      } else {
+        toast.error(`${inst.instance_name}: desconectado — conecte o WhatsApp primeiro`);
+      }
+    } catch {
+      toast.error("Erro ao verificar webhook");
+    } finally {
+      setChecking(false);
+    }
   };
 
   if (editingFull) {
@@ -255,6 +296,20 @@ function InstanceRow({
         className={`text-[10px] rounded-full px-2 py-0.5 font-medium border transition-colors ${inst.active ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100" : "bg-muted text-muted-foreground border-border hover:bg-muted/60"}`}
       >
         {inst.active ? "Ativo" : "Inativo"}
+      </button>
+
+      {/* Webhook status indicator */}
+      {waState === "open" && <Wifi className="h-3.5 w-3.5 text-emerald-500 shrink-0" title="Conectado — webhook ativo" />}
+      {waState === "close" && <WifiOff className="h-3.5 w-3.5 text-destructive shrink-0" title="Desconectado" />}
+      {waState === "connecting" && <RefreshCw className="h-3.5 w-3.5 text-amber-500 animate-spin shrink-0" title="Conectando..." />}
+
+      <button
+        onClick={verifyWebhook}
+        disabled={checking}
+        className="text-muted-foreground hover:text-emerald-600 transition-colors"
+        title="Verificar conexão e configurar webhook"
+      >
+        {checking ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
       </button>
 
       <button onClick={openEdit} className="text-muted-foreground hover:text-foreground transition-colors" title="Editar">
