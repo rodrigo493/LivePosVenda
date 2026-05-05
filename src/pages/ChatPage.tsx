@@ -5,6 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { WhatsAppChat } from "@/components/whatsapp/WhatsAppChat";
 import { useWhatsAppConversations, useMarkConversationRead } from "@/hooks/useWhatsAppConversations";
+import { useInstagramConversations, useMarkInstagramConversationRead, InstagramConversation } from "@/hooks/useInstagramConversations";
+import { InstagramChat } from "@/components/instagram/InstagramChat";
 import { useUserWhatsAppInstances } from "@/hooks/useUserWhatsAppInstances";
 import { useClients } from "@/hooks/useClients";
 import { useAllUsers } from "@/hooks/useUserAccess";
@@ -155,6 +157,9 @@ export default function ChatPage() {
   const [search, setSearch] = useState("");
   const [creatingCard, setCreatingCard] = useState(false);
   const markRead = useMarkConversationRead();
+  const { data: igConversations = [] } = useInstagramConversations();
+  const markIgRead = useMarkInstagramConversationRead();
+  const [selectedIgChat, setSelectedIgChat] = useState<InstagramConversation | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const clientParam = searchParams.get("client");
   const navigate = useNavigate();
@@ -225,14 +230,28 @@ export default function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedChat?.client_id]);
 
-  const filteredConversations = useMemo(() => {
-    if (!search.trim()) return conversations || [];
-    const term = search.toLowerCase();
-    return (conversations || []).filter((c) =>
-      c.client_name.toLowerCase().includes(term) ||
-      (c.client_phone || "").includes(term)
+  const mergedConversations = useMemo(() => {
+    const wa = (conversations ?? []).map((c) => ({ ...c, channel: "whatsapp" as const }));
+    const ig = igConversations.map((c) => ({ ...c, channel: "instagram" as const }));
+    return [...wa, ...ig].sort(
+      (a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime()
     );
-  }, [conversations, search]);
+  }, [conversations, igConversations]);
+
+  const filteredConversations = useMemo(() => {
+    if (!search.trim()) return mergedConversations;
+    const term = search.toLowerCase();
+    return mergedConversations.filter((c) => {
+      if (c.channel === "instagram") {
+        const ig = c as InstagramConversation & { channel: "instagram" };
+        return (ig.display_name ?? "").toLowerCase().includes(term);
+      }
+      return (
+        (c as any).client_name?.toLowerCase().includes(term) ||
+        ((c as any).client_phone ?? "").includes(term)
+      );
+    });
+  }, [mergedConversations, search]);
 
   // Conversa selecionada completa (para pegar assigned_to)
   const selectedConv = useMemo(
@@ -276,24 +295,39 @@ export default function ChatPage() {
   useEffect(() => {
     if (filteredConversations.length === 0) return;
     if (clientParam) {
-      const target = filteredConversations.find((c) => c.client_id === clientParam);
+      const target = filteredConversations.find((c) => c.channel !== "instagram" && (c as any).client_id === clientParam);
       if (target) {
-        setSelectedChat({ client_id: target.client_id, client_name: target.client_name, client_phone: target.client_phone || "" });
+        setSelectedChat({ client_id: (target as any).client_id, client_name: (target as any).client_name, client_phone: (target as any).client_phone || "" });
         setMobileView("chat");
         setSearchParams({}, { replace: true });
         return;
       }
     }
-    // No desktop, seleciona automaticamente a primeira conversa
-    if (!selectedChat && !isMobile) {
+    // No desktop, seleciona automaticamente a primeira conversa (apenas WhatsApp)
+    if (!selectedChat && !selectedIgChat && !isMobile) {
       const first = filteredConversations[0];
-      setSelectedChat({ client_id: first.client_id, client_name: first.client_name, client_phone: first.client_phone || "" });
+      if (!first) return;
+      if (first.channel === "instagram") return;
+      setSelectedChat({ client_id: (first as any).client_id, client_name: (first as any).client_name, client_phone: (first as any).client_phone || "" });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredConversations, clientParam, isMobile]);
 
   const selectConversation = (conv: typeof filteredConversations[0]) => {
-    setSelectedChat({ client_id: conv.client_id, client_name: conv.client_name, client_phone: conv.client_phone || "" });
+    if (conv.channel === "instagram") {
+      const ig = conv as InstagramConversation & { channel: "instagram" };
+      setSelectedIgChat(ig);
+      setSelectedChat(null);
+      markIgRead.mutate(ig.id);
+    } else {
+      setSelectedIgChat(null);
+      setSelectedChat({
+        client_id: (conv as any).client_id,
+        client_name: (conv as any).client_name,
+        client_phone: (conv as any).client_phone || "",
+      });
+      markRead.mutate((conv as any).client_id);
+    }
     if (isMobile) setMobileView("chat");
   };
 
@@ -306,6 +340,7 @@ export default function ChatPage() {
 
   const handleBackToList = () => {
     setMobileView("list");
+    setSelectedIgChat(null);
   };
 
   // No mobile: altura sem o padding menor do main (p-4 = 1rem*2 + header 3.5rem = 5.5rem)
@@ -437,10 +472,12 @@ export default function ChatPage() {
               <AnimatePresence>
                 {filteredConversations.map((conv) => {
                   const hasUnread = conv.unread_count > 0;
-                  const isSelected = selectedChat?.client_id === conv.client_id;
+                  const isSelected = conv.channel === "instagram"
+                    ? selectedIgChat?.id === (conv as InstagramConversation).id
+                    : selectedChat?.client_id === (conv as any).client_id;
                   return (
                     <motion.button
-                      key={conv.client_id}
+                      key={conv.channel === "instagram" ? `ig-${(conv as InstagramConversation).id}` : (conv as any).client_id}
                       layout
                       onClick={() => selectConversation(conv)}
                       className={`w-full flex items-start gap-3 p-3 transition-colors text-left ${
@@ -453,10 +490,12 @@ export default function ChatPage() {
                         <div className={`h-10 w-10 rounded-full flex items-center justify-center text-sm font-bold ${
                           hasUnread ? "bg-[#f97316]/20 text-[#f97316]" : "bg-emerald-100 text-emerald-700"
                         }`}>
-                          {conv.client_name.charAt(0).toUpperCase()}
+                          {conv.channel === "instagram"
+                            ? ((conv as InstagramConversation).sender_username?.charAt(0).toUpperCase() ?? "I")
+                            : (conv as any).client_name?.charAt(0).toUpperCase() ?? "?"}
                         </div>
                         <span className="absolute -bottom-0.5 -right-0.5 bg-background rounded-full p-0.5">
-                          <ChannelIcon channel="whatsapp" size={11} />
+                          <ChannelIcon channel={conv.channel ?? "whatsapp"} size={11} />
                         </span>
                         {hasUnread && (
                           <span className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 bg-[#c2410c] rounded-full border-2 border-background animate-dot-pulse" />
@@ -465,7 +504,9 @@ export default function ChatPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between mb-0.5">
                           <span className={`text-sm truncate ${hasUnread ? "text-[#f97316] font-bold" : "font-medium"}`}>
-                            {conv.client_name}
+                            {conv.channel === "instagram"
+                              ? (conv as InstagramConversation).display_name
+                              : (conv as any).client_name}
                           </span>
                           <span className={`text-[10px] shrink-0 ml-1 ${hasUnread ? "text-[#f97316] font-semibold" : "text-muted-foreground"}`}>
                             {formatRelativeTime(conv.last_message_at)}
@@ -473,12 +514,14 @@ export default function ChatPage() {
                         </div>
                         <div className="flex items-center justify-between gap-1">
                           <p className={`text-xs truncate ${hasUnread ? "text-foreground/80 font-medium" : "text-muted-foreground"}`}>
-                            {conv.last_message}
+                            {conv.channel === "instagram"
+                              ? ((conv as InstagramConversation).last_message ?? "Nova conversa")
+                              : (conv as any).last_message}
                           </p>
                           <div className="flex items-center gap-1 shrink-0">
-                            {isAdmin && (() => {
-                              const ownerId = conv.assigned_to
-                                ?? (conv.last_instance_id ? instanceUserMap.get(conv.last_instance_id) ?? null : null);
+                            {isAdmin && conv.channel !== "instagram" && (() => {
+                              const ownerId = (conv as any).assigned_to
+                                ?? ((conv as any).last_instance_id ? instanceUserMap.get((conv as any).last_instance_id) ?? null : null);
                               const name = allUsers.find(u => u.user_id === ownerId)?.full_name?.split(" ")[0];
                               return name ? (
                                 <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 leading-tight whitespace-nowrap">
@@ -506,7 +549,32 @@ export default function ChatPage() {
       {/* Área de chat */}
       {showChat && (
         <div className={`${isMobile ? "w-full" : "flex-1"} flex flex-col overflow-hidden`}>
-          {selectedChat ? (
+          {selectedIgChat ? (
+            <motion.div key={selectedIgChat.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex-1 flex flex-col overflow-hidden">
+              {/* Header Instagram */}
+              <div className="px-4 py-3 border-b flex items-center gap-2">
+                {isMobile && (
+                  <button
+                    onClick={handleBackToList}
+                    className="p-1.5 -ml-1 rounded-lg hover:bg-muted transition-colors shrink-0"
+                    aria-label="Voltar para conversas"
+                  >
+                    <ArrowLeft className="h-5 w-5" />
+                  </button>
+                )}
+                <div className="h-8 w-8 rounded-full bg-gradient-to-br from-orange-400 to-purple-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                  {selectedIgChat.sender_username?.charAt(0).toUpperCase() ?? "I"}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold">{selectedIgChat.display_name}</p>
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <ChannelIcon channel="instagram" size={10} /> Instagram
+                  </p>
+                </div>
+              </div>
+              <InstagramChat conversation={selectedIgChat} />
+            </motion.div>
+          ) : selectedChat ? (
             <motion.div key={selectedChat.client_id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex-1 flex flex-col overflow-hidden">
               <div className="px-4 py-3 border-b flex items-center gap-2">
                 {/* Botão voltar mobile */}
