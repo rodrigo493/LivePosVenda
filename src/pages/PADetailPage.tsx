@@ -113,13 +113,14 @@ const PADetailPage = () => {
   }, [linkedQuote?.id, linkedQuote?.notes, linkedQuote?.valid_until, (linkedQuote as any)?.created_by]);
 
   async function saveQuoteDetails() {
-    if (!linkedQuote) return;
+    const quoteId = await ensureLinkedQuote();
+    if (!quoteId) return;
     setSavingQuoteDetails(true);
     try {
       const { error } = await supabase
         .from("quotes")
         .update({ notes: quoteNotes || null, valid_until: quoteValidUntil || null, created_by: consultorId || null })
-        .eq("id", linkedQuote.id);
+        .eq("id", quoteId);
       if (error) { toast.error(error.message); return; }
       toast.success("Detalhes do orçamento salvos");
       qc.invalidateQueries({ queryKey: ["pa_linked_quote", id] });
@@ -1102,63 +1103,61 @@ const PADetailPage = () => {
       )}
 
       {/* Quote-level details (mirror of Orçamento page) */}
-      {linkedQuote && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <div className="md:col-span-2">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className="md:col-span-2">
+          <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">
+            Observações / Condições Comerciais
+          </label>
+          <Textarea
+            value={quoteNotes}
+            onChange={(e) => setQuoteNotes(e.target.value)}
+            placeholder="Condições de pagamento, prazo estimado, garantia de serviço..."
+            rows={3}
+          />
+        </div>
+        <div className="flex flex-col gap-3">
+          <div>
             <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">
-              Observações / Condições Comerciais
+              Consultor / Vendedor
             </label>
-            <Textarea
-              value={quoteNotes}
-              onChange={(e) => setQuoteNotes(e.target.value)}
-              placeholder="Condições de pagamento, prazo estimado, garantia de serviço..."
-              rows={3}
+            <Select value={consultorId ?? ""} onValueChange={v => setConsultorId(v || null)}>
+              <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Selecionar consultor..." /></SelectTrigger>
+              <SelectContent>
+                {allUsers.map(u => (
+                  <SelectItem key={u.user_id} value={u.user_id}>
+                    <span>{u.full_name || u.email}</span>
+                    {(u.email || u.phone) && (
+                      <span className="ml-1 text-muted-foreground text-[11px]">
+                        {[u.email, u.phone].filter(Boolean).join(" · ")}
+                      </span>
+                    )}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">
+              Validade do Orçamento
+            </label>
+            <input
+              type="date"
+              value={quoteValidUntil ? quoteValidUntil.slice(0, 10) : ""}
+              onChange={(e) => setQuoteValidUntil(e.target.value)}
+              className="w-full px-3 py-2 text-sm rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono"
             />
           </div>
-          <div className="flex flex-col gap-3">
-            <div>
-              <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">
-                Consultor / Vendedor
-              </label>
-              <Select value={consultorId ?? ""} onValueChange={v => setConsultorId(v || null)}>
-                <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Selecionar consultor..." /></SelectTrigger>
-                <SelectContent>
-                  {allUsers.map(u => (
-                    <SelectItem key={u.user_id} value={u.user_id}>
-                      <span>{u.full_name || u.email}</span>
-                      {(u.email || u.phone) && (
-                        <span className="ml-1 text-muted-foreground text-[11px]">
-                          {[u.email, u.phone].filter(Boolean).join(" · ")}
-                        </span>
-                      )}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">
-                Validade do Orçamento
-              </label>
-              <input
-                type="date"
-                value={quoteValidUntil ? quoteValidUntil.slice(0, 10) : ""}
-                onChange={(e) => setQuoteValidUntil(e.target.value)}
-                className="w-full px-3 py-2 text-sm rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono"
-              />
-            </div>
-            <Button
-              size="sm"
-              variant="outline"
-              className="gap-1.5"
-              disabled={savingQuoteDetails}
-              onClick={saveQuoteDetails}
-            >
-              <Save className="h-3.5 w-3.5" /> {savingQuoteDetails ? "Salvando..." : "Salvar Detalhes"}
-            </Button>
-          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            disabled={savingQuoteDetails}
+            onClick={saveQuoteDetails}
+          >
+            <Save className="h-3.5 w-3.5" /> {savingQuoteDetails ? "Salvando..." : "Salvar Detalhes"}
+          </Button>
         </div>
-      )}
+      </div>
 
       {/* Editable fields */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
