@@ -18,6 +18,7 @@ import {
   Palette,
   ShoppingBag,
   Receipt,
+  RefreshCw,
 } from "lucide-react";
 import GridLayout, { WidthProvider } from "react-grid-layout/legacy";
 import { KpiCard } from "@/components/dashboard/KpiCard";
@@ -40,7 +41,7 @@ import { usePipelines } from "@/hooks/usePipelines";
 import { useAdminTickets } from "@/hooks/useAdminTickets";
 import { useAdminDashboardLayout, AdminColors } from "@/hooks/useAdminDashboardLayout";
 import { DEFAULT_ADMIN_LAYOUT, AdminLayoutItem, ACCENT_COLORS } from "@/constants/adminDashboardLayout";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -177,6 +178,7 @@ function UserMultiSelect({
 // ─── Dashboard Content (todos os hooks de dados aqui) ────────────────────────
 
 function DashboardContent() {
+  const queryClient = useQueryClient();
   const { data: allTickets } = useAdminTickets();
   const { data: pipelines } = usePipelines();
   const { data: orders } = useWorkOrders();
@@ -248,6 +250,25 @@ function DashboardContent() {
       .reduce((sum, r) => sum + Number(r.estimated_cost || 0), 0),
     [serviceRequestsTotals]
   );
+
+  // ── Refresh ───────────────────────────────────────────────────────────────
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["admin-tickets"] }),
+      queryClient.invalidateQueries({ queryKey: ["pipelines"] }),
+      queryClient.invalidateQueries({ queryKey: ["work_orders"] }),
+      queryClient.invalidateQueries({ queryKey: ["warranty_claims"] }),
+      queryClient.invalidateQueries({ queryKey: ["equipments"] }),
+      queryClient.invalidateQueries({ queryKey: ["all_service_history"] }),
+      queryClient.invalidateQueries({ queryKey: ["profiles-all"] }),
+      queryClient.invalidateQueries({ queryKey: ["admin-warranty-declared"] }),
+      queryClient.invalidateQueries({ queryKey: ["admin-service-requests-totals"] }),
+    ]);
+    setIsRefreshing(false);
+    toast.success("Dados atualizados");
+  }, [queryClient]);
 
   const [selectedPipelineId, setSelectedPipelineId] = useState<string>("all");
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
@@ -441,6 +462,15 @@ function DashboardContent() {
           }
           icon={LayoutDashboard}
         />
+        <button
+          onClick={handleRefresh}
+          disabled={isRefreshing}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-border bg-card hover:bg-muted text-muted-foreground transition-colors disabled:opacity-50"
+          title="Atualizar dados"
+        >
+          <RefreshCw className={`h-3 w-3 ${isRefreshing ? "animate-spin" : ""}`} />
+          {isRefreshing ? "Atualizando…" : "Atualizar"}
+        </button>
       </div>
 
       {/* Filtros: Fluxo + Usuário */}

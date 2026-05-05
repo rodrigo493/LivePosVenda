@@ -21,7 +21,11 @@ export function useDashboardLayout() {
     },
   });
 
-  const currentLayout: LayoutItem[] = (data ?? DEFAULT_LAYOUT) as LayoutItem[];
+  const savedLayout = (data ?? []) as LayoutItem[];
+  const savedKeys = new Set(savedLayout.map((item) => item.i));
+  const missingItems = DEFAULT_LAYOUT.filter((item) => !savedKeys.has(item.i));
+  const currentLayout: LayoutItem[] =
+    savedLayout.length > 0 ? [...savedLayout, ...missingItems] : DEFAULT_LAYOUT;
 
   const { mutateAsync: saveLayout, isPending: isSaving } = useMutation({
     mutationFn: async (layout: LayoutItem[]) => {
