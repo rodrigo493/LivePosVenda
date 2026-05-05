@@ -683,6 +683,27 @@ Deno.serve(async (req) => {
       ticketId = tickets?.[0]?.id || null;
       if (ticketId) {
         await admin.from("tickets").update({ last_interaction_at: new Date().toISOString() }).eq("id", ticketId);
+      } else {
+        // Cliente existe mas não tem ticket aberto — cria novo ticket para garantir
+        // que a conversa seja atribuída ao responsável e apareça na inbox correta.
+        const { data: reopenedTicket } = await admin
+          .from("tickets")
+          .insert({
+            client_id: clientId,
+            title: `WhatsApp — ${senderName || localPhone}`,
+            description: messageText,
+            status: "aberto",
+            pipeline_stage: "sem_atendimento",
+            pipeline_position: 0,
+            assigned_to: POSVENDA_USER_ID,
+            ticket_number: "",
+            origin: "whatsapp",
+            channel: "whatsapp",
+            ...(instancePipelineId ? { pipeline_id: instancePipelineId } : {}),
+          })
+          .select("id")
+          .single();
+        ticketId = reopenedTicket?.id || null;
       }
     } else {
       const { data: newClient, error: clientErr } = await admin
