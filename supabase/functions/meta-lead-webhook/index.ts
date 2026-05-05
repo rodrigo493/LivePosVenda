@@ -357,6 +357,7 @@ Deno.serve(async (req) => {
 
     const sig = req.headers.get("x-hub-signature-256") ?? "";
     if (!await verifySignature(rawBody, sig)) {
+      console.error("[webhook] signature mismatch — sig:", sig.slice(0, 20));
       return new Response("Assinatura inválida", { status: 403 });
     }
 
