@@ -1,6 +1,8 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Navigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
@@ -11,7 +13,7 @@ import {
   CheckCircle2, AlertCircle, XCircle, Signal,
   ChevronDown, ChevronRight, Zap, BarChart3,
   ShieldCheck, GitBranch, Smartphone, Timer,
-  Circle
+  Circle, QrCode, LogOut,
 } from "lucide-react";
 import { formatDate } from "@/lib/formatters";
 
@@ -72,6 +74,11 @@ function formatPhone(phone: string | null): string {
   return phone;
 }
 
+function normalizeQr(raw: string): string {
+  if (raw.startsWith("data:")) return raw;
+  return `data:image/png;base64,${raw}`;
+}
+
 // ─── Status indicator ─────────────────────────────────────────────────────────
 
 function StatusDot({ state }: { state: InstanceStatus["state"] | null }) {
@@ -121,20 +128,34 @@ function InstanceRow({
   stats,
   status,
   checking,
+  qrCode,
+  connecting,
+  disconnecting,
   onCheck,
+  onConnect,
+  onDisconnect,
 }: {
   instance: Instance;
   profile: Profile | null;
   stats: MsgStats | null;
   status: InstanceStatus | null;
   checking: boolean;
+  qrCode: string | null;
+  connecting: boolean;
+  disconnecting: boolean;
   onCheck: () => void;
+  onConnect: () => void;
+  onDisconnect: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
 
+  const isConnected = status?.state === "open";
+  const isDisconnected = !status || status.state === "close" || status.state === "error";
+  const isConnecting = status?.state === "connecting";
+
   const stateColor =
-    status?.state === "open" ? "border-l-emerald-500" :
-    status?.state === "connecting" ? "border-l-amber-400" :
+    isConnected ? "border-l-emerald-500" :
+    isConnecting ? "border-l-amber-400" :
     status?.state === "close" ? "border-l-rose-400" :
     status?.state === "error" ? "border-l-rose-500" :
     "border-l-border";
@@ -231,6 +252,36 @@ function InstanceRow({
 
         {/* Actions */}
         <div className="flex items-center gap-2 shrink-0">
+          {/* Conectar — visível quando desconectado */}
+          {isDisconnected && (
+            <button
+              onClick={onConnect}
+              disabled={connecting}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-emerald-600 hover:bg-emerald-700 text-white transition-colors disabled:opacity-50"
+            >
+              {connecting
+                ? <Loader2 className="h-3 w-3 animate-spin" />
+                : <QrCode className="h-3 w-3" />
+              }
+              {connecting ? "Gerando QR…" : "Conectar"}
+            </button>
+          )}
+
+          {/* Desconectar — visível quando conectado */}
+          {isConnected && (
+            <button
+              onClick={onDisconnect}
+              disabled={disconnecting}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-rose-300 dark:border-rose-700 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors disabled:opacity-50"
+            >
+              {disconnecting
+                ? <Loader2 className="h-3 w-3 animate-spin" />
+                : <LogOut className="h-3 w-3" />
+              }
+              {disconnecting ? "Desconectando…" : "Desconectar"}
+            </button>
+          )}
+
           <button
             onClick={onCheck}
             disabled={checking}
@@ -254,6 +305,38 @@ function InstanceRow({
           </button>
         </div>
       </div>
+
+      {/* ── QR Code panel ── */}
+      <AnimatePresence>
+        {qrCode && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className="border-t bg-amber-50 dark:bg-amber-950/20 px-5 py-4 flex items-center gap-6">
+              <img
+                src={normalizeQr(qrCode)}
+                alt="QR Code WhatsApp"
+                className="w-36 h-36 rounded-lg border border-amber-200 dark:border-amber-800 bg-white p-1 shrink-0"
+              />
+              <div>
+                <p className="text-sm font-semibold text-amber-800 dark:text-amber-300 mb-1">
+                  Escaneie o QR Code no WhatsApp
+                </p>
+                <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
+                  Abra o WhatsApp no celular → Dispositivos conectados → Conectar dispositivo
+                </p>
+                <p className="text-[10px] text-amber-600/70 dark:text-amber-500/60 mt-2">
+                  Verificando conexão a cada 5 segundos…
+                </p>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── Expanded details ── */}
       <AnimatePresence>
@@ -307,10 +390,22 @@ function DetailField({
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function WhatsAppMonitoringPage() {
+  const { hasRole, rolesLoading } = useAuth();
+  const isAdmin = hasRole("admin");
+
   const [statuses, setStatuses] = useState<Record<string, InstanceStatus>>({});
   const [checking, setChecking] = useState<Record<string, boolean>>({});
   const [checkingAll, setCheckingAll] = useState(false);
+  const [qrCodes, setQrCodes] = useState<Record<string, string | null>>({});
+  const [connecting, setConnecting] = useState<Record<string, boolean>>({});
+  const [disconnecting, setDisconnecting] = useState<Record<string, boolean>>({});
   const abortRef = useRef(false);
+  const pollTimers = useRef<Record<string, ReturnType<typeof setInterval>>>({});
+
+  // Limpa timers de polling ao desmontar
+  useEffect(() => {
+    return () => { Object.values(pollTimers.current).forEach(clearInterval); };
+  }, []);
 
   // ── Fetch instances + pipelines
   const { data: instances, isLoading: loadingInstances, refetch } = useQuery({
@@ -372,49 +467,109 @@ export default function WhatsAppMonitoringPage() {
   // ── Profile lookup
   const profileMap = Object.fromEntries((profiles ?? []).map(p => [p.user_id, p]));
 
+  // ── Helper: chama whatsapp-instance-status
+  const callStatusFn = useCallback(async (body: Record<string, unknown>) => {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData?.session?.access_token ?? "";
+    const res = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-instance-status`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        },
+        body: JSON.stringify(body),
+      }
+    );
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+  }, []);
+
+  // ── Polling: verifica status a cada 5s até conectar
+  const startPolling = useCallback((instanceId: string) => {
+    if (pollTimers.current[instanceId]) clearInterval(pollTimers.current[instanceId]);
+
+    pollTimers.current[instanceId] = setInterval(async () => {
+      try {
+        const data = await callStatusFn({ instance_id: instanceId, skip_connect: true });
+        setStatuses(prev => ({
+          ...prev,
+          [instanceId]: { state: data.state ?? "close", phone: data.phone ?? null, checkedAt: new Date() },
+        }));
+        if (data.state === "open") {
+          clearInterval(pollTimers.current[instanceId]);
+          delete pollTimers.current[instanceId];
+          setQrCodes(prev => ({ ...prev, [instanceId]: null }));
+          toast.success("WhatsApp conectado com sucesso!");
+        }
+      } catch { /* silencioso em polling */ }
+    }, 5000);
+  }, [callStatusFn]);
+
   // ── Check single instance status
   const checkInstance = useCallback(async (instanceId: string) => {
     setChecking(prev => ({ ...prev, [instanceId]: true }));
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token ?? "";
-      const res = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-instance-status`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-            apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-          },
-          body: JSON.stringify({ instance_id: instanceId, skip_connect: true }),
-        }
-      );
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      const data = await callStatusFn({ instance_id: instanceId, skip_connect: true });
       setStatuses(prev => ({
         ...prev,
-        [instanceId]: {
-          state: data.state ?? "close",
-          phone: data.phone ?? null,
-          checkedAt: new Date(),
-        },
+        [instanceId]: { state: data.state ?? "close", phone: data.phone ?? null, checkedAt: new Date() },
       }));
     } catch (err: any) {
       setStatuses(prev => ({
         ...prev,
-        [instanceId]: {
-          state: "error",
-          phone: null,
-          checkedAt: new Date(),
-          error: err.message,
-        },
+        [instanceId]: { state: "error", phone: null, checkedAt: new Date(), error: err.message },
       }));
       toast.error(`Erro ao verificar instância: ${err.message}`);
     } finally {
       setChecking(prev => ({ ...prev, [instanceId]: false }));
     }
-  }, []);
+  }, [callStatusFn]);
+
+  // ── Connect: gera QR code e inicia polling
+  const connectInstance = useCallback(async (instanceId: string) => {
+    setConnecting(prev => ({ ...prev, [instanceId]: true }));
+    try {
+      const data = await callStatusFn({ instance_id: instanceId });
+      setStatuses(prev => ({
+        ...prev,
+        [instanceId]: { state: data.state ?? "connecting", phone: data.phone ?? null, checkedAt: new Date() },
+      }));
+      if (data.qrcode) {
+        setQrCodes(prev => ({ ...prev, [instanceId]: data.qrcode }));
+      }
+      if (data.state !== "open") {
+        startPolling(instanceId);
+      } else {
+        toast.success("Já conectado!");
+      }
+    } catch (err: any) {
+      toast.error(`Erro ao conectar: ${err.message}`);
+    } finally {
+      setConnecting(prev => ({ ...prev, [instanceId]: false }));
+    }
+  }, [callStatusFn, startPolling]);
+
+  // ── Disconnect: logout da instância
+  const disconnectInstance = useCallback(async (instanceId: string, instanceName: string) => {
+    if (!window.confirm(`Desconectar a instância "${instanceName}"?\nO QR code precisará ser escaneado novamente.`)) return;
+    setDisconnecting(prev => ({ ...prev, [instanceId]: true }));
+    try {
+      await callStatusFn({ instance_id: instanceId, action: "logout" });
+      setStatuses(prev => ({
+        ...prev,
+        [instanceId]: { state: "close", phone: null, checkedAt: new Date() },
+      }));
+      toast.success(`"${instanceName}" desconectada.`);
+    } catch (err: any) {
+      toast.error(`Erro ao desconectar: ${err.message}`);
+    } finally {
+      setDisconnecting(prev => ({ ...prev, [instanceId]: false }));
+    }
+  }, [callStatusFn]);
 
   // ── Check all instances sequentially
   const checkAll = useCallback(async () => {
@@ -438,6 +593,9 @@ export default function WhatsAppMonitoringPage() {
   const disconnectedCount = Object.values(statuses).filter(s => s.state === "close").length;
   const errorCount = Object.values(statuses).filter(s => s.state === "error").length;
   const checkedCount = Object.keys(statuses).length;
+
+  // ── Admin guard
+  if (!rolesLoading && !isAdmin) return <Navigate to="/" replace />;
 
   return (
     <div>
@@ -543,7 +701,12 @@ export default function WhatsAppMonitoringPage() {
               stats={msgStats?.[inst.id] ?? null}
               status={statuses[inst.id] ?? null}
               checking={checking[inst.id] ?? false}
+              qrCode={qrCodes[inst.id] ?? null}
+              connecting={connecting[inst.id] ?? false}
+              disconnecting={disconnecting[inst.id] ?? false}
               onCheck={() => checkInstance(inst.id)}
+              onConnect={() => connectInstance(inst.id)}
+              onDisconnect={() => disconnectInstance(inst.id, inst.instance_name)}
             />
           ))}
         </div>

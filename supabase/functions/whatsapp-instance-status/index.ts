@@ -98,7 +98,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    let body: { instance_id?: string; skip_connect?: boolean };
+    let body: { instance_id?: string; skip_connect?: boolean; action?: string };
     try {
       body = await req.json();
     } catch {
@@ -107,7 +107,7 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    const { instance_id, skip_connect } = body;
+    const { instance_id, skip_connect, action } = body;
     if (!instance_id) {
       return new Response(JSON.stringify({ error: "instance_id required" }), {
         status: 400,
@@ -148,6 +148,26 @@ Deno.serve(async (req) => {
 
     const token = instance.instance_token;
     const baseUrl = (instance.base_url || "https://liveuni.uazapi.com").replace(/\/$/, "");
+
+    // ── Logout (desconectar instância) ────────────────────────────────────
+    if (action === "logout") {
+      const logoutRes = await fetch(`${baseUrl}/instance/logout`, {
+        method: "POST",
+        headers: { token, "Content-Type": "application/json" },
+      });
+      const logoutRaw = await logoutRes.text();
+      console.log(`[POST /instance/logout] http=${logoutRes.status} body=${logoutRaw.slice(0, 200)}`);
+      if (!logoutRes.ok) {
+        return new Response(
+          JSON.stringify({ error: `Logout failed: HTTP ${logoutRes.status}`, detail: logoutRaw }),
+          { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      return new Response(
+        JSON.stringify({ state: "close", disconnected: true }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     // ── 1. Status atual (uazapiGO v2: GET /instance/status) ───────────────
     // Retorna: state (disconnected/connecting/connected) + qrcode se connecting
