@@ -70,42 +70,28 @@ export function useWhatsAppConversations(
       if (!allClients?.length) return [];
 
       // ── Step 4: resolve o responsável de cada cliente ─────────────────
-      // Hierarquia:
-      //   1. clients.assigned_to  (campo manual)
-      //   2. tickets.assigned_to  (ticket mais recente do CRM)
-      //   3. pipeline_whatsapp_instances.user_id da última mensagem (fallback)
-      // Usado quando filtrando por aba de usuário (não Todos, não instanceId explícito).
+      // Hierarquia (do mais para o menos prioritário):
+      //   1. clients.assigned_to  (atribuição manual — sempre respeitada)
+      //   2. pipeline_whatsapp_instances.user_id da última mensagem
+      //      (quem recebeu a última mensagem no WhatsApp é o dono da conversa no chat)
+      //   3. tickets.assigned_to  (ticket CRM — fallback quando nenhum dos acima se aplica)
+      //
+      // L3 é o MAIS BAIXO porque um cliente pode ter um ticket CRM com a vendedora
+      // mas mandar mensagem para o pós-venda: nesse caso a conversa deve ir para
+      // o pós-venda (L2) e não continuar aparecendo para a vendedora (L3).
       let clientOwnerMap = new Map<string, string>(); // client_id → user_id efetivo
 
       if (targetUserId && !instanceId) {
-        // Nível 1: clients.assigned_to
+        // Nível 1: clients.assigned_to (manual — maior prioridade)
         for (const c of allClients) {
           if (c.assigned_to) clientOwnerMap.set(c.id, c.assigned_to);
         }
 
-        // Nível 2: tickets.assigned_to para clientes ainda sem dono
+        // Nível 2: user_id da instância da última mensagem (para clientes sem atribuição manual)
+        // Pulado quando strictOwnership=true (notificações pessoais), evitando que clientes
+        // "sem dono" sejam atribuídos a quem possui a instância principal.
         const afterLevel1 = clientIds.filter((id) => !clientOwnerMap.has(id));
-        if (afterLevel1.length) {
-          const { data: tickets } = await (supabase as any)
-            .from("tickets")
-            .select("client_id, assigned_to")
-            .in("client_id", afterLevel1)
-            .not("assigned_to", "is", null)
-            .is("deleted_at", null)
-            .order("created_at", { ascending: false });
-
-          for (const t of (tickets ?? []) as any[]) {
-            if (t.client_id && t.assigned_to && !clientOwnerMap.has(t.client_id)) {
-              clientOwnerMap.set(t.client_id, t.assigned_to);
-            }
-          }
-        }
-
-        // Nível 3: user_id da instância da última mensagem (fallback para quem não tem ticket)
-        // Pulado quando strictOwnership=true (alertas pessoais) para evitar atribuição indevida
-        // de clientes sem dono ao admin que possui a instância principal do WhatsApp.
-        const afterLevel2 = clientIds.filter((id) => !clientOwnerMap.has(id));
-        if (afterLevel2.length && !strictOwnership) {
+        if (afterLevel1.length && !strictOwnership) {
           const { data: instanceRows } = await (supabase as any)
             .from("pipeline_whatsapp_instances")
             .select("id, user_id")
@@ -115,11 +101,29 @@ export function useWhatsAppConversations(
             ((instanceRows ?? []) as any[]).map((i: any) => [i.id, i.user_id])
           );
 
-          for (const clientId of afterLevel2) {
+          for (const clientId of afterLevel1) {
             const lastInst = lastInstancePerClient.get(clientId);
             if (lastInst) {
               const instUser = instanceUserIdMap.get(lastInst);
               if (instUser) clientOwnerMap.set(clientId, instUser);
+            }
+          }
+        }
+
+        // Nível 3: tickets.assigned_to para clientes sem L1 e sem L2 (ticket CRM como fallback)
+        const afterLevel2 = clientIds.filter((id) => !clientOwnerMap.has(id));
+        if (afterLevel2.length) {
+          const { data: tickets } = await (supabase as any)
+            .from("tickets")
+            .select("client_id, assigned_to")
+            .in("client_id", afterLevel2)
+            .not("assigned_to", "is", null)
+            .is("deleted_at", null)
+            .order("created_at", { ascending: false });
+
+          for (const t of (tickets ?? []) as any[]) {
+            if (t.client_id && t.assigned_to && !clientOwnerMap.has(t.client_id)) {
+              clientOwnerMap.set(t.client_id, t.assigned_to);
             }
           }
         }
