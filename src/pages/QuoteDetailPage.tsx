@@ -421,30 +421,50 @@ const QuoteDetailPage = () => {
                         )}
                       </td>
                       <td className="px-3 py-2.5 text-xs font-mono">
-                        {isEditable ? (
-                          <div className="flex flex-col gap-0.5">
-                            <Input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              className="h-7 w-24 text-xs font-mono"
-                              defaultValue={Number(item.unit_price).toFixed(2)}
-                              onBlur={(e) => {
-                                const val = parseFloat(e.target.value);
-                                if (!isNaN(val) && val !== Number(item.unit_price)) {
-                                  updateItem.mutateAsync({ id: item.id, unit_price: val });
-                                }
-                              }}
-                            />
-                            {isWarranty && (
-                              <span className="text-[9px] text-success leading-tight">valor declarado</span>
+                        {isWarranty ? (
+                          <div className="flex flex-col gap-1">
+                            <span className="text-success font-medium">Garantia</span>
+                            {isEditable ? (
+                              <>
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  className="h-7 w-24 text-xs font-mono"
+                                  defaultValue={Number(item.unit_price).toFixed(2)}
+                                  placeholder="Valor decl."
+                                  onBlur={(e) => {
+                                    const val = parseFloat(e.target.value);
+                                    if (!isNaN(val) && val !== Number(item.unit_price)) {
+                                      updateItem.mutateAsync({ id: item.id, unit_price: val });
+                                    }
+                                  }}
+                                />
+                                <span className="text-[9px] text-muted-foreground leading-tight">valor declarado</span>
+                              </>
+                            ) : (
+                              Number(item.unit_price) > 0 && (
+                                <span className="text-[10px] text-success/80">
+                                  R$ {Number(item.unit_price).toFixed(2)} decl.
+                                </span>
+                              )
                             )}
                           </div>
+                        ) : isEditable ? (
+                          <Input
+                            type="number"
+                            step="0.01"
+                            className="h-7 w-24 text-xs font-mono"
+                            defaultValue={Number(item.unit_price).toFixed(2)}
+                            onBlur={(e) => {
+                              const val = parseFloat(e.target.value);
+                              if (!isNaN(val) && val !== Number(item.unit_price)) {
+                                updateItem.mutateAsync({ id: item.id, unit_price: val });
+                              }
+                            }}
+                          />
                         ) : (
-                          <div className="flex flex-col gap-0.5">
-                            <span>{isWarranty && Number(item.unit_price) === 0 ? "—" : `R$ ${Number(item.unit_price).toFixed(2)}`}</span>
-                            {isWarranty && <span className="text-[9px] text-success">declarado</span>}
-                          </div>
+                          `R$ ${Number(item.unit_price).toFixed(2)}`
                         )}
                       </td>
                       <td className="px-3 py-2.5 text-xs font-mono font-medium">
