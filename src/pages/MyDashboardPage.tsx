@@ -157,22 +157,37 @@ function useNomuspedidos() {
     queryKey: ["nomus-pedidos-dashboard"],
     queryFn: async () => {
       const since = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString();
-      const [{ data: srData }, { data: pgData }] = await Promise.all([
+      const [{ data: srData }, { data: pgRaw }] = await Promise.all([
         supabase
           .from("service_requests")
           .select("id, document_type, estimated_cost, created_at, nomus_order_id, tickets(clients(name))")
           .not("nomus_order_id", "is", null)
           .gte("created_at", since),
+        // PG: busca os quote_items de garantia para somar o valor declarado
         supabase
           .from("warranty_claims")
-          .select("id, internal_cost, created_at, nomus_order_id, tickets(clients(name))")
+          .select("id, internal_cost, created_at, nomus_order_id, tickets(clients(name)), quotes(quote_items(item_type, quantity, unit_price))")
           .not("nomus_order_id", "is", null)
           .gte("created_at", since),
       ]);
+
+      // Para cada PG, soma quantity*unit_price dos quote_items de garantia com valor declarado
+      // Se não houver orçamento vinculado, cai no internal_cost como fallback
+      const pg = (pgRaw || []).map((claim: any) => {
+        const allItems = (claim.quotes || []).flatMap((q: any) => q.quote_items || []);
+        const declared = allItems
+          .filter((i: any) => String(i.item_type).includes("garantia") && Number(i.unit_price) > 0)
+          .reduce((s: number, i: any) => s + Number(i.quantity) * Number(i.unit_price), 0);
+        return {
+          ...claim,
+          declared_value: declared > 0 ? declared : Number(claim.internal_cost || 0),
+        };
+      });
+
       return {
         pa: (srData || []).filter((r: any) => r.document_type === "pa"),
         pd: (srData || []).filter((r: any) => r.document_type === "pd"),
-        pg: pgData || [],
+        pg,
       };
     },
     staleTime: 60_000,
@@ -988,11 +1003,11 @@ const MyDashboardPage = () => {
 
         const paByMonth = groupByMonth(pa.map((r: any) => ({ created_at: r.created_at, value: Number(r.estimated_cost || 0) })));
         const pdByMonth = groupByMonth(pd.map((r: any) => ({ created_at: r.created_at, value: Number(r.estimated_cost || 0) })));
-        const pgByMonth = groupByMonth(pg.map((r: any) => ({ created_at: r.created_at, value: Number(r.internal_cost || 0) })));
+        const pgByMonth = groupByMonth(pg.map((r: any) => ({ created_at: r.created_at, value: Number(r.declared_value || 0) })));
 
         const totalPa = pa.reduce((s: number, r: any) => s + Number(r.estimated_cost || 0), 0);
         const totalPd = pd.reduce((s: number, r: any) => s + Number(r.estimated_cost || 0), 0);
-        const totalPg = pg.reduce((s: number, r: any) => s + Number(r.internal_cost || 0), 0);
+        const totalPg = pg.reduce((s: number, r: any) => s + Number(r.declared_value || 0), 0);
 
         const maxBar = Math.max(...paByMonth.map(b => b.value), ...pdByMonth.map(b => b.value), ...pgByMonth.map(b => b.value), 1);
 
