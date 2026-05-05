@@ -49,9 +49,11 @@ async function exchangeAndSave(code: string, redirectUri: string): Promise<{ use
     `access_token=${longToken}`
   );
   const pagesData = await pagesRes.json();
+  console.log("[instagram-oauth] pages response:", JSON.stringify(pagesData));
   const page = (pagesData.data ?? []).find((p: any) => p.instagram_business_account);
   if (!page) {
-    return { error: "Nenhuma conta Instagram Business encontrada vinculada a uma Página Facebook" };
+    const pagesSummary = (pagesData.data ?? []).map((p: any) => `${p.id}(ig:${p.instagram_business_account?.id ?? "none"})`).join(", ");
+    return { error: `Nenhuma conta Instagram Business encontrada. Páginas: [${pagesSummary || "nenhuma"}]` };
   }
 
   const igAccount = page.instagram_business_account;

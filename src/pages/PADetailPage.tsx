@@ -58,7 +58,7 @@ const PADetailPage = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("service_requests")
-        .select("*, tickets(ticket_number, title, clients(name), equipments(serial_number, model_id, equipment_models(name)))")
+        .select("*, tickets(ticket_number, title, client_id, equipment_id, clients(name), equipments(serial_number, model_id, equipment_models(name)))")
         .eq("id", id!)
         .single();
       if (error) throw error;
@@ -365,16 +365,28 @@ const PADetailPage = () => {
   const handleExportExcel = () => exportDocumentToExcel(buildPaExcelPayload());
   const handlePrint = () => printPdf(generateQuotePdf(buildPaPdfPayload()));
 
+  const ensureLinkedQuote = async (): Promise<string | null> => {
+    if (linkedQuote) return linkedQuote.id;
+    const clientId = (sr as any)?.tickets?.client_id;
+    if (!clientId) { toast.error("Ticket sem cliente vinculado"); return null; }
+    const { data: newQuote, error } = await supabase
+      .from("quotes")
+      .insert({ service_request_id: id!, client_id: clientId, equipment_id: (sr as any)?.tickets?.equipment_id || null })
+      .select()
+      .single();
+    if (error) { toast.error("Erro ao criar orçamento: " + error.message); return null; }
+    qc.invalidateQueries({ queryKey: ["pa_linked_quote", id] });
+    return newQuote.id;
+  };
+
   const handleProductSelect = async (product: any, itemType: string) => {
-    if (!linkedQuote) {
-      toast.error("Nenhum orçamento vinculado para adicionar itens.");
-      return;
-    }
+    const quoteId = await ensureLinkedQuote();
+    if (!quoteId) return;
     const tax = (Number(product.ipi_percent || 0) + Number(product.icms_percent || 0) + Number(product.pis_percent || 0) + Number(product.cofins_percent || 0) + Number(product.csll_percent || 0) + Number(product.irpj_percent || 0)) / 100;
     const cost = Number(product.base_cost) * (1 + tax);
     const price = itemType.includes("garantia") ? 0 : cost * (1 + Number(product.margin_percent || 30) / 100);
     await addItem.mutateAsync({
-      quote_id: linkedQuote.id,
+      quote_id: quoteId,
       product_id: product.id,
       description: product.name,
       item_type: itemType,
@@ -840,22 +852,20 @@ const PADetailPage = () => {
       )}
 
       {/* Add items buttons */}
-      {linkedQuote && (
-        <div className="flex gap-2 mb-4">
-          <Button size="sm" className="gap-1.5" variant={searchMode === "peca" ? "default" : "outline"} onClick={() => { setEditing(true); setSearchMode(searchMode === "peca" ? null : "peca"); setShowNewServiceForm(false); }}>
-            <Package className="h-3.5 w-3.5" /> Adicionar Peça
-          </Button>
-          <Button size="sm" className="gap-1.5" variant={searchMode === "servico" ? "default" : "outline"} onClick={() => { setEditing(true); setSearchMode(searchMode === "servico" ? null : "servico"); setShowNewServiceForm(false); setShowFreteForm(false); }}>
-            <Wrench className="h-3.5 w-3.5" /> Adicionar Serviço
-          </Button>
-          <Button size="sm" className="gap-1.5" variant={showFreteForm ? "default" : "outline"} onClick={() => { setShowFreteForm(f => !f); setSearchMode(null); setShowNewServiceForm(false); }}>
-            <Truck className="h-3.5 w-3.5" /> Adicionar Frete
-          </Button>
-        </div>
-      )}
+      <div className="flex gap-2 mb-4">
+        <Button size="sm" className="gap-1.5" variant={searchMode === "peca" ? "default" : "outline"} onClick={() => { setEditing(true); setSearchMode(searchMode === "peca" ? null : "peca"); setShowNewServiceForm(false); }}>
+          <Package className="h-3.5 w-3.5" /> Adicionar Peça
+        </Button>
+        <Button size="sm" className="gap-1.5" variant={searchMode === "servico" ? "default" : "outline"} onClick={() => { setEditing(true); setSearchMode(searchMode === "servico" ? null : "servico"); setShowNewServiceForm(false); setShowFreteForm(false); }}>
+          <Wrench className="h-3.5 w-3.5" /> Adicionar Serviço
+        </Button>
+        <Button size="sm" className="gap-1.5" variant={showFreteForm ? "default" : "outline"} onClick={() => { setShowFreteForm(f => !f); setSearchMode(null); setShowNewServiceForm(false); }}>
+          <Truck className="h-3.5 w-3.5" /> Adicionar Frete
+        </Button>
+      </div>
 
       {/* Product search */}
-      {editing && searchMode && linkedQuote && (
+      {editing && searchMode && (
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mb-4 space-y-3">
           <ProductSearch
             modelFilter={modelName}
@@ -901,6 +911,8 @@ const PADetailPage = () => {
                   <div className="flex justify-end">
                     <Button size="sm" className="gap-1.5" disabled={!newService.name.trim() || !newService.cost || createProduct.isPending}
                       onClick={async () => {
+                        const quoteId = await ensureLinkedQuote();
+                        if (!quoteId) return;
                         const costVal = Number(newService.cost);
                         const code = `SRV-${Date.now().toString(36).toUpperCase()}`;
                         const product = await createProduct.mutateAsync({
@@ -911,7 +923,7 @@ const PADetailPage = () => {
                         const isWarranty = newService.itemType.includes("garantia");
                         const price = isWarranty ? 0 : costVal * 1.3;
                         await addItem.mutateAsync({
-                          quote_id: linkedQuote.id, product_id: product.id,
+                          quote_id: quoteId, product_id: product.id,
                           description: newService.name.trim(), item_type: newService.itemType,
                           quantity: 1, unit_cost: costVal, unit_price: price,
                         });
@@ -931,7 +943,7 @@ const PADetailPage = () => {
       )}
 
       {/* Frete form */}
-      {linkedQuote && showFreteForm && (
+      {showFreteForm && (
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mb-4 bg-card border rounded-xl p-4 shadow-sm">
           <div className="flex items-center justify-between mb-3">
             <p className="text-sm font-semibold flex items-center gap-2"><Truck className="h-4 w-4 text-primary" /> Adicionar Frete</p>
@@ -961,10 +973,12 @@ const PADetailPage = () => {
               <Button size="sm" className="gap-1.5"
                 disabled={!newFrete.value || (newFrete.carrier === "Outro" && !newFrete.custom.trim()) || addItem.isPending}
                 onClick={async () => {
+                  const quoteId = await ensureLinkedQuote();
+                  if (!quoteId) return;
                   const carrierName = newFrete.carrier === "Outro" ? newFrete.custom.trim() : newFrete.carrier;
                   const val = Number(newFrete.value);
                   await addItem.mutateAsync({
-                    quote_id: linkedQuote.id,
+                    quote_id: quoteId,
                     description: carrierName,
                     item_type: "frete",
                     quantity: 1,
@@ -984,9 +998,7 @@ const PADetailPage = () => {
       )}
 
       {/* Suggested parts */}
-      {linkedQuote && (
-        <SuggestedParts modelId={equipModelId} modelName={modelName} onSelect={handleProductSelect} />
-      )}
+      <SuggestedParts modelId={equipModelId} modelName={modelName} onSelect={handleProductSelect} />
 
       {/* Items table */}
       {linkedQuote && (
@@ -1112,7 +1124,14 @@ const PADetailPage = () => {
                 <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Selecionar consultor..." /></SelectTrigger>
                 <SelectContent>
                   {allUsers.map(u => (
-                    <SelectItem key={u.user_id} value={u.user_id}>{u.full_name || u.email}</SelectItem>
+                    <SelectItem key={u.user_id} value={u.user_id}>
+                      <span>{u.full_name || u.email}</span>
+                      {(u.email || u.phone) && (
+                        <span className="ml-1 text-muted-foreground text-[11px]">
+                          {[u.email, u.phone].filter(Boolean).join(" · ")}
+                        </span>
+                      )}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>

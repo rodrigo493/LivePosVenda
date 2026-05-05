@@ -7,6 +7,7 @@ export interface UserSummary {
   user_id: string;
   full_name: string;
   email: string;
+  phone?: string | null;
   isAdmin?: boolean;
 }
 
@@ -21,7 +22,7 @@ export function useAllUsers() {
     queryFn: async () => {
       const { data: profiles, error } = await (supabase as any)
         .from("profiles")
-        .select("user_id, full_name, email")
+        .select("user_id, full_name, email, phone")
         .order("full_name", { ascending: true });
       if (error) throw error;
 
