@@ -52,7 +52,12 @@ export function InstagramAccountSettings() {
       url.searchParams.delete("code");
       window.history.replaceState({}, "", url.toString());
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => {
+      toast.error(e.message);
+      const url = new URL(window.location.href);
+      url.searchParams.delete("code");
+      window.history.replaceState({}, "", url.toString());
+    },
   });
 
   const disconnectMut = useMutation({
