@@ -259,19 +259,64 @@ async function handleInstagramComment(change: Record<string, unknown>) {
   const content: string | null = v.text as string ?? null;
   const igMessageId: string | null = v.id as string ?? null;
   const postId: string | null = (v.media as Record<string, unknown>)?.id as string ?? null;
+  const mediaType: string | null = (v.media as Record<string, unknown>)?.media_product_type as string ?? null;
+  const isReply: boolean = !!(v.parent_id);
   if (!senderId) return;
 
-  let clientId: string | null = null;
-  const existing = await admin.from("clients").select("id").eq("instagram_id", senderId).maybeSingle();
-  if (existing.data) {
-    clientId = existing.data.id;
-  } else {
-    const name = senderUsername ?? `Instagram ${senderId.slice(-6)}`;
-    clientId = await upsertClient(name, null, null, senderId);
+  // Tenta buscar nome via Graph API
+  let displayName = senderUsername ? `@${senderUsername}` : `Instagram ${senderId.slice(-6)}`;
+  if (PAGE_TOKEN) {
+    try {
+      const profile = await graphGet(`${senderId}?fields=name`);
+      if (profile.name) displayName = profile.name as string;
+    } catch { /* silencioso */ }
   }
 
+  // Tenta buscar tipo/permalink do post comentado
+  let postInfo: string | null = null;
+  if (postId && PAGE_TOKEN) {
+    try {
+      const media = await graphGet(`${postId}?fields=media_product_type,permalink`);
+      const type = (media.media_product_type as string ?? mediaType ?? "post").toLowerCase();
+      const link = media.permalink as string ?? null;
+      postInfo = link ? `${type} — ${link}` : type;
+    } catch { /* silencioso */ }
+  }
+
+  const campanha = postInfo
+    ? `Comentário Instagram (${postInfo})`
+    : isReply ? "Resposta a comentário Instagram" : "Comentário Instagram";
+
+  const clientName = senderUsername ?? displayName;
+  const clientId = await upsertClient(clientName, null, null, senderId);
+
   await saveInstagramConversation(senderId, senderUsername, content, "comment", igMessageId, postId, clientId);
-  console.log(`[COMMENT] processado sender=${senderId} msg=${igMessageId}`);
+
+  // Cria card no funil (deduplica por ticket aberto)
+  const ctx = await getPipeline();
+  if (!ctx || !clientId) { console.log("[COMMENT] sem pipeline ou clientId, pulando card"); return; }
+
+  const already = await hasOpenTicket(clientId, ctx.pipelineId);
+  if (already) { console.log("[COMMENT] ticket já existe para:", senderId); return; }
+
+  const ticketTitle = senderUsername ? `@${senderUsername}` : displayName;
+  const { error: tErr } = await admin.from("tickets").insert({
+    title: ticketTitle,
+    ticket_type: "negociacao",
+    status: "aberto",
+    pipeline_id: ctx.pipelineId,
+    pipeline_stage: ctx.firstStageKey,
+    ticket_number: makeTicketNumber("IGC", clientName),
+    origin: "instagram",
+    channel: "instagram",
+    campanha,
+    client_id: clientId,
+    new_lead: true,
+    created_at: new Date().toISOString(),
+  });
+
+  if (tErr) console.error("[COMMENT] erro ao inserir ticket:", JSON.stringify(tErr));
+  else console.log(`[COMMENT] card criado: ${ticketTitle} — ${campanha}`);
 }
 
 // ── main ─────────────────────────────────────────────────────────────────────
