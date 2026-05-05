@@ -8,7 +8,7 @@ import { CheckCircle, AlertCircle, RefreshCw, Unlink } from "lucide-react";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const INSTAGRAM_APP_ID = import.meta.env.VITE_INSTAGRAM_APP_ID;
-const REDIRECT_URI = `${window.location.origin}/settings?tab=instagram`;
+const REDIRECT_URI = `${window.location.origin}/configuracoes?tab=instagram`;
 const OAUTH_URL = `https://www.facebook.com/v21.0/dialog/oauth?client_id=${INSTAGRAM_APP_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=instagram_business_basic,instagram_manage_comments,instagram_manage_messages&response_type=code`;
 
 async function callOAuth(code: string) {

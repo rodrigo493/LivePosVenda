@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Settings, Users, Bell, Database, Mail, Shield, DollarSign, FlaskConical, Save, Brain, UserPlus, Trash2, Pencil, KeyRound, Link, MessageSquare, ChevronDown, Target } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -65,6 +66,8 @@ const SettingsPage = () => {
   const updateSetting = useUpdateSetting();
   const { hasRole } = useAuth();
   const isAdmin = hasRole("admin");
+  const [searchParams] = useSearchParams();
+  const activeTab = searchParams.get("tab") ?? "geral";
 
   const getSetting = (key: string): string => {
     const s = settings?.find((s) => s.key === key);
@@ -103,7 +106,7 @@ const SettingsPage = () => {
     <div>
       <PageHeader title="Configurações" description="Ajustes do sistema Live Care" icon={Settings} />
 
-      <Tabs defaultValue="geral" className="space-y-4">
+      <Tabs defaultValue={activeTab} className="space-y-4">
         <TabsList className="bg-muted/50 p-1 gap-1">
           <TabsTrigger value="geral" className="text-xs gap-1.5"><Database className="h-3.5 w-3.5" /> Geral</TabsTrigger>
           <TabsTrigger value="perfis" className="text-xs gap-1.5"><Shield className="h-3.5 w-3.5" /> Perfis</TabsTrigger>
