@@ -882,6 +882,8 @@ const PDDetailPage = () => {
                   <div className="flex justify-end">
                     <Button size="sm" className="gap-1.5" disabled={!newService.name.trim() || !newService.cost || createProduct.isPending}
                       onClick={async () => {
+                        const quoteId = await ensureLinkedQuote();
+                        if (!quoteId) return;
                         const costVal = Number(newService.cost);
                         const code = `SRV-${Date.now().toString(36).toUpperCase()}`;
                         const product = await createProduct.mutateAsync({
@@ -891,8 +893,6 @@ const PDDetailPage = () => {
                         });
                         const isWarranty = newService.itemType.includes("garantia");
                         const price = isWarranty ? 0 : costVal * 1.3;
-                        const quoteId = await ensureLinkedQuote();
-                        if (!quoteId) return;
                         await addItem.mutateAsync({
                           quote_id: quoteId, product_id: product.id,
                           description: newService.name.trim(), item_type: newService.itemType,
