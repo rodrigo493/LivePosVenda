@@ -35,9 +35,9 @@ interface WhatsAppChatProps {
   instanceId?: string;
 }
 
-function useWhatsAppMessages(clientId: string | undefined, ticketId?: string) {
+function useWhatsAppMessages(clientId: string | undefined, ticketId?: string, instanceId?: string) {
   return useQuery({
-    queryKey: ["whatsapp-messages", clientId, ticketId],
+    queryKey: ["whatsapp-messages", clientId, ticketId, instanceId],
     enabled: !!clientId,
     queryFn: async () => {
       let query = supabase
@@ -52,6 +52,11 @@ function useWhatsAppMessages(clientId: string | undefined, ticketId?: string) {
         query = query.or(`client_id.eq.${clientId},ticket_id.eq.${ticketId}`);
       } else {
         query = query.eq("client_id", clientId!);
+      }
+
+      // Isola por instância para evitar que mensagens de outras instâncias apareçam
+      if (instanceId) {
+        query = query.eq("instance_id", instanceId);
       }
 
       const { data, error } = await query;
@@ -392,7 +397,7 @@ function ForwardModal({ msg, onClose }: { msg: any; onClose: () => void }) {
 
 export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hideHeader, className, instanceId }: WhatsAppChatProps) {
   const qc = useQueryClient();
-  const { data: messages, isLoading } = useWhatsAppMessages(clientId, ticketId);
+  const { data: messages, isLoading } = useWhatsAppMessages(clientId, ticketId, instanceId);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [mediaFile, setMediaFile] = useState<{ base64: string; mime: string; name: string } | null>(null);
@@ -418,10 +423,10 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
   // Realtime subscription — ouve por client_id e, quando disponível, por ticket_id
   useEffect(() => {
     if (!clientId) return;
-    const invalidate = () => qc.invalidateQueries({ queryKey: ["whatsapp-messages", clientId, ticketId] });
+    const invalidate = () => qc.invalidateQueries({ queryKey: ["whatsapp-messages", clientId, ticketId, instanceId] });
 
     const channel = supabase
-      .channel(`whatsapp-${clientId}-${ticketId ?? ""}`)
+      .channel(`whatsapp-${clientId}-${ticketId ?? ""}-${instanceId ?? ""}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "whatsapp_messages", filter: `client_id=eq.${clientId}` }, invalidate)
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "whatsapp_messages", filter: `client_id=eq.${clientId}` }, invalidate);
 
@@ -433,7 +438,7 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
 
     channel.subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [clientId, ticketId, qc]);
+  }, [clientId, ticketId, instanceId, qc]);
 
   // Auto-scroll on new messages
   useEffect(() => {
