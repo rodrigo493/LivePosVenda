@@ -78,12 +78,13 @@ export function InstagramAccountSettings() {
   useEffect(() => {
     const url = new URL(window.location.href);
     const code = url.searchParams.get("code");
-    if (code && !connectMut.isPending) {
-      // Remove code from URL immediately to prevent reuse on remount
-      url.searchParams.delete("code");
-      window.history.replaceState({}, "", url.toString());
-      connectMut.mutate(code);
-    }
+    if (!code) return;
+    const guardKey = `ig_code_${code.slice(0, 12)}`;
+    if (sessionStorage.getItem(guardKey)) return; // already processing
+    sessionStorage.setItem(guardKey, "1");
+    url.searchParams.delete("code");
+    window.history.replaceState({}, "", url.toString());
+    connectMut.mutate(code);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
