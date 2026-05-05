@@ -22,6 +22,7 @@ import {
   MessageSquare,
   Lock,
   Shield,
+  Radio,
   CalendarCheck,
   ShoppingBag,
   Link2,
@@ -87,9 +88,10 @@ const otherNav = [
 ];
 
 const adminNav = [
-  { title: "Configurações",       url: "/configuracoes",          icon: Settings, moduleKey: null },
-  { title: "Permissões CRM",      url: "/crm-permissions",         icon: Shield,   moduleKey: null },
-  { title: "Integração RD Station", url: "/integracoes/rd-station", icon: Link2,    moduleKey: null },
+  { title: "Configurações",       url: "/configuracoes",          icon: Settings,  moduleKey: null },
+  { title: "Permissões CRM",      url: "/crm-permissions",         icon: Shield,    moduleKey: null },
+  { title: "Monitor WhatsApp",    url: "/admin/whatsapp",          icon: Radio,     moduleKey: null },
+  { title: "Integração RD Station", url: "/integracoes/rd-station", icon: Link2,   moduleKey: null },
 ];
 
 export function AppSidebar() {

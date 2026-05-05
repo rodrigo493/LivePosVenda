@@ -11,6 +11,7 @@ import {
   LayoutDashboard, AlertTriangle, CheckCircle, Clock, ListTodo, Package,
   PhoneCall, TrendingUp, Receipt, Wrench, Shield, ClipboardList, Ticket,
   X, DollarSign, Edit2, Save, RotateCcw, CalendarClock, ListChecks, PhoneOff,
+  RefreshCw,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { KpiCard } from "@/components/dashboard/KpiCard";
@@ -26,7 +27,7 @@ const PIPELINE_STAGES_FALLBACK = [
   { key: "concluido", label: "Concluído", color: "#10b981" },
 ];
 import { useAuth } from "@/hooks/useAuth";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { motion, AnimatePresence } from "framer-motion";
 import { formatDate as fmtDate, formatCurrencyCompact as fmtCurrency } from "@/lib/formatters";
@@ -152,6 +153,7 @@ const DRILL_LABELS: Record<string, string> = {
 const MyDashboardPage = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const { data: tickets } = useAllTickets();
   const { data: tasks } = useAllTasks();
   const { data: quotes } = useAllQuotes();
@@ -159,6 +161,20 @@ const MyDashboardPage = () => {
   const { data: warrantyClaims } = useAllWarrantyClaims();
   const { data: serviceRequests } = useAllServiceRequests();
   const { data: warrantyCostOrders } = useWarrantyCostOrders();
+
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    await queryClient.invalidateQueries({ queryKey: ["all-tickets-dashboard"] });
+    await queryClient.invalidateQueries({ queryKey: ["all-tasks-dashboard"] });
+    await queryClient.invalidateQueries({ queryKey: ["all-quotes-dashboard"] });
+    await queryClient.invalidateQueries({ queryKey: ["all-work-orders-dashboard"] });
+    await queryClient.invalidateQueries({ queryKey: ["all-warranty-claims-dashboard"] });
+    await queryClient.invalidateQueries({ queryKey: ["all-service-requests-dashboard"] });
+    await queryClient.invalidateQueries({ queryKey: ["warranty-cost-orders-dashboard"] });
+    setIsRefreshing(false);
+    toast.success("Dados atualizados");
+  }, [queryClient]);
 
   const [drillDown, setDrillDown] = useState<DrillDownKey>(null);
   const [selectedTicket, setSelectedTicket] = useState<any>(null);
@@ -431,13 +447,23 @@ const MyDashboardPage = () => {
             </button>
           </>
         ) : (
-          <button
-            onClick={enterEdit}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-border bg-card hover:bg-muted text-muted-foreground transition-colors"
-          >
-            <Edit2 className="h-3 w-3" />
-            Editar layout
-          </button>
+          <>
+            <button
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-border bg-card hover:bg-muted text-muted-foreground transition-colors"
+            >
+              <RefreshCw className={`h-3 w-3 ${isRefreshing ? "animate-spin" : ""}`} />
+              {isRefreshing ? "Atualizando…" : "Atualizar"}
+            </button>
+            <button
+              onClick={enterEdit}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-border bg-card hover:bg-muted text-muted-foreground transition-colors"
+            >
+              <Edit2 className="h-3 w-3" />
+              Editar layout
+            </button>
+          </>
         )}
       </div>
 
