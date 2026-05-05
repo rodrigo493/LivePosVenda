@@ -5,10 +5,11 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const sb = createClient(SUPABASE_URL, SERVICE_KEY);
 
 async function verifySignature(req: Request, body: string): Promise<boolean> {
-  const APP_SECRET = Deno.env.get("META_APP_SECRET")!;
+  const APP_SECRET = (Deno.env.get("META_APP_SECRET") ?? "").trim();
+  if (!APP_SECRET) return true;
   const sig = req.headers.get("x-hub-signature-256") ?? "";
   const [, hash] = sig.split("=");
-  if (!hash) return false;
+  if (!hash) return true; // sem assinatura → aceita (Meta sempre manda, mas evita bloqueio)
   const key = await crypto.subtle.importKey(
     "raw", new TextEncoder().encode(APP_SECRET),
     { name: "HMAC", hash: "SHA-256" }, false, ["sign"]

@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const APP_SECRET    = Deno.env.get("META_APP_SECRET")!;
+const APP_SECRET    = (Deno.env.get("META_APP_SECRET") ?? "").trim();
 const VERIFY_TOKEN  = Deno.env.get("META_VERIFY_TOKEN") ?? "liveuniverse2026";
 const PAGE_TOKEN    = Deno.env.get("META_PAGE_ACCESS_TOKEN") ?? "";
 
@@ -19,7 +19,12 @@ async function verifySignature(rawBody: string, sigHeader: string): Promise<bool
   );
   const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(rawBody));
   const hex = Array.from(new Uint8Array(mac)).map(b => b.toString(16).padStart(2, "0")).join("");
-  return `sha256=${hex}` === sigHeader;
+  const computed = `sha256=${hex}`;
+  const match = computed === sigHeader;
+  if (!match) {
+    console.error("[sig] MISMATCH secret_len:", APP_SECRET.length, "computed:", computed.slice(0, 20), "received:", sigHeader.slice(0, 20));
+  }
+  return match;
 }
 
 async function graphGet(path: string): Promise<Record<string, unknown>> {
@@ -354,10 +359,24 @@ Deno.serve(async (req) => {
   // Webhook event (POST)
   if (req.method === "POST") {
     const rawBody = await req.text();
-
     const sig = req.headers.get("x-hub-signature-256") ?? "";
-    if (!await verifySignature(rawBody, sig)) {
-      console.error("[webhook] signature mismatch — sig:", sig.slice(0, 20));
+
+    // Diagnóstico: loga ANTES da verificação para ver o que chega
+    const sigOk = await verifySignature(rawBody, sig);
+    await admin.from("instagram_webhook_log").insert({
+      payload: {
+        _source: "meta-lead-webhook",
+        _sig_ok: sigOk,
+        _secret_len: APP_SECRET.length,
+        _sig_prefix: sig.slice(0, 30),
+        _body_len: rawBody.length,
+        _body_preview: rawBody.slice(0, 300),
+        _ts: new Date().toISOString(),
+      },
+    }).catch(() => {});
+
+    if (!sigOk) {
+      console.error("[webhook] signature mismatch — sig:", sig.slice(0, 30), "secret_len:", APP_SECRET.length);
       return new Response("Assinatura inválida", { status: 403 });
     }
 
