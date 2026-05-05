@@ -23,7 +23,11 @@ export function useAdminDashboardLayout() {
     },
   });
 
-  const currentLayout: AdminLayoutItem[] = (data?.layout ?? DEFAULT_ADMIN_LAYOUT) as AdminLayoutItem[];
+  const savedLayout = (data?.layout ?? []) as AdminLayoutItem[];
+  const savedKeys = new Set(savedLayout.map((item) => item.i));
+  const missingItems = DEFAULT_ADMIN_LAYOUT.filter((item) => !savedKeys.has(item.i));
+  const currentLayout: AdminLayoutItem[] =
+    savedLayout.length > 0 ? [...savedLayout, ...missingItems] : DEFAULT_ADMIN_LAYOUT;
   const currentColors: AdminColors = (data?.colors ?? {}) as AdminColors;
 
   const { mutateAsync: saveLayout, isPending: isSaving } = useMutation({
