@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useMyProfile } from "@/hooks/useMyProfile";
-import { ArrowLeft, Package, Save, Loader2, Send, CalendarIcon, Pencil, X, Wrench, Plus, Trash2, Factory } from "lucide-react";
+import { ArrowLeft, Package, Save, Loader2, Send, CalendarIcon, Pencil, X, Wrench, Plus, Trash2, Factory, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -91,6 +91,8 @@ const PDDetailPage = () => {
   const [searchMode, setSearchMode] = useState<"peca" | "servico" | null>(null);
   const [showNewServiceForm, setShowNewServiceForm] = useState(false);
   const [newService, setNewService] = useState({ name: "", description: "", cost: "", itemType: "servico_cobrado" });
+  const [showFreteForm, setShowFreteForm] = useState(false);
+  const [newFrete, setNewFrete] = useState({ carrier: "Correios SEDEX", custom: "", value: "" });
 
   const [editableItems, setEditableItems] = useState<Record<string, { quantity: string; unit_price: string; description: string }>>({});
 
@@ -810,8 +812,11 @@ const PDDetailPage = () => {
           <Button size="sm" className="gap-1.5" variant={searchMode === "peca" ? "default" : "outline"} onClick={() => { setEditing(true); setSearchMode(searchMode === "peca" ? null : "peca"); setShowNewServiceForm(false); }}>
             <Package className="h-3.5 w-3.5" /> Adicionar Peça
           </Button>
-          <Button size="sm" className="gap-1.5" variant={searchMode === "servico" ? "default" : "outline"} onClick={() => { setEditing(true); setSearchMode(searchMode === "servico" ? null : "servico"); setShowNewServiceForm(false); }}>
+          <Button size="sm" className="gap-1.5" variant={searchMode === "servico" ? "default" : "outline"} onClick={() => { setEditing(true); setSearchMode(searchMode === "servico" ? null : "servico"); setShowNewServiceForm(false); setShowFreteForm(false); }}>
             <Wrench className="h-3.5 w-3.5" /> Adicionar Serviço
+          </Button>
+          <Button size="sm" className="gap-1.5" variant={showFreteForm ? "default" : "outline"} onClick={() => { setShowFreteForm(f => !f); setSearchMode(null); setShowNewServiceForm(false); }}>
+            <Truck className="h-3.5 w-3.5" /> Adicionar Frete
           </Button>
         </div>
       )}
@@ -888,6 +893,58 @@ const PDDetailPage = () => {
               )}
             </div>
           )}
+        </motion.div>
+      )}
+
+      {linkedQuote && showFreteForm && (
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mb-4 bg-card border rounded-xl p-4 shadow-sm">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-semibold flex items-center gap-2"><Truck className="h-4 w-4 text-primary" /> Adicionar Frete</p>
+            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => { setShowFreteForm(false); setNewFrete({ carrier: "Correios SEDEX", custom: "", value: "" }); }}>Cancelar</Button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Transportadora *</Label>
+              <Select value={newFrete.carrier} onValueChange={v => setNewFrete(f => ({ ...f, carrier: v, custom: "" }))}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Correios SEDEX">Correios SEDEX</SelectItem>
+                  <SelectItem value="Correios PAC">Correios PAC</SelectItem>
+                  <SelectItem value="JAD Log">JAD Log</SelectItem>
+                  <SelectItem value="Outro">Outro</SelectItem>
+                </SelectContent>
+              </Select>
+              {newFrete.carrier === "Outro" && (
+                <Input placeholder="Nome da transportadora..." value={newFrete.custom} onChange={e => setNewFrete(f => ({ ...f, custom: e.target.value }))} className="mt-2" />
+              )}
+            </div>
+            <div>
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Valor do Frete (R$) *</Label>
+              <Input type="number" step="0.01" min="0" placeholder="0,00" value={newFrete.value} onChange={e => setNewFrete(f => ({ ...f, value: e.target.value }))} className="mt-1" />
+            </div>
+            <div className="flex items-end">
+              <Button size="sm" className="gap-1.5"
+                disabled={!newFrete.value || (newFrete.carrier === "Outro" && !newFrete.custom.trim()) || addItem.isPending}
+                onClick={async () => {
+                  const carrierName = newFrete.carrier === "Outro" ? newFrete.custom.trim() : newFrete.carrier;
+                  const val = Number(newFrete.value);
+                  await addItem.mutateAsync({
+                    quote_id: linkedQuote.id,
+                    description: carrierName,
+                    item_type: "frete",
+                    quantity: 1,
+                    unit_cost: val,
+                    unit_price: val,
+                  });
+                  toast.success(`Frete "${carrierName}" adicionado`);
+                  setNewFrete({ carrier: "Correios SEDEX", custom: "", value: "" });
+                  setShowFreteForm(false);
+                  qc.invalidateQueries({ queryKey: ["pd_linked_quote", id] });
+                }}>
+                <Plus className="h-3.5 w-3.5" /> {addItem.isPending ? "Adicionando..." : "Adicionar"}
+              </Button>
+            </div>
+          </div>
         </motion.div>
       )}
 
