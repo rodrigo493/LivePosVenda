@@ -341,6 +341,7 @@ export default function ChatPage() {
   const handleBackToList = () => {
     setMobileView("list");
     setSelectedIgChat(null);
+    setSelectedChat(null);
   };
 
   // No mobile: altura sem o padding menor do main (p-4 = 1rem*2 + header 3.5rem = 5.5rem)
