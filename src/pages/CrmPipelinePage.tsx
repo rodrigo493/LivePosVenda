@@ -63,6 +63,7 @@ import { usePipelineAutomations, type AutomationActionType } from "@/hooks/useSt
 import { useUpdatePipeline } from "@/hooks/useManagePipelines";
 import { useCreateStage, useUpdateStage, useDeleteStage, useReorderStages } from "@/hooks/useManageStages";
 import { useWhatsAppConversations } from "@/hooks/useWhatsAppConversations";
+import { useInstagramConversations } from "@/hooks/useInstagramConversations";
 import { useAuth } from "@/hooks/useAuth";
 import { useCreateClient } from "@/hooks/useClients";
 import { useCreateTicket } from "@/hooks/useTickets";
@@ -155,6 +156,17 @@ const CrmPipelinePage = () => {
     conversations?.forEach((c) => { map.set(c.client_id, c.last_message_at); });
     return map;
   }, [conversations]);
+  const { data: igConversations } = useInstagramConversations();
+  const instagramUnread = useMemo(() => {
+    const map = new Map<string, number>();
+    igConversations?.forEach((c) => { if (c.unread_count > 0 && c.client_id) map.set(c.client_id, c.unread_count); });
+    return map;
+  }, [igConversations]);
+  const instagramLastActivity = useMemo(() => {
+    const map = new Map<string, string>();
+    igConversations?.forEach((c) => { if (c.client_id) map.set(c.client_id, c.last_message_at); });
+    return map;
+  }, [igConversations]);
   const moveStage = useMovePipelineStage();
   const createClient = useCreateClient();
   const createTicket = useCreateTicket();
@@ -314,6 +326,8 @@ const CrmPipelinePage = () => {
         _isNoContact: t.pipeline_stage === "sem_atendimento",
         _unreadWhatsapp: whatsappUnread.get(t.client_id) || 0,
         _lastWhatsappAt: whatsappLastActivity.get(t.client_id) || null,
+        _unreadInstagram: instagramUnread.get(t.client_id) || 0,
+        _lastInstagramAt: instagramLastActivity.get(t.client_id) || null,
         _stageColor: stageColor,
         _isNewLead: !!t.new_lead,
       };
@@ -324,11 +338,15 @@ const CrmPipelinePage = () => {
     Object.values(map).forEach((arr) =>
       arr.sort((a: any, b: any) => {
         if (a._isNewLead !== b._isNewLead) return a._isNewLead ? -1 : 1;
-        if (!!a._unreadWhatsapp !== !!b._unreadWhatsapp) return a._unreadWhatsapp ? -1 : 1;
-        if (a._lastWhatsappAt || b._lastWhatsappAt) {
-          if (!a._lastWhatsappAt) return 1;
-          if (!b._lastWhatsappAt) return -1;
-          return new Date(b._lastWhatsappAt).getTime() - new Date(a._lastWhatsappAt).getTime();
+        const aUnread = (a._unreadWhatsapp > 0) || (a._unreadInstagram > 0);
+        const bUnread = (b._unreadWhatsapp > 0) || (b._unreadInstagram > 0);
+        if (aUnread !== bUnread) return aUnread ? -1 : 1;
+        const aLast = a._lastInstagramAt && (!a._lastWhatsappAt || a._lastInstagramAt > a._lastWhatsappAt) ? a._lastInstagramAt : a._lastWhatsappAt;
+        const bLast = b._lastInstagramAt && (!b._lastWhatsappAt || b._lastInstagramAt > b._lastWhatsappAt) ? b._lastInstagramAt : b._lastWhatsappAt;
+        if (aLast || bLast) {
+          if (!aLast) return 1;
+          if (!bLast) return -1;
+          return new Date(bLast).getTime() - new Date(aLast).getTime();
         }
         if (a._isDelayed !== b._isDelayed) return a._isDelayed ? -1 : 1;
         return (priorityOrder[a.priority] ?? 2) - (priorityOrder[b.priority] ?? 2);
@@ -1598,8 +1616,10 @@ function formatTaskDateTime(due_date: string | null, due_time: string | null): s
 }
 
 function PipelineCard({ ticket, pipelineName, stageKey, onQuickTask, onClick, onTaskClick, isAdmin }: { ticket: any; pipelineName: string; stageKey: string; onQuickTask: () => void; onClick: () => void; onTaskClick: () => void; isAdmin: boolean }) {
+  const navigate = useNavigate();
   const typeInfo = TICKET_TYPE_LABELS[ticket.ticket_type] || { label: ticket.ticket_type, color: "bg-zinc-700 text-zinc-300" };
   const unreadWpp = ticket._unreadWhatsapp || 0;
+  const unreadIg = ticket._unreadInstagram || 0;
   const isNewLead = ticket._isNewLead || false;
   const lastOrderTag = getLastOrderTag(ticket.quotes || []);
   const isDelayed = ticket._isDelayed;
@@ -1651,6 +1671,14 @@ function PipelineCard({ ticket, pipelineName, stageKey, onQuickTask, onClick, on
           <span className="h-1.5 w-1.5 rounded-full bg-orange-500 animate-dot-pulse" />
           <span className="text-[9px] font-bold text-orange-400 uppercase tracking-wide">
             {unreadWpp} msg não {unreadWpp === 1 ? "lida" : "lidas"}
+          </span>
+        </div>
+      )}
+      {unreadIg > 0 && (
+        <div className="flex items-center gap-1.5 px-2.5 py-1 border-b border-purple-900/50">
+          <span className="h-1.5 w-1.5 rounded-full bg-purple-500 animate-dot-pulse" />
+          <span className="text-[9px] font-bold text-purple-400 uppercase tracking-wide">
+            {unreadIg} msg Instagram não {unreadIg === 1 ? "lida" : "lidas"}
           </span>
         </div>
       )}
@@ -1736,6 +1764,17 @@ function PipelineCard({ ticket, pipelineName, stageKey, onQuickTask, onClick, on
           >
             <ListTodo className="h-2.5 w-2.5" /> Criar tarefa
           </Button>
+          {ticket.channel === "instagram" && ticket.client_id && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-5 px-1.5 text-[9px] gap-0.5 shrink-0 text-purple-400 hover:text-purple-300 hover:bg-purple-900/30"
+              onClick={(e) => { e.stopPropagation(); navigate(`/chat?ig_client=${ticket.client_id}`); }}
+              title="Abrir chat Instagram"
+            >
+              <ChannelIcon channel="instagram" size={10} /> Chat
+            </Button>
+          )}
           {nextTask && (
             <button
               className="flex items-center gap-1 min-w-0 flex-1 bg-zinc-700/40 hover:bg-zinc-600/50 rounded px-1.5 py-0.5 transition-colors text-left"

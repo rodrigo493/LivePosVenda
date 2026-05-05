@@ -303,6 +303,17 @@ export default function ChatPage() {
         return;
       }
     }
+    const igClientParam = searchParams.get("ig_client");
+    if (igClientParam) {
+      const igTarget = filteredConversations.find((c) => c.channel === "instagram" && (c as InstagramConversation).client_id === igClientParam);
+      if (igTarget) {
+        setSelectedIgChat(igTarget as InstagramConversation & { channel: "instagram" });
+        setSelectedChat(null);
+        setMobileView("chat");
+        setSearchParams({}, { replace: true });
+        return;
+      }
+    }
     // No desktop, seleciona automaticamente a primeira conversa (apenas WhatsApp)
     if (!selectedChat && !selectedIgChat && !isMobile) {
       const first = filteredConversations[0];

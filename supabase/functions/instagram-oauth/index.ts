@@ -92,6 +92,25 @@ async function exchangeAndSave(code: string, redirectUri: string): Promise<{ use
 
   if (upsertErr) return { error: upsertErr.message };
 
+  // 5. Inscreve a conta para receber webhooks de mensagens e comentários
+  try {
+    const subRes = await fetch(
+      `https://graph.facebook.com/v21.0/${igAccount.id}/subscribed_apps`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subscribed_fields: "messages,comments,mentions",
+          access_token: longToken,
+        }),
+      }
+    );
+    const subData = await subRes.json();
+    console.log("[instagram-oauth] subscribed_apps:", JSON.stringify(subData));
+  } catch (e) {
+    console.error("[instagram-oauth] subscribed_apps error:", e);
+  }
+
   return {
     username: igAccount.username,
     picture_url: igAccount.profile_picture_url ?? null,
