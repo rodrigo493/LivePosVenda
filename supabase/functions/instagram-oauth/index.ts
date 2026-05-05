@@ -41,6 +41,9 @@ Deno.serve(async (req) => {
   );
   const tokenData = await tokenRes.json();
   if (!tokenData.access_token) {
+    console.error("[instagram-oauth] token exchange failed:", JSON.stringify(tokenData));
+    console.error("[instagram-oauth] redirect_uri used:", redirect_uri);
+    console.error("[instagram-oauth] APP_ID:", APP_ID ? APP_ID.slice(0, 6) + "..." : "MISSING");
     return json({ error: "Token exchange failed", detail: tokenData }, 400);
   }
 
