@@ -331,6 +331,7 @@ const PADetailPage = () => {
       unitPrice: Number(item.unit_price),
       total: item.quantity * Number(item.unit_price),
       isWarranty: String(item.item_type).includes("garantia"),
+      itemType: item.item_type as string,
     })),
     subtotal: totals.subtotalPecas + totals.subtotalServicos,
     freight: totals.frete,

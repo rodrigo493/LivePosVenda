@@ -24,6 +24,7 @@ interface QuotePdfData {
     unitPrice: number;
     total: number;
     isWarranty: boolean;
+    itemType?: string;
   }[];
   subtotal: number;
   freight: number;
@@ -96,7 +97,12 @@ export function generateQuotePdf(data: QuotePdfData) {
   }
 
   // ── Tabela de itens ───────────────────────────────────────────────────────
-  const tableBody = data.items.map((item) => [
+  // frete e desconto ficam apenas no resumo financeiro — não duplicar na tabela
+  const tableItems = data.items.filter(
+    (item) => item.itemType !== "frete" && item.itemType !== "desconto"
+  );
+
+  const tableBody = tableItems.map((item) => [
     item.code,
     item.description,
     item.isWarranty ? "Garantia" : "",
