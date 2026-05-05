@@ -11,14 +11,17 @@ export type AdminLayoutItem = {
 };
 
 export const DEFAULT_ADMIN_LAYOUT: AdminLayoutItem[] = [
-  { i: "kpi-abertos",   x: 0, y: 0, w: 3, h: 1, minW: 2, maxW: 12, minH: 1, maxH: 3 },
-  { i: "kpi-garantias", x: 3, y: 0, w: 3, h: 1, minW: 2, maxW: 12, minH: 1, maxH: 3 },
-  { i: "kpi-andamento", x: 6, y: 0, w: 3, h: 1, minW: 2, maxW: 12, minH: 1, maxH: 3 },
-  { i: "kpi-resolvidos",x: 9, y: 0, w: 3, h: 1, minW: 2, maxW: 12, minH: 1, maxH: 3 },
-  { i: "kpi-total",     x: 0, y: 1, w: 3, h: 1, minW: 2, maxW: 12, minH: 1, maxH: 3 },
-  { i: "kpi-os",        x: 3, y: 1, w: 3, h: 1, minW: 2, maxW: 12, minH: 1, maxH: 3 },
-  { i: "kpi-custo",     x: 6, y: 1, w: 3, h: 1, minW: 2, maxW: 12, minH: 1, maxH: 3 },
-  { i: "kpi-equip",     x: 9, y: 1, w: 3, h: 1, minW: 2, maxW: 12, minH: 1, maxH: 3 },
+  { i: "kpi-abertos",          x: 0, y: 0, w: 3, h: 1, minW: 2, maxW: 12, minH: 1, maxH: 3 },
+  { i: "kpi-garantias",        x: 3, y: 0, w: 3, h: 1, minW: 2, maxW: 12, minH: 1, maxH: 3 },
+  { i: "kpi-andamento",        x: 6, y: 0, w: 3, h: 1, minW: 2, maxW: 12, minH: 1, maxH: 3 },
+  { i: "kpi-resolvidos",       x: 9, y: 0, w: 3, h: 1, minW: 2, maxW: 12, minH: 1, maxH: 3 },
+  { i: "kpi-total",            x: 0, y: 1, w: 3, h: 1, minW: 2, maxW: 12, minH: 1, maxH: 3 },
+  { i: "kpi-os",               x: 3, y: 1, w: 3, h: 1, minW: 2, maxW: 12, minH: 1, maxH: 3 },
+  { i: "kpi-custo",            x: 6, y: 1, w: 3, h: 1, minW: 2, maxW: 12, minH: 1, maxH: 3 },
+  { i: "kpi-equip",            x: 9, y: 1, w: 3, h: 1, minW: 2, maxW: 12, minH: 1, maxH: 3 },
+  { i: "kpi-gasto-garantia",   x: 0, y: 2, w: 4, h: 1, minW: 2, maxW: 12, minH: 1, maxH: 3 },
+  { i: "kpi-valor-vendas",     x: 4, y: 2, w: 4, h: 1, minW: 2, maxW: 12, minH: 1, maxH: 3 },
+  { i: "kpi-valor-acessorios", x: 8, y: 2, w: 4, h: 1, minW: 2, maxW: 12, minH: 1, maxH: 3 },
 ];
 
 export const ACCENT_COLORS: { value: string | null; label: string }[] = [

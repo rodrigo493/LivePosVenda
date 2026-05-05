@@ -16,6 +16,8 @@ import {
   Save,
   RotateCcw,
   Palette,
+  ShoppingBag,
+  Receipt,
 } from "lucide-react";
 import GridLayout, { WidthProvider } from "react-grid-layout/legacy";
 import { KpiCard } from "@/components/dashboard/KpiCard";
@@ -192,6 +194,60 @@ function DashboardContent() {
     },
     staleTime: 60_000,
   });
+
+  // ── Gasto com garantia (valor declarado das peças em PG) ──────────────────
+  const { data: warrantyDeclaredData } = useQuery({
+    queryKey: ["admin-warranty-declared"],
+    queryFn: async () => {
+      const { data } = await (supabase as any)
+        .from("warranty_claims")
+        .select("id, quotes(id, quote_items(unit_price, quantity, is_warranty))");
+      return (data || []) as any[];
+    },
+    staleTime: 60_000,
+  });
+
+  const warrantyDeclaredTotal = useMemo(() => {
+    return (warrantyDeclaredData || []).reduce((sum: number, wc: any) => {
+      const quotes = Array.isArray(wc.quotes) ? wc.quotes : wc.quotes ? [wc.quotes] : [];
+      for (const q of quotes) {
+        for (const item of Array.isArray(q.quote_items) ? q.quote_items : []) {
+          if (item.is_warranty && Number(item.unit_price) > 0) {
+            sum += Number(item.unit_price) * Number(item.quantity || 1);
+          }
+        }
+      }
+      return sum;
+    }, 0);
+  }, [warrantyDeclaredData]);
+
+  // ── PA / PD totais (com pedido Nomus) ─────────────────────────────────────
+  const { data: serviceRequestsTotals } = useQuery({
+    queryKey: ["admin-service-requests-totals"],
+    queryFn: async () => {
+      const { data } = await (supabase as any)
+        .from("service_requests")
+        .select("document_type, estimated_cost, nomus_order_id")
+        .in("document_type", ["pa", "pd"])
+        .not("nomus_order_id", "is", null);
+      return (data || []) as { document_type: string; estimated_cost: number | null; nomus_order_id: string }[];
+    },
+    staleTime: 60_000,
+  });
+
+  const paTotal = useMemo(
+    () => (serviceRequestsTotals || [])
+      .filter((r) => r.document_type === "pa")
+      .reduce((sum, r) => sum + Number(r.estimated_cost || 0), 0),
+    [serviceRequestsTotals]
+  );
+
+  const pdTotal = useMemo(
+    () => (serviceRequestsTotals || [])
+      .filter((r) => r.document_type === "pd")
+      .reduce((sum, r) => sum + Number(r.estimated_cost || 0), 0),
+    [serviceRequestsTotals]
+  );
 
   const [selectedPipelineId, setSelectedPipelineId] = useState<string>("all");
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
@@ -612,6 +668,30 @@ function DashboardContent() {
             {isEditing && <><span className="drag-handle">⠿⠿</span><CardColorPicker kpiKey="kpi-equip" colors={draftColors} onChange={setDraftColors} /></>}
             <div className="h-full">
               <KpiCard title="Equip. em Garantia" value={equipInWarrantyList.length} icon={TrendingUp} accentColor={activeColors["kpi-equip"]} onClick={!isEditing ? () => openDrilldown("Equipamentos em Garantia", equipInWarrantyList.map(equipToDrilldown)) : undefined} />
+            </div>
+          </div>
+
+          {/* kpi-gasto-garantia */}
+          <div key="kpi-gasto-garantia" className={isEditing ? "rgl-edit-item" : ""} style={{ position: "relative" }}>
+            {isEditing && <><span className="drag-handle">⠿⠿</span><CardColorPicker kpiKey="kpi-gasto-garantia" colors={draftColors} onChange={setDraftColors} /></>}
+            <div className="h-full">
+              <KpiCard title="Gasto com Garantia" value={`R$ ${warrantyDeclaredTotal.toFixed(0)}`} icon={ShieldCheck} variant="warning" accentColor={activeColors["kpi-gasto-garantia"]} />
+            </div>
+          </div>
+
+          {/* kpi-valor-vendas */}
+          <div key="kpi-valor-vendas" className={isEditing ? "rgl-edit-item" : ""} style={{ position: "relative" }}>
+            {isEditing && <><span className="drag-handle">⠿⠿</span><CardColorPicker kpiKey="kpi-valor-vendas" colors={draftColors} onChange={setDraftColors} /></>}
+            <div className="h-full">
+              <KpiCard title="Valor de Vendas (PD)" value={`R$ ${pdTotal.toFixed(0)}`} icon={Receipt} variant="success" accentColor={activeColors["kpi-valor-vendas"]} />
+            </div>
+          </div>
+
+          {/* kpi-valor-acessorios */}
+          <div key="kpi-valor-acessorios" className={isEditing ? "rgl-edit-item" : ""} style={{ position: "relative" }}>
+            {isEditing && <><span className="drag-handle">⠿⠿</span><CardColorPicker kpiKey="kpi-valor-acessorios" colors={draftColors} onChange={setDraftColors} /></>}
+            <div className="h-full">
+              <KpiCard title="Valor de Acessórios (PA)" value={`R$ ${paTotal.toFixed(0)}`} icon={ShoppingBag} variant="primary" accentColor={activeColors["kpi-valor-acessorios"]} />
             </div>
           </div>
         </AutoWidthGridLayout>
