@@ -6,6 +6,7 @@ export interface Conversation {
   client_id: string;
   client_name: string;
   client_phone: string | null;
+  client_avatar: string | null;
   last_message: string;
   last_message_at: string;
   last_message_direction: "inbound" | "outbound";
@@ -63,7 +64,7 @@ export function useWhatsAppConversations(
 
       const { data: allClients, error: clientError } = await supabase
         .from("clients")
-        .select("id, name, phone, whatsapp, whatsapp_last_read_at, assigned_to")
+        .select("id, name, phone, whatsapp, whatsapp_last_read_at, assigned_to, avatar_url")
         .in("id", clientIds);
 
       if (clientError) throw clientError;
@@ -170,6 +171,7 @@ export function useWhatsAppConversations(
             client_id: msg.client_id,
             client_name: client.name,
             client_phone: client?.whatsapp || client?.phone || null,
+            client_avatar: (client as any).avatar_url ?? null,
             last_message: msg.message_text,
             last_message_at: msg.created_at,
             last_message_direction: (msg.direction as "inbound" | "outbound") ?? "outbound",

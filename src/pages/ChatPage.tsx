@@ -18,6 +18,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Client } from "@/types/database";
+import { useWhatsAppAvatar } from "@/hooks/useWhatsAppAvatar";
 
 function useInstanceUserMap(): Map<string, string> {
   const { data } = useQuery<Map<string, string>>({
@@ -84,6 +85,42 @@ interface ActiveChat {
   client_id: string;
   client_name: string;
   client_phone: string;
+  client_avatar?: string | null;
+  last_instance_id?: string | null;
+}
+
+function ConvAvatar({
+  pic,
+  initial,
+  hasUnread,
+  size,
+  fallbackClass,
+}: {
+  pic: string | null | undefined;
+  initial: string;
+  hasUnread: boolean;
+  size: number; // tailwind size in px (8 = 2rem, 10 = 2.5rem)
+  fallbackClass?: string;
+}) {
+  const [imgError, setImgError] = useState(false);
+  const sizeClass = `h-${size} w-${size}`;
+  if (pic && !imgError) {
+    return (
+      <img
+        src={pic}
+        alt={initial}
+        className={`${sizeClass} rounded-full object-cover shrink-0`}
+        onError={() => setImgError(true)}
+      />
+    );
+  }
+  return (
+    <div className={`${sizeClass} rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${
+      fallbackClass ?? (hasUnread ? "bg-[#f97316]/20 text-[#f97316]" : "bg-emerald-100 text-emerald-700")
+    }`}>
+      {initial}
+    </div>
+  );
 }
 
 export default function ChatPage() {
@@ -163,6 +200,13 @@ export default function ChatPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const clientParam = searchParams.get("client");
   const navigate = useNavigate();
+
+  // Busca foto de perfil do WhatsApp (Uazapi → clients.avatar_url)
+  const { data: waAvatar } = useWhatsAppAvatar(
+    selectedChat?.client_id,
+    selectedChat?.client_phone,
+    selectedChat?.last_instance_id
+  );
 
   const { data: clientCards } = useQuery({
     queryKey: ["client-cards", selectedChat?.client_id],
@@ -297,7 +341,7 @@ export default function ChatPage() {
     if (clientParam) {
       const target = filteredConversations.find((c) => c.channel !== "instagram" && (c as any).client_id === clientParam);
       if (target) {
-        setSelectedChat({ client_id: (target as any).client_id, client_name: (target as any).client_name, client_phone: (target as any).client_phone || "" });
+        setSelectedChat({ client_id: (target as any).client_id, client_name: (target as any).client_name, client_phone: (target as any).client_phone || "", client_avatar: (target as any).client_avatar ?? null, last_instance_id: (target as any).last_instance_id ?? null });
         setMobileView("chat");
         setSearchParams({}, { replace: true });
         return;
@@ -319,7 +363,7 @@ export default function ChatPage() {
       const first = filteredConversations[0];
       if (!first) return;
       if (first.channel === "instagram") return;
-      setSelectedChat({ client_id: (first as any).client_id, client_name: (first as any).client_name, client_phone: (first as any).client_phone || "" });
+      setSelectedChat({ client_id: (first as any).client_id, client_name: (first as any).client_name, client_phone: (first as any).client_phone || "", client_avatar: (first as any).client_avatar ?? null, last_instance_id: (first as any).last_instance_id ?? null });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredConversations, clientParam, isMobile]);
@@ -336,6 +380,8 @@ export default function ChatPage() {
         client_id: (conv as any).client_id,
         client_name: (conv as any).client_name,
         client_phone: (conv as any).client_phone || "",
+        client_avatar: (conv as any).client_avatar ?? null,
+        last_instance_id: (conv as any).last_instance_id ?? null,
       });
       markRead.mutate((conv as any).client_id);
     }
@@ -499,13 +545,16 @@ export default function ChatPage() {
                       }`}
                     >
                       <div className="relative shrink-0">
-                        <div className={`h-10 w-10 rounded-full flex items-center justify-center text-sm font-bold ${
-                          hasUnread ? "bg-[#f97316]/20 text-[#f97316]" : "bg-emerald-100 text-emerald-700"
-                        }`}>
-                          {conv.channel === "instagram"
+                        <ConvAvatar
+                          pic={conv.channel === "instagram"
+                            ? (conv as InstagramConversation).sender_picture
+                            : (conv as any).client_avatar ?? null}
+                          initial={conv.channel === "instagram"
                             ? ((conv as InstagramConversation).sender_username?.charAt(0).toUpperCase() ?? "I")
                             : (conv as any).client_name?.charAt(0).toUpperCase() ?? "?"}
-                        </div>
+                          hasUnread={hasUnread}
+                          size={10}
+                        />
                         <span className="absolute -bottom-0.5 -right-0.5 bg-background rounded-full p-0.5">
                           <ChannelIcon channel={conv.channel ?? "whatsapp"} size={11} />
                         </span>
@@ -574,9 +623,13 @@ export default function ChatPage() {
                     <ArrowLeft className="h-5 w-5" />
                   </button>
                 )}
-                <div className="h-8 w-8 rounded-full bg-gradient-to-br from-orange-400 to-purple-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
-                  {selectedIgChat.sender_username?.charAt(0).toUpperCase() ?? "I"}
-                </div>
+                <ConvAvatar
+                  pic={selectedIgChat.sender_picture}
+                  initial={selectedIgChat.sender_username?.charAt(0).toUpperCase() ?? "I"}
+                  hasUnread={false}
+                  size={8}
+                  fallbackClass="bg-gradient-to-br from-orange-400 to-purple-600 text-white"
+                />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold">{selectedIgChat.display_name}</p>
                   <p className="text-xs text-muted-foreground flex items-center gap-1">
@@ -599,9 +652,12 @@ export default function ChatPage() {
                     <ArrowLeft className="h-5 w-5" />
                   </button>
                 )}
-                <div className="h-8 w-8 rounded-full bg-emerald-100 flex items-center justify-center text-sm font-bold text-emerald-700 shrink-0">
-                  {selectedChat.client_name.charAt(0).toUpperCase()}
-                </div>
+                <ConvAvatar
+                  pic={waAvatar ?? selectedChat.client_avatar ?? null}
+                  initial={selectedChat.client_name.charAt(0).toUpperCase()}
+                  hasUnread={false}
+                  size={8}
+                />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold">{selectedChat.client_name}</p>
                   {selectedChat.client_phone && (
