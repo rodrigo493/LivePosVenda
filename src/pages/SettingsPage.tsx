@@ -67,7 +67,7 @@ const SettingsPage = () => {
   const { hasRole } = useAuth();
   const isAdmin = hasRole("admin");
   const [searchParams] = useSearchParams();
-  const activeTab = searchParams.get("tab") ?? (searchParams.get("code") ? "instagram" : "geral");
+  const activeTab = searchParams.get("tab") ?? (searchParams.get("ig_connected") || searchParams.get("ig_error") ? "instagram" : "geral");
 
   const getSetting = (key: string): string => {
     const s = settings?.find((s) => s.key === key);
