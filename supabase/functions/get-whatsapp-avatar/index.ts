@@ -6,6 +6,39 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
+async function tryFetchAvatar(baseUrl: string, token: string, cleanPhone: string): Promise<string | null> {
+  // Tentativas em ordem de prioridade (WuzAPI → UazapiGO → fallbacks)
+  const endpoints = [
+    `${baseUrl}/user/avatar?Phone=${cleanPhone}&Preview=false`,
+    `${baseUrl}/user/avatar?phone=${cleanPhone}&preview=false`,
+    `${baseUrl}/contact/profilepicture?phone=${cleanPhone}`,
+    `${baseUrl}/contact/profilepicture?Phone=${cleanPhone}`,
+  ];
+
+  for (const url of endpoints) {
+    try {
+      const res = await fetch(url, { headers: { token } });
+      const text = await res.text();
+      console.log(`[avatar] ${res.status} ${url} → ${text.slice(0, 150)}`);
+
+      if (res.ok && text.startsWith("{")) {
+        const data = JSON.parse(text);
+        // WuzAPI: { Image, Id, Type, DirectPath }
+        // UazapiGO: { eurl, url, tag } ou { imgUrl } ou { picture } ou { profilePicUrl }
+        const url2 =
+          data?.Image || data?.image ||
+          data?.eurl || data?.url || data?.imgUrl ||
+          data?.picture || data?.profilePicUrl ||
+          data?.data?.url || data?.data?.image || null;
+        if (url2 && typeof url2 === "string" && url2.startsWith("http")) return url2;
+      }
+    } catch (e) {
+      console.log(`[avatar] Error on ${url}:`, e);
+    }
+  }
+  return null;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -43,35 +76,16 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Build chatId — Uazapi/WuzAPI expects {number}@s.whatsapp.net
+    // Normaliza telefone: adiciona código de país BR se não tiver
     let cleanPhone = phone.replace(/\D/g, "");
     if (cleanPhone.length <= 11) cleanPhone = "55" + cleanPhone;
-    const chatId = `${cleanPhone}@s.whatsapp.net`;
 
-    // Fetch profile picture URL from Uazapi
-    const picRes = await fetch(
-      `${baseUrl}/chat/getProfilePicture?chatId=${encodeURIComponent(chatId)}&preview=0`,
-      { headers: { token } }
-    );
+    const avatarUrl = await tryFetchAvatar(baseUrl, token, cleanPhone);
+    console.log(`[avatar] final result for ${cleanPhone}:`, avatarUrl);
 
-    let avatarUrl: string | null = null;
-
-    if (picRes.ok) {
-      const picData = await picRes.json();
-      // WuzAPI returns { eurl, url, tag } — eurl is the high-res URL
-      avatarUrl = picData?.eurl || picData?.url || null;
-      console.log("Profile pic response:", JSON.stringify(picData).slice(0, 200));
-    } else {
-      const errText = await picRes.text();
-      console.log("Profile pic fetch failed:", picRes.status, errText.slice(0, 200));
-    }
-
-    // Save to clients.avatar_url if we got a URL
+    // Salva em clients.avatar_url se encontrou
     if (avatarUrl) {
-      await admin
-        .from("clients")
-        .update({ avatar_url: avatarUrl })
-        .eq("id", client_id);
+      await admin.from("clients").update({ avatar_url: avatarUrl }).eq("id", client_id);
     }
 
     return new Response(JSON.stringify({ url: avatarUrl }), {
