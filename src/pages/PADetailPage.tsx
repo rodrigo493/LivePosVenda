@@ -138,15 +138,31 @@ const PADetailPage = () => {
     dataEmissao: format(new Date(), "dd/MM/yyyy"),
     dataEntregaPadrao: "",
     cfop: "",
-    condicaoPagamento: "28",
-    formaPagamento: "10",
-    vendedorId: "",
+    condicaoPagamento: "",
+    formaPagamento: "",
+    vendedor: "",
+    observacoes: "",
   });
   const [nomusClientId, setNomusClientId] = useState<number | null>(null);
   const [nomusClientResults, setNomusClientResults] = useState<{ id: number; nome: string }[]>([]);
   const [nomusClientLoading, setNomusClientLoading] = useState(false);
   const [nomusClientOpen, setNomusClientOpen] = useState(false);
   const nomusSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [nomusCondicaoId, setNomusCondicaoId] = useState<number | null>(null);
+  const [nomusCondicaoResults, setNomusCondicaoResults] = useState<{ id: number; nome: string }[]>([]);
+  const [nomusCondicaoLoading, setNomusCondicaoLoading] = useState(false);
+  const [nomusCondicaoOpen, setNomusCondicaoOpen] = useState(false);
+  const nomusCondicaoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [nomusFormaId, setNomusFormaId] = useState<number | null>(null);
+  const [nomusFormaResults, setNomusFormaResults] = useState<{ id: number; nome: string }[]>([]);
+  const [nomusFormaLoading, setNomusFormaLoading] = useState(false);
+  const [nomusFormaOpen, setNomusFormaOpen] = useState(false);
+  const nomusFormaTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [nomusVendedorId, setNomusVendedorId] = useState<number | null>(null);
+  const [nomusVendedorResults, setNomusVendedorResults] = useState<{ id: number; nome: string }[]>([]);
+  const [nomusVendedorLoading, setNomusVendedorLoading] = useState(false);
+  const [nomusVendedorOpen, setNomusVendedorOpen] = useState(false);
+  const nomusVendedorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Pre-fill fields from quote data when loaded
   useEffect(() => {
@@ -171,13 +187,13 @@ const PADetailPage = () => {
   };
 
   // Nomus usa query=campo%3D"*termo*" (não FIQL like com %)
-  const nomusGet = async (field: string, term: string, ms = 5000): Promise<any[]> => {
+  const nomusGet = async (endpoint: string, field: string, term: string, ms = 5000): Promise<any[]> => {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), ms);
     try {
       const q = encodeURIComponent(`${field}="*${term.toUpperCase()}*"`);
       const r = await fetch(
-        `/api/nomus/rest/clientes?query=${q}`,
+        `/api/nomus/rest/${endpoint}?query=${q}`,
         { headers: { Accept: "application/json" }, signal: ctrl.signal }
       );
       clearTimeout(timer);
@@ -186,6 +202,44 @@ const PADetailPage = () => {
       return Array.isArray(body) ? body : [];
     } catch { clearTimeout(timer); return []; }
   };
+
+  const makeNomusSearch = (
+    endpoint: string,
+    searchFields: string[],
+    displayField: string,
+    stateKey: string,
+    timerRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>,
+    setId: (id: number | null) => void,
+    setResults: (r: { id: number; nome: string }[]) => void,
+    setOpen: (o: boolean) => void,
+    setLoading: (l: boolean) => void,
+  ) => (query: string) => {
+    updateNomusField(stateKey, query);
+    setId(null);
+    if (query.length < 2) { setResults([]); setOpen(false); return; }
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(async () => {
+      setLoading(true);
+      const seen = new Set<number>();
+      const results: { id: number; nome: string }[] = [];
+      for (const f of searchFields) {
+        if (results.length > 0) break;
+        const list = await nomusGet(endpoint, f, query.trim());
+        for (const p of list) {
+          if (seen.has(p.id) || results.length >= 20) continue;
+          seen.add(p.id);
+          results.push({ id: p.id, nome: p[displayField] || `ID ${p.id}` });
+        }
+      }
+      setResults(results);
+      setOpen(results.length > 0);
+      setLoading(false);
+    }, 400);
+  };
+
+  const searchNomusCondicao = makeNomusSearch("condicoespagamento", ["descricao"], "descricao", "condicaoPagamento", nomusCondicaoTimer, setNomusCondicaoId, setNomusCondicaoResults, setNomusCondicaoOpen, setNomusCondicaoLoading);
+  const searchNomusForma = makeNomusSearch("formaspagamento", ["descricao"], "descricao", "formaPagamento", nomusFormaTimer, setNomusFormaId, setNomusFormaResults, setNomusFormaOpen, setNomusFormaLoading);
+  const searchNomusVendedor = makeNomusSearch("vendedores", ["nome"], "nome", "vendedor", nomusVendedorTimer, setNomusVendedorId, setNomusVendedorResults, setNomusVendedorOpen, setNomusVendedorLoading);
 
   const searchNomusClients = (query: string) => {
     updateNomusField("cliente", query);
@@ -199,7 +253,7 @@ const PADetailPage = () => {
       const results: { id: number; nome: string }[] = [];
       for (const field of ["nome", "razaoSocial"]) {
         if (results.length > 0) break;
-        const list = await nomusGet(field, term);
+        const list = await nomusGet("clientes", field, term);
         for (const p of list) {
           if (seen.has(p.id) || results.length >= 20) continue;
           seen.add(p.id);
@@ -222,7 +276,7 @@ const PADetailPage = () => {
     const q = name.trim();
     if (!q) return null;
     for (const field of ["nome", "razaoSocial"]) {
-      const list = await nomusGet(field, q);
+      const list = await nomusGet("clientes", field, q);
       const exact = list.find((p: any) =>
         [p.nome, p.razaoSocial].some((n: string) => n?.toUpperCase() === q.toUpperCase())
       );
@@ -619,14 +673,14 @@ const PADetailPage = () => {
       // Monta payload base sem codigoPedido para o PUT (Nomus rejeita como duplicado mesmo sendo o mesmo código)
       const basePayload = {
         dataEmissao: nomusFields.dataEmissao || fallbackDate,
-        idCondicaoPagamento: Number(nomusFields.condicaoPagamento) || 28,
+        idCondicaoPagamento: nomusCondicaoId ?? 28,
         idEmpresa: 2,
-        idFormaPagamento: Number(nomusFields.formaPagamento) || 10,
+        idFormaPagamento: nomusFormaId ?? 10,
         idPessoaCliente,
-        ...(nomusFields.vendedorId ? { idPessoaVendedor: Number(nomusFields.vendedorId) } : {}),
+        ...(nomusVendedorId !== null ? { idPessoaVendedor: nomusVendedorId } : {}),
         idTipoMovimentacao: 60,
         idTipoPedido: 1,
-        observacoes: currentNotes || `Pedido de Acessório - ${nomusFields.cliente}`,
+        observacoes: nomusFields.observacoes || currentNotes || `Pedido de Acessório - ${nomusFields.cliente}`,
         observacoesInternas: "",
         itensPedido,
         ...(nomusFields.cfop ? { cfop: nomusFields.cfop } : {}),
@@ -1278,17 +1332,57 @@ const PADetailPage = () => {
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">CFOP</Label>
                 <Input placeholder="Ex: 5102" value={nomusFields.cfop} onChange={e => updateNomusField("cfop", e.target.value)} className="mt-1 h-9 text-xs font-mono" />
               </div>
-              <div>
-                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">ID Condição de Pagamento</Label>
-                <Input placeholder="Ex: 28" value={nomusFields.condicaoPagamento} onChange={e => updateNomusField("condicaoPagamento", e.target.value)} className="mt-1 h-9 text-xs font-mono" />
+              <div className="relative">
+                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Condição de Pagamento{nomusCondicaoId ? <span className="ml-2 text-success font-normal">✓ ID {nomusCondicaoId}</span> : <span className="ml-1 text-muted-foreground font-normal">(padrão: 28)</span>}</Label>
+                <div className="relative mt-1">
+                  <Input value={nomusFields.condicaoPagamento} onChange={e => searchNomusCondicao(e.target.value)} onBlur={() => setTimeout(() => setNomusCondicaoOpen(false), 200)} placeholder="Digite para buscar..." className="h-9 text-xs pr-7" />
+                  {nomusCondicaoLoading && <Loader2 className="absolute right-2 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />}
+                </div>
+                {nomusCondicaoOpen && nomusCondicaoResults.length > 0 && (
+                  <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-md max-h-48 overflow-y-auto">
+                    {nomusCondicaoResults.map(c => (
+                      <button key={c.id} type="button" onMouseDown={() => { setNomusCondicaoId(c.id); updateNomusField("condicaoPagamento", c.nome); setNomusCondicaoOpen(false); }} className="w-full text-left px-3 py-2 text-xs hover:bg-accent transition-colors">
+                        <span className="font-medium">{c.nome}</span><span className="ml-2 text-muted-foreground">#{c.id}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
-              <div>
-                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">ID Forma de Pagamento</Label>
-                <Input placeholder="Ex: 10" value={nomusFields.formaPagamento} onChange={e => updateNomusField("formaPagamento", e.target.value)} className="mt-1 h-9 text-xs font-mono" />
+              <div className="relative">
+                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Forma de Pagamento{nomusFormaId ? <span className="ml-2 text-success font-normal">✓ ID {nomusFormaId}</span> : <span className="ml-1 text-muted-foreground font-normal">(padrão: 10)</span>}</Label>
+                <div className="relative mt-1">
+                  <Input value={nomusFields.formaPagamento} onChange={e => searchNomusForma(e.target.value)} onBlur={() => setTimeout(() => setNomusFormaOpen(false), 200)} placeholder="Digite para buscar..." className="h-9 text-xs pr-7" />
+                  {nomusFormaLoading && <Loader2 className="absolute right-2 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />}
+                </div>
+                {nomusFormaOpen && nomusFormaResults.length > 0 && (
+                  <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-md max-h-48 overflow-y-auto">
+                    {nomusFormaResults.map(c => (
+                      <button key={c.id} type="button" onMouseDown={() => { setNomusFormaId(c.id); updateNomusField("formaPagamento", c.nome); setNomusFormaOpen(false); }} className="w-full text-left px-3 py-2 text-xs hover:bg-accent transition-colors">
+                        <span className="font-medium">{c.nome}</span><span className="ml-2 text-muted-foreground">#{c.id}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
-              <div>
-                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">ID Vendedor (Nomus)</Label>
-                <Input placeholder="Ex: 1002403" value={nomusFields.vendedorId} onChange={e => updateNomusField("vendedorId", e.target.value)} className="mt-1 h-9 text-xs font-mono" />
+              <div className="relative">
+                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Vendedor{nomusVendedorId ? <span className="ml-2 text-success font-normal">✓ ID {nomusVendedorId}</span> : null}</Label>
+                <div className="relative mt-1">
+                  <Input value={nomusFields.vendedor} onChange={e => searchNomusVendedor(e.target.value)} onBlur={() => setTimeout(() => setNomusVendedorOpen(false), 200)} placeholder="Digite para buscar..." className="h-9 text-xs pr-7" />
+                  {nomusVendedorLoading && <Loader2 className="absolute right-2 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />}
+                </div>
+                {nomusVendedorOpen && nomusVendedorResults.length > 0 && (
+                  <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-md max-h-48 overflow-y-auto">
+                    {nomusVendedorResults.map(c => (
+                      <button key={c.id} type="button" onMouseDown={() => { setNomusVendedorId(c.id); updateNomusField("vendedor", c.nome); setNomusVendedorOpen(false); }} className="w-full text-left px-3 py-2 text-xs hover:bg-accent transition-colors">
+                        <span className="font-medium">{c.nome}</span><span className="ml-2 text-muted-foreground">#{c.id}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="md:col-span-2">
+                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Observações</Label>
+                <Textarea placeholder="Observações do pedido" value={nomusFields.observacoes} onChange={e => updateNomusField("observacoes", e.target.value)} className="mt-1 text-xs" rows={2} />
               </div>
             </div>
 
