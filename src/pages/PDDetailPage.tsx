@@ -25,6 +25,7 @@ import { ProductSearch } from "@/components/products/ProductSearch";
 import { SuggestedParts } from "@/components/products/SuggestedParts";
 import { useAddQuoteItem, useDeleteQuoteItem } from "@/hooks/useQuotes";
 import { useCreateProduct } from "@/hooks/useProducts";
+import { useAllUsers } from "@/hooks/useUserAccess";
 import { serviceRequestStatusLabels as statusLabels, itemTypeLabels } from "@/constants/statusLabels";
 import { ExternalLink } from "lucide-react";
 import { formatCurrency as fmtCurrency } from "@/lib/formatters";
@@ -93,6 +94,8 @@ const PDDetailPage = () => {
   const [newService, setNewService] = useState({ name: "", description: "", cost: "", itemType: "servico_cobrado" });
   const [showFreteForm, setShowFreteForm] = useState(false);
   const [newFrete, setNewFrete] = useState({ carrier: "Correios SEDEX", custom: "", value: "" });
+  const [consultorId, setConsultorId] = useState<string | null>(null);
+  const { data: allUsers = [] } = useAllUsers();
 
   const [editableItems, setEditableItems] = useState<Record<string, { quantity: string; unit_price: string; description: string }>>({});
 
@@ -103,7 +106,8 @@ const PDDetailPage = () => {
     if (!linkedQuote) return;
     setQuoteNotes((linkedQuote.notes as string) ?? "");
     setQuoteValidUntil((linkedQuote.valid_until as string) ?? "");
-  }, [linkedQuote?.id, linkedQuote?.notes, linkedQuote?.valid_until]);
+    setConsultorId((linkedQuote as any).created_by ?? null);
+  }, [linkedQuote?.id, linkedQuote?.notes, linkedQuote?.valid_until, (linkedQuote as any)?.created_by]);
 
   async function saveQuoteDetails() {
     if (!linkedQuote) return;
@@ -111,7 +115,7 @@ const PDDetailPage = () => {
     try {
       const { error } = await supabase
         .from("quotes")
-        .update({ notes: quoteNotes || null, valid_until: quoteValidUntil || null })
+        .update({ notes: quoteNotes || null, valid_until: quoteValidUntil || null, created_by: consultorId || null })
         .eq("id", linkedQuote.id);
       if (error) { toast.error(error.message); return; }
       toast.success("Detalhes do orçamento salvos");
@@ -1065,20 +1069,35 @@ const PDDetailPage = () => {
               rows={3}
             />
           </div>
-          <div className="flex flex-col">
-            <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">
-              Validade do Orçamento
-            </label>
-            <input
-              type="date"
-              value={quoteValidUntil ? quoteValidUntil.slice(0, 10) : ""}
-              onChange={(e) => setQuoteValidUntil(e.target.value)}
-              className="w-full px-3 py-2 text-sm rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono"
-            />
+          <div className="flex flex-col gap-3">
+            <div>
+              <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">
+                Consultor / Vendedor
+              </label>
+              <Select value={consultorId ?? ""} onValueChange={v => setConsultorId(v || null)}>
+                <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Selecionar consultor..." /></SelectTrigger>
+                <SelectContent>
+                  {allUsers.map(u => (
+                    <SelectItem key={u.user_id} value={u.user_id}>{u.full_name || u.email}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">
+                Validade do Orçamento
+              </label>
+              <input
+                type="date"
+                value={quoteValidUntil ? quoteValidUntil.slice(0, 10) : ""}
+                onChange={(e) => setQuoteValidUntil(e.target.value)}
+                className="w-full px-3 py-2 text-sm rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono"
+              />
+            </div>
             <Button
               size="sm"
               variant="outline"
-              className="gap-1.5 mt-2"
+              className="gap-1.5"
               disabled={savingQuoteDetails}
               onClick={saveQuoteDetails}
             >

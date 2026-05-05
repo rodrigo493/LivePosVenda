@@ -25,6 +25,7 @@ import { ProductSearch } from "@/components/products/ProductSearch";
 import { SuggestedParts } from "@/components/products/SuggestedParts";
 import { useAddQuoteItem, useDeleteQuoteItem } from "@/hooks/useQuotes";
 import { useCreateProduct } from "@/hooks/useProducts";
+import { useAllUsers } from "@/hooks/useUserAccess";
 import { warrantyStatusLabels, itemTypeLabels } from "@/constants/statusLabels";
 import { ExternalLink } from "lucide-react";
 
@@ -94,6 +95,7 @@ const PGDetailPage = () => {
   const [newService, setNewService] = useState({ name: "", description: "", cost: "", itemType: "servico_garantia" });
   const [showFreteForm, setShowFreteForm] = useState(false);
   const [newFrete, setNewFrete] = useState({ carrier: "Correios SEDEX", custom: "", value: "" });
+  const { data: allUsers = [] } = useAllUsers();
 
   // Editable item data (quantity, unit_price per item)
   const [editableItems, setEditableItems] = useState<Record<string, { quantity: string; unit_price: string; description: string }>>({});
@@ -752,6 +754,24 @@ const PGDetailPage = () => {
                   <SelectItem value="aguardando_aprovacao">Em Análise</SelectItem>
                   <SelectItem value="aprovado">Aprovado</SelectItem>
                   <SelectItem value="reprovado">Reprovado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex-1 min-w-[160px]">
+              <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Consultor / Vendedor</label>
+              <Select
+                value={(linkedQuote as any).created_by ?? ""}
+                onValueChange={async (val) => {
+                  await supabase.from("quotes").update({ created_by: val || null }).eq("id", linkedQuote.id);
+                  qc.invalidateQueries({ queryKey: ["pg_linked_quote", id] });
+                  toast.success("Consultor atualizado");
+                }}
+              >
+                <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Selecionar..." /></SelectTrigger>
+                <SelectContent>
+                  {allUsers.map(u => (
+                    <SelectItem key={u.user_id} value={u.user_id}>{u.full_name || u.email}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
