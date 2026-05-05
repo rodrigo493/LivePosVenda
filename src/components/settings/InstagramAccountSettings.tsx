@@ -79,6 +79,9 @@ export function InstagramAccountSettings() {
     const url = new URL(window.location.href);
     const code = url.searchParams.get("code");
     if (code && !connectMut.isPending) {
+      // Remove code from URL immediately to prevent reuse on remount
+      url.searchParams.delete("code");
+      window.history.replaceState({}, "", url.toString());
       connectMut.mutate(code);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
