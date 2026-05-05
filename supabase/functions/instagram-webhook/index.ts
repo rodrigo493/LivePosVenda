@@ -136,7 +136,10 @@ Deno.serve(async (req) => {
   } catch { /* ignora erros de log */ }
 
   const valid = await verifySignature(req, body);
-  if (!valid) return new Response("Invalid signature", { status: 401 });
+  if (!valid) {
+    console.error("SECURITY: invalid signature — possible tampering");
+    return new Response("ok", { status: 200 });
+  }
 
   const payload = JSON.parse(body);
   if (payload.object !== "instagram") return new Response("ok", { status: 200 });
@@ -151,6 +154,11 @@ Deno.serve(async (req) => {
       const content: string | null = msg.message?.text ?? null;
       const igMessageId: string | null = msg.message?.mid ?? null;
       const mediaUrl: string | null = msg.message?.attachments?.[0]?.payload?.url ?? null;
+
+      if (!igMessageId) {
+        console.warn("Skipping DM without mid:", msg.message);
+        continue;
+      }
 
       try {
         const conv = await getOrCreateConversation(senderId, null, null, content ?? "[mídia]");
@@ -181,6 +189,11 @@ Deno.serve(async (req) => {
       const postId: string | null = v.media?.id ?? null;
 
       if (!senderId) continue;
+
+      if (!igMessageId) {
+        console.warn("Skipping comment without id:", v);
+        continue;
+      }
 
       try {
         const conv = await getOrCreateConversation(senderId, senderUsername, null, content);
