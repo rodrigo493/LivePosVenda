@@ -1250,7 +1250,7 @@ const PGDetailPage = () => {
             </div>
             <div className="md:col-span-2">
               <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Observações Internas</Label>
-              <Input placeholder="Observações internas do pedido" value={nomusFields.obsInternas} onChange={e => updateNomusField("obsInternas", e.target.value)} className="mt-1 h-9 text-xs" />
+              <Textarea placeholder="Observações internas do pedido" value={nomusFields.obsInternas} onChange={e => updateNomusField("obsInternas", e.target.value)} className="mt-1 text-xs" rows={2} />
             </div>
           </div>
 
