@@ -9,7 +9,7 @@ import { CheckCircle, AlertCircle, RefreshCw, Unlink } from "lucide-react";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const INSTAGRAM_APP_ID = import.meta.env.VITE_INSTAGRAM_APP_ID;
 const REDIRECT_URI = `${window.location.origin}/configuracoes`;
-const OAUTH_URL = `https://www.facebook.com/v21.0/dialog/oauth?client_id=${INSTAGRAM_APP_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=pages_show_list,instagram_manage_messages,instagram_manage_comments&response_type=code`;
+const OAUTH_URL = `https://www.facebook.com/v21.0/dialog/oauth?client_id=${INSTAGRAM_APP_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=pages_show_list,instagram_manage_messages,instagram_manage_comments&response_type=code&auth_type=rerequest&state=${Date.now()}`;
 
 async function callOAuth(code: string) {
   const { data: session } = await supabase.auth.getSession();
