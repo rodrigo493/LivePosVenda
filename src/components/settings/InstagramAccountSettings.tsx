@@ -24,7 +24,7 @@ async function callOAuth(code: string) {
     body: JSON.stringify({ code, redirect_uri: REDIRECT_URI }),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error ?? "Erro ao conectar");
+  if (!res.ok) throw new Error(data.detail?.error?.message ?? data.error ?? "Erro ao conectar");
   return data;
 }
 
