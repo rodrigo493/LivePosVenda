@@ -134,6 +134,10 @@ const PDDetailPage = () => {
     dataEmissao: format(new Date(), "dd/MM/yyyy"),
     dataEntregaPadrao: "",
     cfop: "",
+    condicaoPagamento: "28",
+    formaPagamento: "10",
+    vendedorId: "",
+    observacoes: "",
   });
   const [nomusClientId, setNomusClientId] = useState<number | null>(null);
   const [nomusClientResults, setNomusClientResults] = useState<{ id: number; nome: string }[]>([]);
@@ -597,13 +601,14 @@ const PDDetailPage = () => {
 
       const basePayload = {
         dataEmissao: nomusFields.dataEmissao || fallbackDate,
-        idCondicaoPagamento: 28,
+        idCondicaoPagamento: Number(nomusFields.condicaoPagamento) || 28,
         idEmpresa: 2,
-        idFormaPagamento: 10,
+        idFormaPagamento: Number(nomusFields.formaPagamento) || 10,
         idPessoaCliente,
+        ...(nomusFields.vendedorId ? { idPessoaVendedor: Number(nomusFields.vendedorId) } : {}),
         idTipoMovimentacao: 60,
         idTipoPedido: 1,
-        observacoes: currentNotes || `Pedido de Venda - ${nomusFields.cliente}`,
+        observacoes: nomusFields.observacoes || currentNotes || `Pedido de Venda - ${nomusFields.cliente}`,
         observacoesInternas: `Gerado pelo Live Care - ${codigoPedido}`,
         itensPedido,
         ...(nomusFields.cfop ? { cfop: nomusFields.cfop } : {}),
@@ -1274,6 +1279,22 @@ const PDDetailPage = () => {
             <div>
               <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">CFOP</Label>
               <Input placeholder="Ex: 5102" value={nomusFields.cfop} onChange={e => updateNomusField("cfop", e.target.value)} className="mt-1 h-9 text-xs font-mono" />
+            </div>
+            <div>
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">ID Condição de Pagamento</Label>
+              <Input placeholder="Ex: 28" value={nomusFields.condicaoPagamento} onChange={e => updateNomusField("condicaoPagamento", e.target.value)} className="mt-1 h-9 text-xs font-mono" />
+            </div>
+            <div>
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">ID Forma de Pagamento</Label>
+              <Input placeholder="Ex: 10" value={nomusFields.formaPagamento} onChange={e => updateNomusField("formaPagamento", e.target.value)} className="mt-1 h-9 text-xs font-mono" />
+            </div>
+            <div>
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">ID Vendedor (Nomus)</Label>
+              <Input placeholder="Ex: 1002403" value={nomusFields.vendedorId} onChange={e => updateNomusField("vendedorId", e.target.value)} className="mt-1 h-9 text-xs font-mono" />
+            </div>
+            <div className="md:col-span-2">
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Observações</Label>
+              <Input placeholder="Observações do pedido" value={nomusFields.observacoes} onChange={e => updateNomusField("observacoes", e.target.value)} className="mt-1 h-9 text-xs" />
             </div>
           </div>
 
