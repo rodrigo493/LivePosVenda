@@ -16,8 +16,8 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
-  const APP_ID = Deno.env.get("INSTAGRAM_APP_ID")!;
-  const APP_SECRET = Deno.env.get("INSTAGRAM_APP_SECRET")!;
+  const APP_ID = Deno.env.get("META_APP_ID")!;
+  const APP_SECRET = Deno.env.get("META_APP_SECRET")!;
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
   const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;

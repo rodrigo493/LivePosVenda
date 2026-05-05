@@ -5,7 +5,7 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const sb = createClient(SUPABASE_URL, SERVICE_KEY);
 
 async function verifySignature(req: Request, body: string): Promise<boolean> {
-  const APP_SECRET = Deno.env.get("INSTAGRAM_APP_SECRET")!;
+  const APP_SECRET = Deno.env.get("META_APP_SECRET")!;
   const sig = req.headers.get("x-hub-signature-256") ?? "";
   const [, hash] = sig.split("=");
   if (!hash) return false;
@@ -116,7 +116,7 @@ async function ensureClientAndCard(
 
 Deno.serve(async (req) => {
   if (req.method === "GET") {
-    const VERIFY_TOKEN = Deno.env.get("INSTAGRAM_VERIFY_TOKEN")!;
+    const VERIFY_TOKEN = Deno.env.get("META_VERIFY_TOKEN")!;
     const url = new URL(req.url);
     const mode = url.searchParams.get("hub.mode");
     const token = url.searchParams.get("hub.verify_token");
