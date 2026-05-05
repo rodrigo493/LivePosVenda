@@ -577,7 +577,7 @@ const PADetailPage = () => {
       const fallbackDate = `${String(today.getDate()).padStart(2, "0")}/${String(today.getMonth() + 1).padStart(2, "0")}/${today.getFullYear()}`;
 
       // Resolve product IDs and build items
-      const itensPedido = await Promise.all(items.map(async (item: any, idx: number) => {
+      const itensPedido = await Promise.all(items.filter((item: any) => item.item_type !== "frete" && item.item_type !== "desconto").map(async (item: any, idx: number) => {
         const erpData = itemErpData[item.id];
         const code = erpData?.produto || item.products?.code || "";
         const idProduto = await resolveNomusProductId(code);
@@ -1320,7 +1320,7 @@ const PADetailPage = () => {
               <div className="border-t pt-4">
                 <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-3">Itens do Pedido (Dados ERP)</p>
                 <div className="space-y-3">
-                  {items.map((item: any, idx: number) => {
+                  {items.filter((item: any) => item.item_type !== "frete" && item.item_type !== "desconto").map((item: any, idx: number) => {
                     const erpData = itemErpData[item.id] || { produto: "", quantidade: "1", valorUnitario: "0" };
                     return (
                       <div key={item.id} className="bg-muted/30 rounded-lg p-3 grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
