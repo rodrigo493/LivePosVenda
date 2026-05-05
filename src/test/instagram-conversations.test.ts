@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { mergeAndSortConversations } from "../hooks/useInstagramConversations";
 
-// Pure functions extracted for testability
+// Pure function mirroring the inline transformation in useInstagramConversations queryFn
 function normalizeInstagramConversation(row: {
   id: string;
   ig_sender_id: string;
@@ -17,15 +18,6 @@ function normalizeInstagramConversation(row: {
     channel: "instagram" as const,
     display_name: row.sender_username ? `@${row.sender_username}` : `IG ${row.ig_sender_id.slice(-6)}`,
   };
-}
-
-function mergeAndSortConversations(
-  whatsapp: Array<{ last_message_at: string; channel: "whatsapp" }>,
-  instagram: Array<{ last_message_at: string; channel: "instagram" }>
-) {
-  return [...whatsapp, ...instagram].sort(
-    (a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime()
-  );
 }
 
 describe("normalizeInstagramConversation", () => {
@@ -51,14 +43,12 @@ describe("normalizeInstagramConversation", () => {
 
 describe("mergeAndSortConversations", () => {
   it("ordena por last_message_at decrescente misturando canais", () => {
-    const waMsgs = [
+    const items = [
       { last_message_at: "2026-05-05T08:00:00Z", channel: "whatsapp" as const },
-    ];
-    const igMsgs = [
       { last_message_at: "2026-05-05T10:00:00Z", channel: "instagram" as const },
       { last_message_at: "2026-05-05T07:00:00Z", channel: "instagram" as const },
     ];
-    const result = mergeAndSortConversations(waMsgs, igMsgs);
+    const result = mergeAndSortConversations(items);
     expect(result[0].channel).toBe("instagram");
     expect(result[0].last_message_at).toBe("2026-05-05T10:00:00Z");
     expect(result[1].channel).toBe("whatsapp");

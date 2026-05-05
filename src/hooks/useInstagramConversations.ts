@@ -16,13 +16,22 @@ export interface InstagramConversation {
   display_name: string;
 }
 
+export function mergeAndSortConversations<
+  T extends { last_message_at: string; channel: string }
+>(items: T[]): T[] {
+  return [...items].sort(
+    (a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime()
+  );
+}
+
 export function useInstagramConversations() {
   const { user } = useAuth();
 
   return useQuery<InstagramConversation[]>({
-    queryKey: ["instagram-conversations", user?.id],
+    queryKey: ["instagram-conversations"],
     staleTime: 0,
     refetchInterval: 15_000,
+    refetchOnMount: "always",
     enabled: !!user,
     queryFn: async () => {
       const { data, error } = await (supabase as any)
@@ -62,7 +71,7 @@ export function useMarkInstagramConversationRead() {
       );
       return { prev };
     },
-    onError: (_err, _id, ctx: any) => {
+    onError: (_err: unknown, _id: string, ctx: { prev?: InstagramConversation[] } | undefined) => {
       if (ctx?.prev) qc.setQueryData(["instagram-conversations"], ctx.prev);
     },
     onSuccess: () => {
