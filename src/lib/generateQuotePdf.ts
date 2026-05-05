@@ -41,56 +41,57 @@ export function generateQuotePdf(data: QuotePdfData) {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
 
-  // ── Logo (2× — 116 × 13mm) ────────────────────────────────────────────────
+  // ── Logo (largura total do conteúdo — 182 × 20.5mm) ─────────────────────
   // Aspect ratio: 5469 / 615 ≈ 8.89
-  const logoW = 116;
+  const logoW = pageWidth - 28; // 182mm — ocupa toda a largura útil
   const logoH = Math.round((logoW / 8.89) * 10) / 10;
   doc.addImage(LOGO_ORCAMENTO_B64, "PNG", 14, 5, logoW, logoH);
 
-  // ── Cabeçalho do documento (lado direito, ao lado da logo) ────────────────
-  const headerLabel = HEADER_LABELS[data.docType ?? "quote"];
-  doc.setFontSize(12);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(41, 37, 36);
-  doc.text(headerLabel, pageWidth - 14, 9, { align: "right" });
-  doc.setFontSize(10);
-  doc.text(data.quoteNumber, pageWidth - 14, 15, { align: "right" });
-  doc.setFontSize(8);
-  doc.setFont("helvetica", "normal");
-  doc.setTextColor(80, 80, 80);
-  doc.text(`Data: ${data.date}`, pageWidth - 14, 21, { align: "right" });
-  if (data.validUntil) doc.text(`Validade: ${data.validUntil}`, pageWidth - 14, 26, { align: "right" });
-  doc.setTextColor(0);
-
-  // ── Contato (abaixo da logo) ──────────────────────────────────────────────
+  // ── Linha de infos abaixo da logo: contato (esq) | documento (dir) ────────
+  const infoY = 5 + logoH + 6; // 6mm de espaço após a logo
   const phone = data.company.phone || "(19) 3608-4008";
   const email = data.company.email || "posvenda@liveuni.com.br";
   doc.setFontSize(8);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(100, 100, 100);
-  doc.text(`Tel: ${phone}   |   E-mail: ${email}`, 14, 23);
+  doc.text(`Tel: ${phone}   |   E-mail: ${email}`, 14, infoY);
+
+  const headerLabel = HEADER_LABELS[data.docType ?? "quote"];
+  doc.setFontSize(12);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(41, 37, 36);
+  doc.text(headerLabel, pageWidth - 14, infoY, { align: "right" });
+
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(80, 80, 80);
+  doc.text(`Nº ${data.quoteNumber}`, pageWidth - 14, infoY + 6, { align: "right" });
+  doc.text(`Data: ${data.date}`, pageWidth - 14, infoY + 11, { align: "right" });
+  if (data.validUntil) doc.text(`Validade: ${data.validUntil}`, pageWidth - 14, infoY + 16, { align: "right" });
   doc.setTextColor(0);
 
   // ── Divisor ───────────────────────────────────────────────────────────────
+  const dividerY = infoY + (data.validUntil ? 22 : 17);
   doc.setDrawColor(220, 220, 220);
   doc.setLineWidth(0.3);
-  doc.line(14, 31, pageWidth - 14, 31);
+  doc.line(14, dividerY, pageWidth - 14, dividerY);
 
   // ── Info do cliente ───────────────────────────────────────────────────────
+  const clientY = dividerY + 8;
   doc.setFontSize(9);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(0);
-  doc.text("Cliente:", 14, 39);
+  doc.text("Cliente:", 14, clientY);
   doc.setFont("helvetica", "normal");
-  doc.text(data.client.name, 36, 39);
+  doc.text(data.client.name, 36, clientY);
   if (data.client.equipment) {
     doc.setFont("helvetica", "bold");
-    doc.text("Equipamento:", 14, 45);
+    doc.text("Equipamento:", 14, clientY + 6);
     doc.setFont("helvetica", "normal");
     doc.text(
       `${data.client.equipment}${data.client.serial ? ` — S/N ${data.client.serial}` : ""}`,
       46,
-      45,
+      clientY + 6,
     );
   }
 
@@ -104,8 +105,10 @@ export function generateQuotePdf(data: QuotePdfData) {
     item.isWarranty ? "Coberto" : `R$ ${item.total.toFixed(2)}`,
   ]);
 
+  const tableStartY = clientY + (data.client.equipment ? 14 : 8);
+
   autoTable(doc, {
-    startY: 51,
+    startY: tableStartY,
     head: [["Código", "Descrição", "Tipo", "Qtd", "Valor Unit.", "Total"]],
     body: tableBody,
     theme: "striped",
