@@ -141,7 +141,6 @@ const PADetailPage = () => {
     condicaoPagamento: "28",
     formaPagamento: "10",
     vendedorId: "",
-    observacoes: "",
   });
   const [nomusClientId, setNomusClientId] = useState<number | null>(null);
   const [nomusClientResults, setNomusClientResults] = useState<{ id: number; nome: string }[]>([]);
@@ -627,8 +626,8 @@ const PADetailPage = () => {
         ...(nomusFields.vendedorId ? { idPessoaVendedor: Number(nomusFields.vendedorId) } : {}),
         idTipoMovimentacao: 60,
         idTipoPedido: 1,
-        observacoes: nomusFields.observacoes || currentNotes || `Pedido de Acessório - ${nomusFields.cliente}`,
-        observacoesInternas: `Gerado pelo Live Care - ${codigoPedido}`,
+        observacoes: currentNotes || `Pedido de Acessório - ${nomusFields.cliente}`,
+        observacoesInternas: "",
         itensPedido,
         ...(nomusFields.cfop ? { cfop: nomusFields.cfop } : {}),
       };
@@ -1329,10 +1328,6 @@ const PADetailPage = () => {
               <div>
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">ID Vendedor (Nomus)</Label>
                 <Input placeholder="Ex: 1002403" value={nomusFields.vendedorId} onChange={e => updateNomusField("vendedorId", e.target.value)} className="mt-1 h-9 text-xs font-mono" />
-              </div>
-              <div className="md:col-span-2">
-                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Observações</Label>
-                <Input placeholder="Observações do pedido" value={nomusFields.observacoes} onChange={e => updateNomusField("observacoes", e.target.value)} className="mt-1 h-9 text-xs" />
               </div>
             </div>
 
