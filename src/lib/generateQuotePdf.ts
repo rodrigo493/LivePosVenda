@@ -41,37 +41,37 @@ export function generateQuotePdf(data: QuotePdfData) {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
 
-  // ── Logo (largura total do conteúdo — 182 × 20.5mm) ─────────────────────
+  // ── Logo (metade da página — 105 × 11.8mm) ───────────────────────────────
   // Aspect ratio: 5469 / 615 ≈ 8.89
-  const logoW = pageWidth - 28; // 182mm — ocupa toda a largura útil
+  const logoW = pageWidth / 2; // ~105mm
   const logoH = Math.round((logoW / 8.89) * 10) / 10;
   doc.addImage(LOGO_ORCAMENTO_B64, "PNG", 14, 5, logoW, logoH);
 
-  // ── Linha de infos abaixo da logo: contato (esq) | documento (dir) ────────
-  const infoY = 5 + logoH + 6; // 6mm de espaço após a logo
+  // ── Contato (abaixo da logo, lado esquerdo) ───────────────────────────────
   const phone = data.company.phone || "(19) 3608-4008";
   const email = data.company.email || "posvenda@liveuni.com.br";
   doc.setFontSize(8);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(100, 100, 100);
-  doc.text(`Tel: ${phone}   |   E-mail: ${email}`, 14, infoY);
+  doc.text(`Tel: ${phone}   |   E-mail: ${email}`, 14, 5 + logoH + 5);
+  doc.setTextColor(0);
 
+  // ── Cabeçalho do documento (lado direito, ao lado da logo) ────────────────
   const headerLabel = HEADER_LABELS[data.docType ?? "quote"];
   doc.setFontSize(12);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(41, 37, 36);
-  doc.text(headerLabel, pageWidth - 14, infoY, { align: "right" });
-
-  doc.setFontSize(9);
+  doc.text(headerLabel, pageWidth - 14, 10, { align: "right" });
+  doc.setFontSize(9.5);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(80, 80, 80);
-  doc.text(`Nº ${data.quoteNumber}`, pageWidth - 14, infoY + 6, { align: "right" });
-  doc.text(`Data: ${data.date}`, pageWidth - 14, infoY + 11, { align: "right" });
-  if (data.validUntil) doc.text(`Validade: ${data.validUntil}`, pageWidth - 14, infoY + 16, { align: "right" });
+  doc.text(`Nº ${data.quoteNumber}`, pageWidth - 14, 17, { align: "right" });
+  doc.text(`Data: ${data.date}`, pageWidth - 14, 23, { align: "right" });
+  if (data.validUntil) doc.text(`Validade: ${data.validUntil}`, pageWidth - 14, 28, { align: "right" });
   doc.setTextColor(0);
 
   // ── Divisor ───────────────────────────────────────────────────────────────
-  const dividerY = infoY + (data.validUntil ? 22 : 17);
+  const dividerY = 5 + logoH + 11;
   doc.setDrawColor(220, 220, 220);
   doc.setLineWidth(0.3);
   doc.line(14, dividerY, pageWidth - 14, dividerY);
