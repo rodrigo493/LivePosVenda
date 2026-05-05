@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import { useAuth } from "@/hooks/useAuth";
 import { ArrowLeft, Shield, Save, Loader2, Send, CalendarIcon, Pencil, X, Wrench, Plus, Trash2, Package, Factory } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -40,6 +41,7 @@ const serviceTypes = [
 ];
 
 const PGDetailPage = () => {
+  const { user } = useAuth();
   const { id } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -279,7 +281,8 @@ const PGDetailPage = () => {
   const buildPgPdfPayload = () => ({
     quoteNumber: claimNumber,
     date: new Date(wc.created_at).toLocaleDateString("pt-BR"),
-    company: { name: "Live Care Pilates", phone: "(11) 99999-9999", email: "contato@livecare.com.br" },
+    company: { name: "Live Care — Live Universe", phone: "(19) 3608-4008", email: "posvenda@liveuni.com.br" },
+    exportedBy: (user?.user_metadata?.full_name as string | undefined) || user?.email || undefined,
     client: {
       name: clientName,
       equipment: modelName !== "—" ? modelName : undefined,
