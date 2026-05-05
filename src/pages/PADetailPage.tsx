@@ -169,20 +169,23 @@ const PADetailPage = () => {
 
   // Pre-load Nomus lookup options (condição, forma, vendedor) on mount
   useEffect(() => {
-    const loadAll = async (endpoint: string, field: string): Promise<{ id: number; nome: string }[]> => {
-      try {
-        const r = await fetch(`/api/nomus/rest/${endpoint}`, { headers: { Accept: "application/json" } });
-        if (!r.ok) return [];
-        const body = await r.json();
-        if (!Array.isArray(body)) return [];
-        return body
-          .map((item: any) => ({ id: item.id, nome: item[field] || `ID ${item.id}` }))
-          .sort((a: { nome: string }, b: { nome: string }) => a.nome.localeCompare(b.nome, "pt-BR"));
-      } catch { return []; }
+    const tryLoad = async (candidates: [string, string][]): Promise<{ id: number; nome: string }[]> => {
+      for (const [endpoint, field] of candidates) {
+        try {
+          const r = await fetch(`/api/nomus/rest/${endpoint}`, { headers: { Accept: "application/json" } });
+          if (!r.ok) continue;
+          const body = await r.json();
+          if (!Array.isArray(body) || body.length === 0) continue;
+          return body
+            .map((item: any) => ({ id: item.id, nome: item[field] || item.nome || item.descricao || `ID ${item.id}` }))
+            .sort((a: { nome: string }, b: { nome: string }) => a.nome.localeCompare(b.nome, "pt-BR"));
+        } catch { continue; }
+      }
+      return [];
     };
-    loadAll("condicoespagamento", "descricao").then(setNomusCondicaoAll);
-    loadAll("formaspagamento", "descricao").then(setNomusFormaAll);
-    loadAll("vendedores", "nome").then(setNomusVendedorAll);
+    tryLoad([["condicoespagamento", "descricao"], ["condicoes", "descricao"], ["condicoes", "nome"], ["condicaopagamento", "descricao"]]).then(setNomusCondicaoAll);
+    tryLoad([["formaspagamento", "descricao"], ["formas", "descricao"], ["formas", "nome"], ["formapagamento", "descricao"]]).then(setNomusFormaAll);
+    tryLoad([["vendedores", "nome"]]).then(setNomusVendedorAll);
   }, []);
 
   // Pre-fill fields from quote data when loaded
