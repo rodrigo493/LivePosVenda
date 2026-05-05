@@ -30,6 +30,8 @@ interface QuotePdfData {
   warrantyTotal: number;
   notes?: string;
   docType?: DocumentType;
+  paymentMethod?: string | null;
+  installments?: number | null;
 }
 
 export function generateQuotePdf(data: QuotePdfData) {
@@ -145,15 +147,36 @@ export function generateQuotePdf(data: QuotePdfData) {
   doc.text("TOTAL:", rightCol - 60, totalY + 4);
   doc.text(`R$ ${data.totalCharged.toFixed(2)}`, rightCol, totalY + 4, { align: "right" });
 
+  // Payment method
+  const PAYMENT_LABELS: Record<string, string> = {
+    pix: "À vista — PIX",
+    transferencia: "Transferência bancária (TED/DOC)",
+    cartao_parcelado: "Parcelamento no cartão com juros",
+  };
+  let afterTotalY = totalY + 14;
+  if (data.paymentMethod) {
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(0);
+    doc.text("Forma de pagamento:", 14, afterTotalY);
+    doc.setFont("helvetica", "normal");
+    let payLabel = PAYMENT_LABELS[data.paymentMethod] ?? data.paymentMethod;
+    if (data.paymentMethod === "cartao_parcelado" && data.installments && data.installments >= 2) {
+      payLabel += ` — ${data.installments}x de R$ ${(data.totalCharged / data.installments).toFixed(2)} (+ juros da operadora)`;
+    }
+    doc.text(payLabel, 60, afterTotalY);
+    afterTotalY += 10;
+  }
+
   // Notes/footer
   if (data.notes) {
-    const notesY = totalY + 18;
     doc.setFontSize(8);
     doc.setFont("helvetica", "bold");
-    doc.text("Observações:", 14, notesY);
+    doc.setTextColor(0);
+    doc.text("Observações:", 14, afterTotalY);
     doc.setFont("helvetica", "normal");
     const lines = doc.splitTextToSize(data.notes, pageWidth - 28);
-    doc.text(lines, 14, notesY + 5);
+    doc.text(lines, 14, afterTotalY + 5);
   }
 
   // Footer

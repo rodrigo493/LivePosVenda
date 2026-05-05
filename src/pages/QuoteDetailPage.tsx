@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Trash2, FileText, Download, Eye, Minus, Plus, Save, Wrench, Package, Pencil } from "lucide-react";
+import { ArrowLeft, Trash2, FileText, Download, Eye, Plus, Save, Wrench, Package, Pencil, CreditCard, Banknote, QrCode } from "lucide-react";
 import { ApprovalActionDialog } from "@/components/shared/ApprovalActionDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,10 +52,14 @@ const QuoteDetailPage = () => {
   const [showNewServiceForm, setShowNewServiceForm] = useState(false);
   const [newService, setNewService] = useState({ name: "", description: "", cost: "", itemType: "servico_cobrado" });
   const [editMode, setEditMode] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<string | null>(null);
+  const [installments, setInstallments] = useState<string>("");
 
   // Sync local state from quote
   const currentNotes = notes ?? quote?.notes ?? "";
   const currentValidUntil = validUntil ?? quote?.valid_until ?? "";
+  const currentPaymentMethod = paymentMethod ?? (quote as any)?.payment_method ?? null;
+  const currentInstallments = installments !== "" ? installments : String((quote as any)?.installments ?? "");
 
   const totals = useMemo(() => {
     if (!quote?.quote_items) return { subtotalPecas: 0, subtotalServicos: 0, warranty: 0, charged: 0, internalCost: 0, margin: 0, frete: 0, desconto: 0 };
@@ -107,10 +111,15 @@ const QuoteDetailPage = () => {
   };
 
   const handleSaveDetails = async () => {
+    const parsedInstallments = currentPaymentMethod === "cartao_parcelado" && currentInstallments
+      ? parseInt(currentInstallments, 10) || null
+      : null;
     await updateQuote.mutateAsync({
       id: id!,
       notes: currentNotes,
       valid_until: currentValidUntil || null,
+      payment_method: currentPaymentMethod || null,
+      installments: parsedInstallments,
     });
     toast.success("Detalhes salvos com sucesso");
   };
@@ -140,6 +149,10 @@ const QuoteDetailPage = () => {
     warrantyTotal: totals.warranty,
     notes: currentNotes || undefined,
     docType: "quote" as const,
+    paymentMethod: currentPaymentMethod,
+    installments: currentPaymentMethod === "cartao_parcelado" && currentInstallments
+      ? parseInt(currentInstallments, 10) || null
+      : null,
   });
 
   const buildExcelPayload = (): ExportDocument => {
@@ -384,15 +397,24 @@ const QuoteDetailPage = () => {
                       <td className="px-3 py-2.5"><StatusBadge status={itemTypeLabels[item.item_type] || item.item_type} /></td>
                       <td className="px-3 py-2.5">
                         {isEditable ? (
-                          <div className="flex items-center gap-1">
-                            <Button variant="outline" size="sm" className="h-6 w-6 p-0" onClick={() => handleQuantityChange(item.id, item.quantity - 1)} disabled={item.quantity <= 1}>
-                              <Minus className="h-3 w-3" />
-                            </Button>
-                            <span className="text-xs font-mono w-6 text-center">{item.quantity}</span>
-                            <Button variant="outline" size="sm" className="h-6 w-6 p-0" onClick={() => handleQuantityChange(item.id, item.quantity + 1)}>
-                              <Plus className="h-3 w-3" />
-                            </Button>
-                          </div>
+                          <Input
+                            type="number"
+                            min="1"
+                            step="1"
+                            className="h-7 w-16 text-xs font-mono text-center"
+                            defaultValue={item.quantity}
+                            onBlur={(e) => {
+                              const val = parseInt(e.target.value, 10);
+                              if (!isNaN(val) && val >= 1 && val !== item.quantity) {
+                                handleQuantityChange(item.id, val);
+                              } else {
+                                e.target.value = String(item.quantity);
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                            }}
+                          />
                         ) : (
                           <span className="text-xs font-mono">{item.quantity}</span>
                         )}
@@ -433,6 +455,78 @@ const QuoteDetailPage = () => {
           </div>
         )}
       </motion.div>
+
+      {/* Payment method */}
+      <div className="bg-card rounded-xl border p-4 mb-4">
+        <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-3 block">
+          Forma de Pagamento
+        </label>
+        <div className="flex flex-wrap gap-2">
+          {[
+            { value: "pix",            label: "À vista — PIX",            icon: QrCode,     desc: "Pagamento instantâneo via PIX" },
+            { value: "transferencia",  label: "Transferência bancária",    icon: Banknote,   desc: "TED ou DOC para conta da empresa" },
+            { value: "cartao_parcelado", label: "Cartão — Parcelado c/ juros", icon: CreditCard, desc: "Parcelamento com juros da operadora" },
+          ].map(({ value, label, icon: Icon, desc }) => {
+            const selected = currentPaymentMethod === value;
+            return (
+              <button
+                key={value}
+                type="button"
+                disabled={!isEditable}
+                onClick={() => {
+                  setPaymentMethod(value === currentPaymentMethod ? null : value);
+                  if (value !== "cartao_parcelado") setInstallments("");
+                }}
+                className={[
+                  "flex items-start gap-3 px-4 py-3 rounded-xl border text-left transition-all",
+                  isEditable ? "cursor-pointer hover:border-primary/50" : "cursor-default opacity-70",
+                  selected
+                    ? "border-primary bg-primary/5 ring-1 ring-primary/30"
+                    : "border-border bg-muted/30",
+                ].join(" ")}
+              >
+                <Icon className={`h-4 w-4 mt-0.5 shrink-0 ${selected ? "text-primary" : "text-muted-foreground"}`} />
+                <div>
+                  <p className={`text-sm font-medium leading-tight ${selected ? "text-primary" : "text-foreground"}`}>{label}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">{desc}</p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Parcelas */}
+        {currentPaymentMethod === "cartao_parcelado" && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            className="mt-4 flex items-center gap-3"
+          >
+            <CreditCard className="h-4 w-4 text-muted-foreground shrink-0" />
+            <label className="text-xs text-muted-foreground whitespace-nowrap">Quantidade de parcelas:</label>
+            <Input
+              type="number"
+              min="2"
+              max="48"
+              step="1"
+              disabled={!isEditable}
+              placeholder="Ex: 12"
+              value={currentInstallments}
+              onChange={(e) => setInstallments(e.target.value)}
+              className="h-8 w-24 text-sm font-mono"
+            />
+            {currentInstallments && Number(currentInstallments) >= 2 && (
+              <span className="text-xs text-muted-foreground">
+                = {Number(currentInstallments)}x de{" "}
+                <span className="font-semibold font-mono text-foreground">
+                  R$ {(totals.charged / Number(currentInstallments)).toFixed(2)}
+                </span>
+                {" "}(sem juros base — juros da operadora à parte)
+              </span>
+            )}
+          </motion.div>
+        )}
+      </div>
 
       {/* Notes and validity */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
