@@ -12,6 +12,9 @@ create table if not exists public.instagram_account (
   updated_at       timestamptz default now()
 );
 alter table public.instagram_account enable row level security;
+create trigger update_instagram_account_updated_at
+  before update on public.instagram_account
+  for each row execute function public.update_updated_at_column();
 create policy "admin lê instagram_account"
   on public.instagram_account for select
   using (exists (select 1 from public.user_roles where user_id = auth.uid() and role = 'admin'));
