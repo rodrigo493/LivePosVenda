@@ -41,56 +41,56 @@ export function generateQuotePdf(data: QuotePdfData) {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
 
-  // ── Logo ──────────────────────────────────────────────────────────────────
-  // Aspect ratio: 5469 / 615 ≈ 8.89  →  w=58mm h≈6.5mm
-  const logoW = 58;
+  // ── Logo (2× — 116 × 13mm) ────────────────────────────────────────────────
+  // Aspect ratio: 5469 / 615 ≈ 8.89
+  const logoW = 116;
   const logoH = Math.round((logoW / 8.89) * 10) / 10;
-  doc.addImage(LOGO_ORCAMENTO_B64, "PNG", 14, 7, logoW, logoH);
+  doc.addImage(LOGO_ORCAMENTO_B64, "PNG", 14, 5, logoW, logoH);
 
-  // ── Contato (abaixo do logo, lado esquerdo) ───────────────────────────────
-  const phone = data.company.phone ?? "(19) 3608-4008";
-  const email = data.company.email ?? "posvenda@liveuni.com.br";
-  doc.setFontSize(8);
-  doc.setFont("helvetica", "normal");
-  doc.setTextColor(80, 80, 80);
-  doc.text(`Tel: ${phone}   |   ${email}`, 14, 19);
-  doc.setTextColor(0);
-
-  // ── Cabeçalho do documento (lado direito) ─────────────────────────────────
+  // ── Cabeçalho do documento (lado direito, ao lado da logo) ────────────────
   const headerLabel = HEADER_LABELS[data.docType ?? "quote"];
-  doc.setFontSize(13);
+  doc.setFontSize(12);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(41, 37, 36);
-  doc.text(headerLabel, pageWidth - 14, 10, { align: "right" });
+  doc.text(headerLabel, pageWidth - 14, 9, { align: "right" });
   doc.setFontSize(10);
-  doc.text(data.quoteNumber, pageWidth - 14, 17, { align: "right" });
+  doc.text(data.quoteNumber, pageWidth - 14, 15, { align: "right" });
   doc.setFontSize(8);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(80, 80, 80);
-  doc.text(`Data: ${data.date}`, pageWidth - 14, 23, { align: "right" });
-  if (data.validUntil) doc.text(`Validade: ${data.validUntil}`, pageWidth - 14, 28, { align: "right" });
+  doc.text(`Data: ${data.date}`, pageWidth - 14, 21, { align: "right" });
+  if (data.validUntil) doc.text(`Validade: ${data.validUntil}`, pageWidth - 14, 26, { align: "right" });
+  doc.setTextColor(0);
+
+  // ── Contato (abaixo da logo) ──────────────────────────────────────────────
+  const phone = data.company.phone || "(19) 3608-4008";
+  const email = data.company.email || "posvenda@liveuni.com.br";
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(100, 100, 100);
+  doc.text(`Tel: ${phone}   |   E-mail: ${email}`, 14, 23);
   doc.setTextColor(0);
 
   // ── Divisor ───────────────────────────────────────────────────────────────
   doc.setDrawColor(220, 220, 220);
   doc.setLineWidth(0.3);
-  doc.line(14, 33, pageWidth - 14, 33);
+  doc.line(14, 31, pageWidth - 14, 31);
 
   // ── Info do cliente ───────────────────────────────────────────────────────
   doc.setFontSize(9);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(0);
-  doc.text("Cliente:", 14, 41);
+  doc.text("Cliente:", 14, 39);
   doc.setFont("helvetica", "normal");
-  doc.text(data.client.name, 36, 41);
+  doc.text(data.client.name, 36, 39);
   if (data.client.equipment) {
     doc.setFont("helvetica", "bold");
-    doc.text("Equipamento:", 14, 47);
+    doc.text("Equipamento:", 14, 45);
     doc.setFont("helvetica", "normal");
     doc.text(
       `${data.client.equipment}${data.client.serial ? ` — S/N ${data.client.serial}` : ""}`,
       46,
-      47,
+      45,
     );
   }
 
@@ -105,7 +105,7 @@ export function generateQuotePdf(data: QuotePdfData) {
   ]);
 
   autoTable(doc, {
-    startY: 53,
+    startY: 51,
     head: [["Código", "Descrição", "Tipo", "Qtd", "Valor Unit.", "Total"]],
     body: tableBody,
     theme: "striped",

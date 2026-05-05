@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useAuth } from "@/hooks/useAuth";
+import { useMyProfile } from "@/hooks/useMyProfile";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Trash2, FileText, Download, Eye, Plus, Save, Wrench, Package, Pencil, CreditCard, Banknote, QrCode } from "lucide-react";
 import { ApprovalActionDialog } from "@/components/shared/ApprovalActionDialog";
@@ -35,7 +35,7 @@ const serviceTypes = [
 ];
 
 const QuoteDetailPage = () => {
-  const { user } = useAuth();
+  const { data: myProfile } = useMyProfile();
   const { id } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -131,8 +131,12 @@ const QuoteDetailPage = () => {
     quoteNumber: quote!.quote_number,
     date: new Date(quote!.created_at).toLocaleDateString("pt-BR"),
     validUntil: currentValidUntil ? new Date(currentValidUntil + "T12:00:00").toLocaleDateString("pt-BR") : undefined,
-    company: { name: "Live Care — Live Universe", phone: "(19) 3608-4008", email: "posvenda@liveuni.com.br" },
-    exportedBy: (user?.user_metadata?.full_name as string | undefined) || user?.email || undefined,
+    company: {
+      name: "Live Care — Live Universe",
+      phone: myProfile?.phone || "(19) 3608-4008",
+      email: myProfile?.email || "posvenda@liveuni.com.br",
+    },
+    exportedBy: myProfile?.full_name || myProfile?.email || undefined,
     client: {
       name: quote!.clients?.name || "",
       equipment: quote!.equipments?.equipment_models?.name,
