@@ -11,7 +11,7 @@ import {
   LayoutDashboard, AlertTriangle, CheckCircle, Clock, ListTodo, Package,
   PhoneCall, TrendingUp, Receipt, Wrench, Shield, ClipboardList, Ticket,
   X, DollarSign, Edit2, Save, RotateCcw, CalendarClock, ListChecks, PhoneOff,
-  RefreshCw,
+  RefreshCw, ShoppingCart, ShieldCheck, ShoppingBag, CheckCircle2,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { KpiCard } from "@/components/dashboard/KpiCard";
@@ -36,6 +36,27 @@ function daysSince(dateStr: string | null) {
   if (!dateStr) return 999;
   return Math.floor((Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24));
 }
+
+// Agrupa lista de { created_at, value } por mês (últimos N meses)
+function groupByMonth(rows: { created_at: string; value: number }[], months = 6) {
+  const result: { label: string; key: string; value: number; count: number }[] = [];
+  const now = new Date();
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const label = d.toLocaleDateString("pt-BR", { month: "short", year: "2-digit" });
+    result.push({ key, label, value: 0, count: 0 });
+  }
+  for (const row of rows) {
+    const d = new Date(row.created_at);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const bucket = result.find(r => r.key === key);
+    if (bucket) { bucket.value += row.value; bucket.count++; }
+  }
+  return result;
+}
+
+const fmtR = (v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 function useAllTickets() {
   return useQuery({
@@ -110,6 +131,54 @@ function useWarrantyCostOrders() {
   });
 }
 
+// ── quote_items de garantia (unit_price > 0) para rastreio de valor declarado
+function useWarrantyQuoteItems() {
+  return useQuery({
+    queryKey: ["warranty-quote-items-dashboard"],
+    queryFn: async () => {
+      const since = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString();
+      const { data, error } = await supabase
+        .from("quote_items")
+        .select("id, item_type, quantity, unit_price, created_at, quotes(id, quote_number, clients(name))")
+        .like("item_type", "%garantia%")
+        .gt("unit_price", 0)
+        .gte("created_at", since)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data as any[];
+    },
+    staleTime: 60_000,
+  });
+}
+
+// ── PA, PD, PG com pedido Nomus gerado
+function useNomuspedidos() {
+  return useQuery({
+    queryKey: ["nomus-pedidos-dashboard"],
+    queryFn: async () => {
+      const since = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString();
+      const [{ data: srData }, { data: pgData }] = await Promise.all([
+        supabase
+          .from("service_requests")
+          .select("id, document_type, estimated_cost, created_at, nomus_order_id, tickets(clients(name))")
+          .not("nomus_order_id", "is", null)
+          .gte("created_at", since),
+        supabase
+          .from("warranty_claims")
+          .select("id, internal_cost, created_at, nomus_order_id, tickets(clients(name))")
+          .not("nomus_order_id", "is", null)
+          .gte("created_at", since),
+      ]);
+      return {
+        pa: (srData || []).filter((r: any) => r.document_type === "pa"),
+        pd: (srData || []).filter((r: any) => r.document_type === "pd"),
+        pg: pgData || [],
+      };
+    },
+    staleTime: 60_000,
+  });
+}
+
 function useAllTasks() {
   return useQuery({
     queryKey: ["all-tasks-dashboard"],
@@ -161,17 +230,23 @@ const MyDashboardPage = () => {
   const { data: warrantyClaims } = useAllWarrantyClaims();
   const { data: serviceRequests } = useAllServiceRequests();
   const { data: warrantyCostOrders } = useWarrantyCostOrders();
+  const { data: warrantyQuoteItems } = useWarrantyQuoteItems();
+  const { data: nomusPedidos } = useNomuspedidos();
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
-    await queryClient.invalidateQueries({ queryKey: ["all-tickets-dashboard"] });
-    await queryClient.invalidateQueries({ queryKey: ["all-tasks-dashboard"] });
-    await queryClient.invalidateQueries({ queryKey: ["all-quotes-dashboard"] });
-    await queryClient.invalidateQueries({ queryKey: ["all-work-orders-dashboard"] });
-    await queryClient.invalidateQueries({ queryKey: ["all-warranty-claims-dashboard"] });
-    await queryClient.invalidateQueries({ queryKey: ["all-service-requests-dashboard"] });
-    await queryClient.invalidateQueries({ queryKey: ["warranty-cost-orders-dashboard"] });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["all-tickets-dashboard"] }),
+      queryClient.invalidateQueries({ queryKey: ["all-tasks-dashboard"] }),
+      queryClient.invalidateQueries({ queryKey: ["all-quotes-dashboard"] }),
+      queryClient.invalidateQueries({ queryKey: ["all-work-orders-dashboard"] }),
+      queryClient.invalidateQueries({ queryKey: ["all-warranty-claims-dashboard"] }),
+      queryClient.invalidateQueries({ queryKey: ["all-service-requests-dashboard"] }),
+      queryClient.invalidateQueries({ queryKey: ["warranty-cost-orders-dashboard"] }),
+      queryClient.invalidateQueries({ queryKey: ["warranty-quote-items-dashboard"] }),
+      queryClient.invalidateQueries({ queryKey: ["nomus-pedidos-dashboard"] }),
+    ]);
     setIsRefreshing(false);
     toast.success("Dados atualizados");
   }, [queryClient]);
@@ -904,6 +979,146 @@ const MyDashboardPage = () => {
           onClickItem={(id) => openTicket(id)}
         />
       </div>
+
+      {/* ── Pedidos Nomus por período ── */}
+      {(() => {
+        const pa = nomusPedidos?.pa || [];
+        const pd = nomusPedidos?.pd || [];
+        const pg = nomusPedidos?.pg || [];
+
+        const paByMonth = groupByMonth(pa.map((r: any) => ({ created_at: r.created_at, value: Number(r.estimated_cost || 0) })));
+        const pdByMonth = groupByMonth(pd.map((r: any) => ({ created_at: r.created_at, value: Number(r.estimated_cost || 0) })));
+        const pgByMonth = groupByMonth(pg.map((r: any) => ({ created_at: r.created_at, value: Number(r.internal_cost || 0) })));
+
+        const totalPa = pa.reduce((s: number, r: any) => s + Number(r.estimated_cost || 0), 0);
+        const totalPd = pd.reduce((s: number, r: any) => s + Number(r.estimated_cost || 0), 0);
+        const totalPg = pg.reduce((s: number, r: any) => s + Number(r.internal_cost || 0), 0);
+
+        const maxBar = Math.max(...paByMonth.map(b => b.value), ...pdByMonth.map(b => b.value), ...pgByMonth.map(b => b.value), 1);
+
+        const sections = [
+          { label: "PA — Acessórios", icon: ShoppingBag, color: "bg-blue-500", textColor: "text-blue-600 dark:text-blue-400", count: pa.length, total: totalPa, byMonth: paByMonth },
+          { label: "PD — Venda",       icon: ShoppingCart, color: "bg-emerald-500", textColor: "text-emerald-600 dark:text-emerald-400", count: pd.length, total: totalPd, byMonth: pdByMonth },
+          { label: "PG — Garantia",    icon: ShieldCheck,  color: "bg-amber-500",   textColor: "text-amber-600 dark:text-amber-400",   count: pg.length, total: totalPg, byMonth: pgByMonth },
+        ];
+
+        return (
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="bg-card rounded-xl border shadow-card p-5 mb-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-display font-semibold text-sm flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                Pedidos Integrados ao Nomus — últimos 6 meses
+              </h3>
+              <span className="text-[10px] text-muted-foreground">Somente pedidos com pedido Nomus gerado</span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {sections.map(({ label, icon: Icon, color, textColor, count, total, byMonth }) => (
+                <div key={label}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Icon className={`h-4 w-4 ${textColor}`} />
+                    <span className="text-xs font-semibold">{label}</span>
+                    <span className="ml-auto text-[10px] bg-muted rounded px-1.5 py-0.5 font-mono">{count} pedidos</span>
+                  </div>
+                  <p className={`text-xl font-bold font-mono mb-3 ${textColor}`}>{fmtR(total)}</p>
+                  {/* Bar chart by month */}
+                  <div className="space-y-1.5">
+                    {byMonth.map(b => (
+                      <div key={b.key} className="flex items-center gap-2">
+                        <span className="text-[9px] text-muted-foreground w-10 shrink-0">{b.label}</span>
+                        <div className="flex-1 h-4 bg-muted rounded-sm overflow-hidden">
+                          <div
+                            className={`h-full ${color} rounded-sm transition-all`}
+                            style={{ width: `${maxBar > 0 ? (b.value / maxBar) * 100 : 0}%` }}
+                          />
+                        </div>
+                        <span className="text-[9px] font-mono text-muted-foreground w-20 text-right shrink-0">
+                          {b.count > 0 ? fmtR(b.value) : "—"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        );
+      })()}
+
+      {/* ── Valor declarado de garantias em orçamentos ── */}
+      {(() => {
+        const items = warrantyQuoteItems || [];
+        const byMonth = groupByMonth(items.map((i: any) => ({
+          created_at: i.created_at,
+          value: Number(i.quantity) * Number(i.unit_price),
+        })));
+        const total30 = items
+          .filter((i: any) => new Date(i.created_at).getTime() > Date.now() - 30 * 24 * 60 * 60 * 1000)
+          .reduce((s: number, i: any) => s + Number(i.quantity) * Number(i.unit_price), 0);
+        const total90 = items
+          .filter((i: any) => new Date(i.created_at).getTime() > Date.now() - 90 * 24 * 60 * 60 * 1000)
+          .reduce((s: number, i: any) => s + Number(i.quantity) * Number(i.unit_price), 0);
+        const totalAll = items.reduce((s: number, i: any) => s + Number(i.quantity) * Number(i.unit_price), 0);
+        const maxBar = Math.max(...byMonth.map(b => b.value), 1);
+
+        return (
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="bg-card rounded-xl border shadow-card p-5 mb-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-display font-semibold text-sm flex items-center gap-2">
+                <Shield className="h-4 w-4 text-amber-500" />
+                Valor Declarado de Peças em Garantia — por orçamento
+              </h3>
+              <span className="text-[10px] text-muted-foreground">unit_price declarado nos orçamentos (item_type garantia)</span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4 mb-5">
+              {[
+                { label: "Últimos 30 dias", value: total30 },
+                { label: "Últimos 90 dias", value: total90 },
+                { label: "Últimos 6 meses", value: totalAll },
+              ].map(({ label, value }) => (
+                <div key={label} className="text-center p-3 bg-amber-50 dark:bg-amber-950/30 rounded-xl border border-amber-200 dark:border-amber-800">
+                  <p className="text-[10px] text-muted-foreground mb-1">{label}</p>
+                  <p className="text-lg font-bold font-mono text-amber-700 dark:text-amber-400">{fmtR(value)}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="space-y-1.5">
+              {byMonth.map(b => (
+                <div key={b.key} className="flex items-center gap-3">
+                  <span className="text-[9px] text-muted-foreground w-10 shrink-0">{b.label}</span>
+                  <div className="flex-1 h-5 bg-muted rounded-sm overflow-hidden">
+                    <div
+                      className="h-full bg-amber-400 rounded-sm transition-all"
+                      style={{ width: `${(b.value / maxBar) * 100}%` }}
+                    />
+                  </div>
+                  <span className="text-[10px] font-mono text-muted-foreground w-28 text-right shrink-0">
+                    {b.count > 0 ? `${b.count} item(s) · ${fmtR(b.value)}` : "—"}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {items.length > 0 && (
+              <div className="mt-4 max-h-40 overflow-y-auto space-y-1 border-t pt-3">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Últimos lançamentos</p>
+                {items.slice(0, 8).map((i: any) => (
+                  <div key={i.id} className="flex items-center justify-between text-xs py-1 border-b border-border/50 last:border-0">
+                    <span className="text-muted-foreground truncate max-w-[60%]">
+                      {(i.quotes as any)?.clients?.name || "—"} · {(i.quotes as any)?.quote_number}
+                    </span>
+                    <span className="font-mono font-medium text-amber-600 dark:text-amber-400 shrink-0">
+                      {i.quantity}× {fmtR(Number(i.unit_price))} = {fmtR(Number(i.quantity) * Number(i.unit_price))}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </motion.div>
+        );
+      })()}
 
       {/* Ticket detail dialog */}
       <TicketDetailDialog

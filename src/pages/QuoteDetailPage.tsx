@@ -62,8 +62,8 @@ const QuoteDetailPage = () => {
   const currentInstallments = installments !== "" ? installments : String((quote as any)?.installments ?? "");
 
   const totals = useMemo(() => {
-    if (!quote?.quote_items) return { subtotalPecas: 0, subtotalServicos: 0, warranty: 0, charged: 0, internalCost: 0, margin: 0, frete: 0, desconto: 0 };
-    let warranty = 0, charged = 0, internalCost = 0, subtotalPecas = 0, subtotalServicos = 0, frete = 0, desconto = 0;
+    if (!quote?.quote_items) return { subtotalPecas: 0, subtotalServicos: 0, warranty: 0, warrantyValue: 0, charged: 0, internalCost: 0, margin: 0, frete: 0, desconto: 0 };
+    let warranty = 0, warrantyValue = 0, charged = 0, internalCost = 0, subtotalPecas = 0, subtotalServicos = 0, frete = 0, desconto = 0;
     for (const item of quote.quote_items) {
       const linePrice = item.quantity * Number(item.unit_price);
       const lineCost = item.quantity * Number(item.unit_cost);
@@ -74,7 +74,8 @@ const QuoteDetailPage = () => {
         frete += linePrice;
         charged += linePrice;
       } else if (String(item.item_type).includes("garantia")) {
-        warranty += lineCost;
+        warranty += lineCost;           // custo interno (para cálculo de margem)
+        warrantyValue += linePrice;     // valor declarado (unit_price × qty)
       } else if (String(item.item_type).includes("peca")) {
         subtotalPecas += linePrice;
         charged += linePrice;
@@ -85,13 +86,13 @@ const QuoteDetailPage = () => {
     }
     const totalFinal = charged - desconto;
     const margin = totalFinal > 0 ? ((totalFinal - (internalCost - warranty)) / totalFinal * 100) : 0;
-    return { subtotalPecas, subtotalServicos, warranty, charged: totalFinal, internalCost, margin, frete, desconto };
+    return { subtotalPecas, subtotalServicos, warranty, warrantyValue, charged: totalFinal, internalCost, margin, frete, desconto };
   }, [quote]);
 
   const handleProductSelect = async (product: any, itemType: string) => {
     const tax = (Number(product.ipi_percent || 0) + Number(product.icms_percent || 0) + Number(product.pis_percent || 0) + Number(product.cofins_percent || 0) + Number(product.csll_percent || 0) + Number(product.irpj_percent || 0)) / 100;
     const cost = Number(product.base_cost) * (1 + tax);
-    const price = itemType.includes("garantia") ? 0 : cost * (1 + Number(product.margin_percent || 30) / 100);
+    const price = cost * (1 + Number(product.margin_percent || 30) / 100);
 
     await addItem.mutateAsync({
       quote_id: id!,
@@ -146,7 +147,7 @@ const QuoteDetailPage = () => {
     freight: totals.frete,
     discount: totals.desconto,
     totalCharged: totals.charged,
-    warrantyTotal: totals.warranty,
+    warrantyTotal: totals.warrantyValue,
     notes: currentNotes || undefined,
     docType: "quote" as const,
     paymentMethod: currentPaymentMethod,
@@ -252,7 +253,7 @@ const QuoteDetailPage = () => {
           { label: "Serviços", value: `R$ ${totals.subtotalServicos.toFixed(2)}` },
           { label: "Frete", value: `R$ ${totals.frete.toFixed(2)}` },
           { label: "Desconto", value: `- R$ ${totals.desconto.toFixed(2)}` },
-          { label: "Garantia", value: `R$ ${totals.warranty.toFixed(2)}`, accent: true },
+          { label: "Garantia (decl.)", value: `R$ ${totals.warrantyValue.toFixed(2)}`, accent: true },
           { label: "Margem", value: `${totals.margin.toFixed(1)}%` },
         ].map((c) => (
           <div key={c.label} className={`bg-card rounded-xl border p-3 ${c.accent ? "border-success/30 bg-success/5" : ""}`}>
@@ -420,26 +421,46 @@ const QuoteDetailPage = () => {
                         )}
                       </td>
                       <td className="px-3 py-2.5 text-xs font-mono">
-                        {isWarranty ? (
-                          <span className="text-success">Garantia</span>
-                        ) : isEditable ? (
-                          <Input
-                            type="number"
-                            step="0.01"
-                            className="h-7 w-24 text-xs font-mono"
-                            defaultValue={Number(item.unit_price).toFixed(2)}
-                            onBlur={(e) => {
-                              const val = parseFloat(e.target.value);
-                              if (!isNaN(val) && val !== Number(item.unit_price)) {
-                                updateItem.mutateAsync({ id: item.id, unit_price: val });
-                              }
-                            }}
-                          />
+                        {isEditable ? (
+                          <div className="flex flex-col gap-0.5">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              className="h-7 w-24 text-xs font-mono"
+                              defaultValue={Number(item.unit_price).toFixed(2)}
+                              onBlur={(e) => {
+                                const val = parseFloat(e.target.value);
+                                if (!isNaN(val) && val !== Number(item.unit_price)) {
+                                  updateItem.mutateAsync({ id: item.id, unit_price: val });
+                                }
+                              }}
+                            />
+                            {isWarranty && (
+                              <span className="text-[9px] text-success leading-tight">valor declarado</span>
+                            )}
+                          </div>
                         ) : (
-                          `R$ ${Number(item.unit_price).toFixed(2)}`
+                          <div className="flex flex-col gap-0.5">
+                            <span>{isWarranty && Number(item.unit_price) === 0 ? "—" : `R$ ${Number(item.unit_price).toFixed(2)}`}</span>
+                            {isWarranty && <span className="text-[9px] text-success">declarado</span>}
+                          </div>
                         )}
                       </td>
-                      <td className="px-3 py-2.5 text-xs font-mono font-medium">{isWarranty ? <span className="text-success">Coberto</span> : `R$ ${(item.quantity * Number(item.unit_price)).toFixed(2)}`}</td>
+                      <td className="px-3 py-2.5 text-xs font-mono font-medium">
+                        {isWarranty ? (
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-success">Coberto</span>
+                            {Number(item.unit_price) > 0 && (
+                              <span className="text-[9px] text-success/70">
+                                R$ {(item.quantity * Number(item.unit_price)).toFixed(2)} decl.
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          `R$ ${(item.quantity * Number(item.unit_price)).toFixed(2)}`
+                        )}
+                      </td>
                       <td className="px-3 py-2.5">
                         {isEditable && (
                           <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-destructive" onClick={() => deleteItem.mutateAsync(item.id)}>
