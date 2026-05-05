@@ -42,33 +42,35 @@ async function exchangeAndSave(code: string, redirectUri: string): Promise<{ use
   const longToken = llData.access_token ?? tokenData.access_token;
   const expiresIn = llData.expires_in ?? 5183944;
 
-  // 3a. Busca Pages do usuário (acesso direto)
+  // 3a. Busca Pages do usuário (acesso direto) — inclui access_token da Page
   const pagesRes = await fetch(
     `https://graph.facebook.com/v21.0/me/accounts?` +
-    `fields=id,instagram_business_account{id,username,profile_picture_url}&` +
+    `fields=id,access_token,instagram_business_account{id,username,profile_picture_url}&` +
     `access_token=${longToken}`
   );
   const pagesData = await pagesRes.json();
   console.log("[instagram-oauth] me/accounts:", JSON.stringify(pagesData));
-  let igAccount = (pagesData.data ?? []).find((p: any) => p.instagram_business_account)?.instagram_business_account ?? null;
+  const pageWithIg = (pagesData.data ?? []).find((p: any) => p.instagram_business_account) ?? null;
+  let igAccount = pageWithIg?.instagram_business_account ?? null;
+  let pageToken: string = pageWithIg?.access_token ?? longToken;
 
   // 3b. Fallback: busca via Business Manager (quando Page é gerenciada pelo BM)
   if (!igAccount) {
     const bizRes = await fetch(
       `https://graph.facebook.com/v21.0/me/businesses?` +
-      `fields=owned_pages{instagram_business_account{id,username,profile_picture_url}}&` +
+      `fields=owned_pages{id,access_token,instagram_business_account{id,username,profile_picture_url}}&` +
       `access_token=${longToken}`
     );
     const bizData = await bizRes.json();
     console.log("[instagram-oauth] me/businesses:", JSON.stringify(bizData));
-    for (const biz of bizData.data ?? []) {
+    outer: for (const biz of bizData.data ?? []) {
       for (const pg of biz.owned_pages?.data ?? []) {
         if (pg.instagram_business_account) {
           igAccount = pg.instagram_business_account;
-          break;
+          pageToken = pg.access_token ?? longToken;
+          break outer;
         }
       }
-      if (igAccount) break;
     }
   }
 
@@ -85,14 +87,14 @@ async function exchangeAndSave(code: string, redirectUri: string): Promise<{ use
       ig_user_id: igAccount.id,
       username: igAccount.username,
       picture_url: igAccount.profile_picture_url ?? null,
-      access_token: longToken,
+      access_token: pageToken,  // salva Page token (necessário para Graph API)
       token_expires_at: tokenExpiresAt,
       updated_at: new Date().toISOString(),
     }, { onConflict: "ig_user_id" });
 
   if (upsertErr) return { error: upsertErr.message };
 
-  // 5. Inscreve a conta para receber webhooks de mensagens e comentários
+  // 5. Inscreve a conta para receber webhooks — usa Page token (obrigatório)
   try {
     const subRes = await fetch(
       `https://graph.facebook.com/v21.0/${igAccount.id}/subscribed_apps`,
@@ -101,7 +103,7 @@ async function exchangeAndSave(code: string, redirectUri: string): Promise<{ use
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           subscribed_fields: "messages,comments,mentions",
-          access_token: longToken,
+          access_token: pageToken,
         }),
       }
     );
