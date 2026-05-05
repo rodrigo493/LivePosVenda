@@ -112,6 +112,7 @@ const PGDetailPage = () => {
     condicaoPagamento: "28",
     formaPagamento: "10",
     vendedorId: "",
+    obsInternas: "",
   });
   const [nomusClientId, setNomusClientId] = useState<number | null>(null);
   const [nomusClientResults, setNomusClientResults] = useState<{ id: number; nome: string }[]>([]);
@@ -583,7 +584,7 @@ const PGDetailPage = () => {
         idTipoMovimentacao: 60,
         idTipoPedido: 1,
         observacoes: currentDefect || `Pedido de Garantia - ${nomusFields.cliente}`,
-        observacoesInternas: "",
+        observacoesInternas: nomusFields.obsInternas,
         itensPedido,
         ...(nomusFields.cfop ? { cfop: nomusFields.cfop } : {}),
       };
@@ -1246,6 +1247,10 @@ const PGDetailPage = () => {
             <div>
               <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">ID Vendedor (Nomus)</Label>
               <Input placeholder="Ex: 1002403" value={nomusFields.vendedorId} onChange={e => updateNomusField("vendedorId", e.target.value)} className="mt-1 h-9 text-xs font-mono" />
+            </div>
+            <div className="md:col-span-2">
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Observações Internas</Label>
+              <Input placeholder="Observações internas do pedido" value={nomusFields.obsInternas} onChange={e => updateNomusField("obsInternas", e.target.value)} className="mt-1 h-9 text-xs" />
             </div>
           </div>
 

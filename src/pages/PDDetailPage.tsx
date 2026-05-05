@@ -137,6 +137,7 @@ const PDDetailPage = () => {
     condicaoPagamento: "28",
     formaPagamento: "10",
     vendedorId: "",
+    obsInternas: "",
   });
   const [nomusClientId, setNomusClientId] = useState<number | null>(null);
   const [nomusClientResults, setNomusClientResults] = useState<{ id: number; nome: string }[]>([]);
@@ -608,7 +609,7 @@ const PDDetailPage = () => {
         idTipoMovimentacao: 60,
         idTipoPedido: 1,
         observacoes: currentNotes || `Pedido de Venda - ${nomusFields.cliente}`,
-        observacoesInternas: "",
+        observacoesInternas: nomusFields.obsInternas,
         itensPedido,
         ...(nomusFields.cfop ? { cfop: nomusFields.cfop } : {}),
       };
@@ -1074,57 +1075,18 @@ const PDDetailPage = () => {
         </motion.div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div className="md:col-span-2">
-          <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">
-            Observações / Condições Comerciais
-          </label>
-          <Textarea
-            value={quoteNotes}
-            onChange={(e) => setQuoteNotes(e.target.value)}
-            placeholder="Condições de pagamento, prazo estimado, garantia de serviço..."
-            rows={3}
-          />
-        </div>
-        <div className="flex flex-col gap-3">
-          <div>
-            <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">
-              Consultor / Vendedor
-            </label>
-            <Select value={consultorId ?? ""} onValueChange={v => setConsultorId(v || null)}>
-              <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Selecionar consultor..." /></SelectTrigger>
-              <SelectContent>
-                {allUsers.map(u => (
-                  <SelectItem key={u.user_id} value={u.user_id}>
-                    <span>{u.full_name || u.email}</span>
-                    {(u.email || u.phone) && (
-                      <span className="ml-1 text-muted-foreground text-[11px]">
-                        {[u.email, u.phone].filter(Boolean).join(" · ")}
-                      </span>
-                    )}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">
-              Validade do Orçamento
-            </label>
-            <input
-              type="date"
-              value={quoteValidUntil ? quoteValidUntil.slice(0, 10) : ""}
-              onChange={(e) => setQuoteValidUntil(e.target.value)}
-              className="w-full px-3 py-2 text-sm rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono"
-            />
-          </div>
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1.5"
-            disabled={savingQuoteDetails}
-            onClick={saveQuoteDetails}
-          >
+      <div className="mb-6">
+        <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">
+          Observações / Condições Comerciais
+        </label>
+        <Textarea
+          value={quoteNotes}
+          onChange={(e) => setQuoteNotes(e.target.value)}
+          placeholder="Condições de pagamento, prazo estimado, garantia de serviço..."
+          rows={3}
+        />
+        <div className="flex justify-end mt-2">
+          <Button size="sm" variant="outline" className="gap-1.5" disabled={savingQuoteDetails} onClick={saveQuoteDetails}>
             <Save className="h-3.5 w-3.5" /> {savingQuoteDetails ? "Salvando..." : "Salvar Detalhes"}
           </Button>
         </div>
@@ -1290,6 +1252,10 @@ const PDDetailPage = () => {
             <div>
               <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">ID Vendedor (Nomus)</Label>
               <Input placeholder="Ex: 1002403" value={nomusFields.vendedorId} onChange={e => updateNomusField("vendedorId", e.target.value)} className="mt-1 h-9 text-xs font-mono" />
+            </div>
+            <div className="md:col-span-2">
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Observações Internas</Label>
+              <Input placeholder="Observações internas do pedido" value={nomusFields.obsInternas} onChange={e => updateNomusField("obsInternas", e.target.value)} className="mt-1 h-9 text-xs" />
             </div>
           </div>
 
