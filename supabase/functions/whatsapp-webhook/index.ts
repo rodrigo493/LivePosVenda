@@ -506,6 +506,7 @@ Deno.serve(async (req) => {
     let directMediaUrl: string | null = null;
     let mediaMeta: Record<string, unknown> | null = null;
     let senderChatId: string | null = null;
+    let contactData: { name: string; phone: string; raw_vcard: string } | null = null;
 
     // Uazapi actual format: { EventType, message: { fromMe, sender_pn, chatid, text, senderName, messageid }, chat }
     function extractVCardPhone(vcard: string): string {
@@ -523,7 +524,6 @@ Deno.serve(async (req) => {
       if (!m.text && !m.content || typeof m.content === "object" || m.PTT || m.audioMessage || m.imageMessage || m.videoMessage || m.documentMessage) {
         console.log("MEDIA_PAYLOAD:", JSON.stringify(m).slice(0, 2000));
       }
-      let contactData: { name: string; phone: string; raw_vcard: string } | null = null;
       if (m.contactMessage?.vcard) {
         const vcardName = m.contactMessage.displayName || m.contactMessage.vcard.match(/FN:([^\n]+)/)?.[1] || "Contato";
         const vcardPhone = extractVCardPhone(m.contactMessage.vcard);
