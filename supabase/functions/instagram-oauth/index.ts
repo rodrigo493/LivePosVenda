@@ -83,7 +83,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
 
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-  const EDGE_FN_REDIRECT_URI = `${SUPABASE_URL}/functions/v1/instagram-oauth`;
+  const EDGE_FN_REDIRECT_URI = Deno.env.get("INSTAGRAM_REDIRECT_URI") ?? `${SUPABASE_URL}/functions/v1/instagram-oauth`;
 
   // ── GET: callback direto do Facebook (server-side) ───────────────────────────
   if (req.method === "GET") {
