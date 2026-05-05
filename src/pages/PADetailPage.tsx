@@ -163,6 +163,27 @@ const PADetailPage = () => {
   const [nomusVendedorLoading, setNomusVendedorLoading] = useState(false);
   const [nomusVendedorOpen, setNomusVendedorOpen] = useState(false);
   const nomusVendedorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [nomusCondicaoAll, setNomusCondicaoAll] = useState<{ id: number; nome: string }[]>([]);
+  const [nomusFormaAll, setNomusFormaAll] = useState<{ id: number; nome: string }[]>([]);
+  const [nomusVendedorAll, setNomusVendedorAll] = useState<{ id: number; nome: string }[]>([]);
+
+  // Pre-load Nomus lookup options (condição, forma, vendedor) on mount
+  useEffect(() => {
+    const loadAll = async (endpoint: string, field: string): Promise<{ id: number; nome: string }[]> => {
+      try {
+        const r = await fetch(`/api/nomus/rest/${endpoint}`, { headers: { Accept: "application/json" } });
+        if (!r.ok) return [];
+        const body = await r.json();
+        if (!Array.isArray(body)) return [];
+        return body
+          .map((item: any) => ({ id: item.id, nome: item[field] || `ID ${item.id}` }))
+          .sort((a: { nome: string }, b: { nome: string }) => a.nome.localeCompare(b.nome, "pt-BR"));
+      } catch { return []; }
+    };
+    loadAll("condicoespagamento", "descricao").then(setNomusCondicaoAll);
+    loadAll("formaspagamento", "descricao").then(setNomusFormaAll);
+    loadAll("vendedores", "nome").then(setNomusVendedorAll);
+  }, []);
 
   // Pre-fill fields from quote data when loaded
   useEffect(() => {
@@ -204,8 +225,9 @@ const PADetailPage = () => {
   };
 
   const makeNomusSearch = (
+    allOptions: { id: number; nome: string }[],
     endpoint: string,
-    searchFields: string[],
+    searchField: string,
     displayField: string,
     stateKey: string,
     timerRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>,
@@ -216,30 +238,29 @@ const PADetailPage = () => {
   ) => (query: string) => {
     updateNomusField(stateKey, query);
     setId(null);
+    if (allOptions.length > 0) {
+      const q = query.toLowerCase().trim();
+      const filtered = q ? allOptions.filter(r => r.nome.toLowerCase().includes(q)) : allOptions;
+      setResults(filtered);
+      setOpen(filtered.length > 0);
+      return;
+    }
+    // Fallback: API search quando pré-carregamento falhou
     if (query.length < 2) { setResults([]); setOpen(false); return; }
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(async () => {
       setLoading(true);
-      const seen = new Set<number>();
-      const results: { id: number; nome: string }[] = [];
-      for (const f of searchFields) {
-        if (results.length > 0) break;
-        const list = await nomusGet(endpoint, f, query.trim());
-        for (const p of list) {
-          if (seen.has(p.id) || results.length >= 20) continue;
-          seen.add(p.id);
-          results.push({ id: p.id, nome: p[displayField] || `ID ${p.id}` });
-        }
-      }
+      const list = await nomusGet(endpoint, searchField, query.trim());
+      const results = list.map((p: any) => ({ id: p.id, nome: p[displayField] || `ID ${p.id}` }));
       setResults(results);
       setOpen(results.length > 0);
       setLoading(false);
     }, 400);
   };
 
-  const searchNomusCondicao = makeNomusSearch("condicoespagamento", ["descricao"], "descricao", "condicaoPagamento", nomusCondicaoTimer, setNomusCondicaoId, setNomusCondicaoResults, setNomusCondicaoOpen, setNomusCondicaoLoading);
-  const searchNomusForma = makeNomusSearch("formaspagamento", ["descricao"], "descricao", "formaPagamento", nomusFormaTimer, setNomusFormaId, setNomusFormaResults, setNomusFormaOpen, setNomusFormaLoading);
-  const searchNomusVendedor = makeNomusSearch("vendedores", ["nome"], "nome", "vendedor", nomusVendedorTimer, setNomusVendedorId, setNomusVendedorResults, setNomusVendedorOpen, setNomusVendedorLoading);
+  const searchNomusCondicao = makeNomusSearch(nomusCondicaoAll, "condicoespagamento", "descricao", "descricao", "condicaoPagamento", nomusCondicaoTimer, setNomusCondicaoId, setNomusCondicaoResults, setNomusCondicaoOpen, setNomusCondicaoLoading);
+  const searchNomusForma = makeNomusSearch(nomusFormaAll, "formaspagamento", "descricao", "descricao", "formaPagamento", nomusFormaTimer, setNomusFormaId, setNomusFormaResults, setNomusFormaOpen, setNomusFormaLoading);
+  const searchNomusVendedor = makeNomusSearch(nomusVendedorAll, "vendedores", "nome", "nome", "vendedor", nomusVendedorTimer, setNomusVendedorId, setNomusVendedorResults, setNomusVendedorOpen, setNomusVendedorLoading);
 
   const searchNomusClients = (query: string) => {
     updateNomusField("cliente", query);
@@ -1335,7 +1356,7 @@ const PADetailPage = () => {
               <div className="relative">
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Condição de Pagamento{nomusCondicaoId ? <span className="ml-2 text-success font-normal">✓ ID {nomusCondicaoId}</span> : <span className="ml-1 text-muted-foreground font-normal">(padrão: 28)</span>}</Label>
                 <div className="relative mt-1">
-                  <Input value={nomusFields.condicaoPagamento} onChange={e => searchNomusCondicao(e.target.value)} onBlur={() => setTimeout(() => setNomusCondicaoOpen(false), 200)} placeholder="Digite para buscar..." className="h-9 text-xs pr-7" />
+                  <Input value={nomusFields.condicaoPagamento} onChange={e => searchNomusCondicao(e.target.value)} onFocus={() => { const q = nomusFields.condicaoPagamento.toLowerCase().trim(); const f = q ? nomusCondicaoAll.filter(r => r.nome.toLowerCase().includes(q)) : nomusCondicaoAll; if (f.length > 0) { setNomusCondicaoResults(f); setNomusCondicaoOpen(true); } }} onBlur={() => setTimeout(() => setNomusCondicaoOpen(false), 200)} placeholder="Clique para ver opções..." className="h-9 text-xs pr-7" />
                   {nomusCondicaoLoading && <Loader2 className="absolute right-2 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />}
                 </div>
                 {nomusCondicaoOpen && nomusCondicaoResults.length > 0 && (
@@ -1351,7 +1372,7 @@ const PADetailPage = () => {
               <div className="relative">
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Forma de Pagamento{nomusFormaId ? <span className="ml-2 text-success font-normal">✓ ID {nomusFormaId}</span> : <span className="ml-1 text-muted-foreground font-normal">(padrão: 10)</span>}</Label>
                 <div className="relative mt-1">
-                  <Input value={nomusFields.formaPagamento} onChange={e => searchNomusForma(e.target.value)} onBlur={() => setTimeout(() => setNomusFormaOpen(false), 200)} placeholder="Digite para buscar..." className="h-9 text-xs pr-7" />
+                  <Input value={nomusFields.formaPagamento} onChange={e => searchNomusForma(e.target.value)} onFocus={() => { const q = nomusFields.formaPagamento.toLowerCase().trim(); const f = q ? nomusFormaAll.filter(r => r.nome.toLowerCase().includes(q)) : nomusFormaAll; if (f.length > 0) { setNomusFormaResults(f); setNomusFormaOpen(true); } }} onBlur={() => setTimeout(() => setNomusFormaOpen(false), 200)} placeholder="Clique para ver opções..." className="h-9 text-xs pr-7" />
                   {nomusFormaLoading && <Loader2 className="absolute right-2 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />}
                 </div>
                 {nomusFormaOpen && nomusFormaResults.length > 0 && (
@@ -1367,7 +1388,7 @@ const PADetailPage = () => {
               <div className="relative">
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Vendedor{nomusVendedorId ? <span className="ml-2 text-success font-normal">✓ ID {nomusVendedorId}</span> : null}</Label>
                 <div className="relative mt-1">
-                  <Input value={nomusFields.vendedor} onChange={e => searchNomusVendedor(e.target.value)} onBlur={() => setTimeout(() => setNomusVendedorOpen(false), 200)} placeholder="Digite para buscar..." className="h-9 text-xs pr-7" />
+                  <Input value={nomusFields.vendedor} onChange={e => searchNomusVendedor(e.target.value)} onFocus={() => { const q = nomusFields.vendedor.toLowerCase().trim(); const f = q ? nomusVendedorAll.filter(r => r.nome.toLowerCase().includes(q)) : nomusVendedorAll; if (f.length > 0) { setNomusVendedorResults(f); setNomusVendedorOpen(true); } }} onBlur={() => setTimeout(() => setNomusVendedorOpen(false), 200)} placeholder="Clique para ver opções..." className="h-9 text-xs pr-7" />
                   {nomusVendedorLoading && <Loader2 className="absolute right-2 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />}
                 </div>
                 {nomusVendedorOpen && nomusVendedorResults.length > 0 && (
