@@ -140,6 +140,58 @@ async function handleLeadfgen(value: Record<string, unknown>) {
   console.log(`[FORM] Lead criado: ${name}`);
 }
 
+// Garante registro em instagram_conversations e salva mensagem
+async function saveInstagramConversation(
+  igSenderId: string,
+  senderUsername: string | null,
+  content: string | null,
+  messageType: "dm" | "comment" | "story_mention",
+  igMessageId: string | null,
+  postId: string | null,
+  clientId: string | null,
+): Promise<void> {
+  if (!igMessageId) return; // sem id não salva (evita duplicatas NULL)
+
+  // Upsert conversa
+  const { data: existing } = await admin
+    .from("instagram_conversations")
+    .select("id, unread_count")
+    .eq("ig_sender_id", igSenderId)
+    .maybeSingle();
+
+  let convId: string;
+  if (existing) {
+    await admin.from("instagram_conversations").update({
+      last_message: content?.slice(0, 500) ?? null,
+      last_message_at: new Date().toISOString(),
+      unread_count: (existing.unread_count ?? 0) + 1,
+      ...(senderUsername ? { sender_username: senderUsername } : {}),
+      ...(clientId ? { client_id: clientId } : {}),
+    }).eq("id", existing.id);
+    convId = existing.id;
+  } else {
+    const { data: newConv } = await admin.from("instagram_conversations").insert({
+      ig_sender_id: igSenderId,
+      sender_username: senderUsername,
+      last_message: content?.slice(0, 500) ?? null,
+      unread_count: 1,
+      client_id: clientId,
+    }).select("id").single();
+    if (!newConv) return;
+    convId = newConv.id;
+  }
+
+  // Upsert mensagem (idempotente)
+  await admin.from("instagram_messages").upsert({
+    conversation_id: convId,
+    ig_message_id: igMessageId,
+    message_type: messageType,
+    direction: "inbound",
+    content,
+    post_id: postId,
+  }, { onConflict: "ig_message_id", ignoreDuplicates: true });
+}
+
 // Instagram DM (de story, reel ou post)
 async function handleInstagramMessage(messaging: Record<string, unknown>) {
   const sender = (messaging.sender as { id: string })?.id;
@@ -147,6 +199,11 @@ async function handleInstagramMessage(messaging: Record<string, unknown>) {
 
   // Ignore echo (messages sent by the page itself)
   if ((messaging.message as Record<string, unknown>)?.is_echo) return;
+
+  const igMessageId: string | null = (messaging.message as Record<string, unknown>)?.mid as string ?? null;
+  const content: string | null = (messaging.message as Record<string, unknown>)?.text as string ?? null;
+  const isStoryMention = (messaging.message as Record<string, unknown>)?.attachments?.[0]?.type === "story_mention";
+  const messageType: "dm" | "story_mention" = isStoryMention ? "story_mention" : "dm";
 
   // Fetch Instagram user name
   let name = `Instagram ${sender.slice(-6)}`;
@@ -167,6 +224,9 @@ async function handleInstagramMessage(messaging: Record<string, unknown>) {
 
   const clientId = await upsertClient(name, null, null, sender);
   if (!clientId) { console.error("[DM] clientId nulo para sender:", sender); return; }
+
+  // Salva conversa + mensagem no sistema de chat
+  await saveInstagramConversation(sender, null, content ?? "[mídia]", messageType, igMessageId, null, clientId);
 
   // Deduplicate: só cria card se não tiver ticket aberto
   const already = await hasOpenTicket(clientId, ctx.pipelineId);
@@ -189,6 +249,29 @@ async function handleInstagramMessage(messaging: Record<string, unknown>) {
 
   if (tErr) console.error("[DM] erro ao inserir ticket:", JSON.stringify(tErr));
   else console.log(`[DM] Card criado: ${name} (${campanha})`);
+}
+
+// Instagram comment
+async function handleInstagramComment(change: Record<string, unknown>) {
+  const v = change.value as Record<string, unknown> ?? {};
+  const senderId: string = (v.from as Record<string, unknown>)?.id as string;
+  const senderUsername: string | null = (v.from as Record<string, unknown>)?.username as string ?? null;
+  const content: string | null = v.text as string ?? null;
+  const igMessageId: string | null = v.id as string ?? null;
+  const postId: string | null = (v.media as Record<string, unknown>)?.id as string ?? null;
+  if (!senderId) return;
+
+  let clientId: string | null = null;
+  const existing = await admin.from("clients").select("id").eq("instagram_id", senderId).maybeSingle();
+  if (existing.data) {
+    clientId = existing.data.id;
+  } else {
+    const name = senderUsername ?? `Instagram ${senderId.slice(-6)}`;
+    clientId = await upsertClient(name, null, null, senderId);
+  }
+
+  await saveInstagramConversation(senderId, senderUsername, content, "comment", igMessageId, postId, clientId);
+  console.log(`[COMMENT] processado sender=${senderId} msg=${igMessageId}`);
 }
 
 // ── main ─────────────────────────────────────────────────────────────────────
@@ -245,11 +328,14 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ── Instagram DM (story, reel, post) ─────────────────────────────────────
+    // ── Instagram DM (story, reel, post) + comentários ───────────────────────
     if (body.object === "instagram") {
       for (const entry of (body.entry as Array<Record<string, unknown>>) ?? []) {
         for (const messaging of (entry.messaging as Array<Record<string, unknown>>) ?? []) {
           await handleInstagramMessage(messaging);
+        }
+        for (const change of (entry.changes as Array<Record<string, unknown>>) ?? []) {
+          if (change.field === "comments") await handleInstagramComment(change);
         }
       }
     }
