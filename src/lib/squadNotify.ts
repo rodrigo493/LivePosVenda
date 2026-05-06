@@ -2,16 +2,23 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
 type NotifySquadParams = {
-  recordType: "pa" | "pg";
+  recordType: "pa" | "pd" | "pg";
   recordId: string;
   reference: string;
   message?: string;
+  target?: "pos-venda" | "gerar-op" | "pedido-acessorios";
 };
 
-export async function notifySquad({ recordType, recordId, reference, message }: NotifySquadParams): Promise<boolean> {
+export async function notifySquad({ recordType, recordId, reference, message, target }: NotifySquadParams): Promise<boolean> {
   try {
     const { data, error } = await supabase.functions.invoke("squad-notify", {
-      body: { record_type: recordType, record_id: recordId, reference, ...(message ? { message } : {}) },
+      body: {
+        record_type: recordType,
+        record_id: recordId,
+        reference,
+        ...(message ? { message } : {}),
+        ...(target ? { target } : {}),
+      },
     });
     if (error) throw new Error(error.message);
     if (data && data.success === false) throw new Error(data.error || "Squad recusou a requisição");
