@@ -6,36 +6,71 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
+function extractAvatarUrl(data: unknown): string | null {
+  if (!data || typeof data !== "object") return null;
+  const d = data as Record<string, unknown>;
+  const candidates = [
+    d?.Image, d?.image,
+    d?.eurl, d?.url, d?.imgUrl,
+    d?.picture, d?.profilePicUrl,
+    (d?.data as any)?.url, (d?.data as any)?.image,
+  ];
+  for (const v of candidates) {
+    if (v && typeof v === "string" && v.startsWith("http")) return v as string;
+  }
+  return null;
+}
+
 async function tryFetchAvatar(baseUrl: string, token: string, cleanPhone: string): Promise<string | null> {
-  // Tentativas em ordem de prioridade (WuzAPI → UazapiGO → fallbacks)
-  const endpoints = [
+  const headers = { token, "Content-Type": "application/json" };
+
+  // GET endpoints
+  const getEndpoints = [
     `${baseUrl}/user/avatar?Phone=${cleanPhone}&Preview=false`,
     `${baseUrl}/user/avatar?phone=${cleanPhone}&preview=false`,
     `${baseUrl}/contact/profilepicture?phone=${cleanPhone}`,
     `${baseUrl}/contact/profilepicture?Phone=${cleanPhone}`,
   ];
 
-  for (const url of endpoints) {
+  for (const url of getEndpoints) {
     try {
       const res = await fetch(url, { headers: { token } });
       const text = await res.text();
-      console.log(`[avatar] ${res.status} ${url} → ${text.slice(0, 150)}`);
-
+      console.log(`[avatar] GET ${res.status} ${url} → ${text.slice(0, 120)}`);
       if (res.ok && text.startsWith("{")) {
-        const data = JSON.parse(text);
-        // WuzAPI: { Image, Id, Type, DirectPath }
-        // UazapiGO: { eurl, url, tag } ou { imgUrl } ou { picture } ou { profilePicUrl }
-        const url2 =
-          data?.Image || data?.image ||
-          data?.eurl || data?.url || data?.imgUrl ||
-          data?.picture || data?.profilePicUrl ||
-          data?.data?.url || data?.data?.image || null;
-        if (url2 && typeof url2 === "string" && url2.startsWith("http")) return url2;
+        const found = extractAvatarUrl(JSON.parse(text));
+        if (found) return found;
       }
     } catch (e) {
-      console.log(`[avatar] Error on ${url}:`, e);
+      console.log(`[avatar] GET error ${url}:`, e);
     }
   }
+
+  // POST endpoints (some Uazapi versions require POST with body)
+  const postEndpoints = [
+    `${baseUrl}/contact/profilepicture`,
+    `${baseUrl}/contact/getprofilepicture`,
+    `${baseUrl}/user/avatar`,
+  ];
+
+  for (const url of postEndpoints) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ phone: cleanPhone }),
+      });
+      const text = await res.text();
+      console.log(`[avatar] POST ${res.status} ${url} → ${text.slice(0, 120)}`);
+      if (res.ok && text.startsWith("{")) {
+        const found = extractAvatarUrl(JSON.parse(text));
+        if (found) return found;
+      }
+    } catch (e) {
+      console.log(`[avatar] POST error ${url}:`, e);
+    }
+  }
+
   return null;
 }
 
