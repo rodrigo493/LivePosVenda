@@ -115,7 +115,7 @@ Deno.serve(async (req) => {
 
     // Persiste resultado apenas para pos-venda (tem colunas squad_sent_at no banco)
     if (resolvedTarget === 'pos-venda') {
-      await supabase
+      const { error: dbErr } = await supabase
         .from(table)
         .update({
           squad_sent_at: new Date().toISOString(),
@@ -123,6 +123,7 @@ Deno.serve(async (req) => {
           squad_error: errorText,
         })
         .eq('id', record_id);
+      if (dbErr) console.error('[squad-notify] db update error:', dbErr.message);
     }
 
     if (errorText) return jsonResponse({ success: false, status, error: errorText });
