@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Send, MessageSquare, Paperclip, X, Mic, Download, CornerUpLeft, ChevronDown, Copy, Forward, Check, CheckCheck, Trash2 } from "lucide-react";
+import { Send, MessageSquare, Paperclip, X, Mic, Download, CornerUpLeft, ChevronDown, Copy, Forward, Check, CheckCheck, Trash2, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -404,6 +404,7 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
   const [replyTo, setReplyTo] = useState<{ id: string; preview: string; direction: string } | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [forwardMsg, setForwardMsg] = useState<any | null>(null);
+  const [editingMsg, setEditingMsg] = useState<{ id: string; text: string } | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -452,11 +453,32 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
     };
   }, []);
 
+  const markConvRead = () => {
+    if (!clientId) return;
+    (supabase as any).rpc("mark_client_whatsapp_read", { p_client_id: clientId })
+      .then(() => qc.invalidateQueries({ queryKey: ["whatsapp-conversations"] }));
+  };
+
   const deleteMessage = async (msgId: string) => {
     const { error } = await supabase.from("whatsapp_messages").delete().eq("id", msgId);
     if (error) { toast.error("Erro ao apagar mensagem"); return; }
     qc.invalidateQueries({ queryKey: ["whatsapp-messages", clientId, ticketId] });
+    markConvRead();
     toast.success("Mensagem apagada");
+  };
+
+  const saveEditMessage = async () => {
+    if (!editingMsg) return;
+    const trimmed = editingMsg.text.trim();
+    if (!trimmed) return;
+    const { error } = await supabase
+      .from("whatsapp_messages")
+      .update({ message_text: trimmed })
+      .eq("id", editingMsg.id);
+    if (error) { toast.error("Erro ao editar mensagem"); return; }
+    qc.invalidateQueries({ queryKey: ["whatsapp-messages", clientId, ticketId, instanceId] });
+    setEditingMsg(null);
+    toast.success("Mensagem editada");
   };
 
   const formatRecTime = (s: number) =>
@@ -523,6 +545,7 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || "Erro ao enviar");
       qc.invalidateQueries({ queryKey: ["whatsapp-messages", clientId, ticketId] });
+      markConvRead();
     } catch (err: any) {
       toast.error(err.message || "Erro ao enviar áudio");
     } finally {
@@ -630,8 +653,8 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
       );
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || "Erro ao enviar");
-      // Remove a mensagem temporária e busca a versão real do servidor
       qc.invalidateQueries({ queryKey: qkey });
+      markConvRead();
     } catch (err: any) {
       // Reverte o optimistic update em caso de erro
       qc.setQueryData(qkey, (old: any[]) => (old ?? []).filter((m: any) => m.id !== tempId));
@@ -755,6 +778,14 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
                             {outbound && (
                               <>
                                 <div className="my-1 border-t" />
+                                {isTextMsg && (
+                                  <button
+                                    onClick={() => { setEditingMsg({ id: msg.id, text: msg.message_text || "" }); setOpenMenuId(null); }}
+                                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-muted text-left"
+                                  >
+                                    <Pencil className="h-3.5 w-3.5 text-muted-foreground" /> Editar
+                                  </button>
+                                )}
                                 <button
                                   onClick={() => { setOpenMenuId(null); deleteMessage(msg.id); }}
                                   className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-red-50 dark:hover:bg-red-950/30 text-red-600 text-left"
@@ -807,6 +838,21 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
                             <div className="flex items-center gap-2">
                               <a href={msg.media_url} target="_blank" rel="noreferrer" className="underline text-[13px]">{msg.message_text}</a>
                               <DownloadButton url={msg.media_url} filename={msg.media_url.split("/").pop()?.split("?")[0] || `arquivo_${msg.id}`} prefix="arquivo" outbound={outbound} label="Baixar" compact />
+                            </div>
+                          ) : editingMsg?.id === msg.id ? (
+                            <div className="flex flex-col gap-1.5 min-w-[180px]">
+                              <textarea
+                                autoFocus
+                                value={editingMsg.text}
+                                onChange={(e) => setEditingMsg({ ...editingMsg, text: e.target.value })}
+                                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); saveEditMessage(); } if (e.key === "Escape") setEditingMsg(null); }}
+                                className="w-full bg-transparent resize-none text-[13px] leading-relaxed outline-none border-b border-white/40 pb-0.5"
+                                rows={Math.max(1, editingMsg.text.split("\n").length)}
+                              />
+                              <div className="flex items-center justify-end gap-2">
+                                <button onClick={() => setEditingMsg(null)} className="text-[11px] opacity-70 hover:opacity-100">Cancelar</button>
+                                <button onClick={saveEditMessage} className="text-[11px] font-semibold hover:opacity-80">Salvar</button>
+                              </div>
                             </div>
                           ) : (
                             <p className="whitespace-pre-wrap text-[13px] leading-relaxed">{msg.message_text}</p>
