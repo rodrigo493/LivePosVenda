@@ -226,14 +226,21 @@ export function useMarkConversationRead() {
     },
     onMutate: async (clientId: string) => {
       await qc.cancelQueries({ queryKey: ["whatsapp-conversations"] });
-      const prev = qc.getQueryData<Conversation[]>(["whatsapp-conversations"]);
-      qc.setQueryData<Conversation[]>(["whatsapp-conversations"], (old) =>
-        (old || []).map((c) => c.client_id === clientId ? { ...c, unread_count: 0 } : c)
-      );
+      // Atualiza TODAS as queries com prefixo "whatsapp-conversations" (chaves completas)
+      const prev = qc.getQueriesData<Conversation[]>({ queryKey: ["whatsapp-conversations"] });
+      for (const [key] of prev) {
+        qc.setQueryData<Conversation[]>(key, (old) =>
+          (old || []).map((c) => c.client_id === clientId ? { ...c, unread_count: 0 } : c)
+        );
+      }
       return { prev };
     },
-    onError: (_err: unknown, _clientId: string, context: { prev?: Conversation[] } | undefined) => {
-      if (context?.prev) qc.setQueryData(["whatsapp-conversations"], context.prev);
+    onError: (_err: unknown, _clientId: string, context: { prev?: [unknown[], Conversation[] | undefined][] } | undefined) => {
+      if (context?.prev) {
+        for (const [key, data] of context.prev) {
+          qc.setQueryData(key as any, data);
+        }
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["whatsapp-conversations"] });
