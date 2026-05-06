@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { MessageSquare, Search, UserPlus, LayoutGrid, ArrowLeft } from "lucide-react";
+import { MessageSquare, Search, UserPlus, LayoutGrid, ArrowLeft, Brain } from "lucide-react";
+import { toggleLaivinha } from "@/components/laivinha/LaivinhaChat";
 import { ChannelIcon } from "@/components/ui/ChannelIcon";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -665,6 +666,16 @@ export default function ChatPage() {
                   )}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
+                  {isMobile && (
+                    <button
+                      onClick={toggleLaivinha}
+                      className="h-7 w-7 rounded-full bg-violet-100 hover:bg-violet-200 text-violet-600 flex items-center justify-center transition-colors"
+                      title="Laivinha IA"
+                      aria-label="Abrir chat com Laivinha"
+                    >
+                      <Brain className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                   {clientCards?.pgId && (
                     <Button
                       size="sm"

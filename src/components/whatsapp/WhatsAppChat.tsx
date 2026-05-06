@@ -844,7 +844,7 @@ export function WhatsAppChat({ clientId, ticketId, clientPhone, clientName, hide
       {forwardMsg && <ForwardModal msg={forwardMsg} onClose={() => setForwardMsg(null)} />}
 
       {/* Input area */}
-      <div className="border-t pt-3 mt-2 pr-24">
+      <div className="border-t pt-3 mt-2 md:pr-24">
         {isRecording ? (
           /* Recording UI — waveform + timer + cancel/send */
           <div className="flex items-center gap-2">

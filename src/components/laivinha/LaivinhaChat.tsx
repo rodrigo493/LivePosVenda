@@ -8,6 +8,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 
+let _setLaivinhaOpen: ((o: boolean | ((prev: boolean) => boolean)) => void) | null = null;
+export function toggleLaivinha() { _setLaivinhaOpen?.((o) => !o); }
+
 interface Message {
   role: "user" | "assistant";
   content: string;
@@ -28,6 +31,11 @@ const WELCOME: Message = {
 export function LaivinhaChat() {
   const { user } = useAuth();
   const [open, setOpen]               = useState(false);
+
+  useEffect(() => {
+    _setLaivinhaOpen = setOpen;
+    return () => { _setLaivinhaOpen = null; };
+  }, []);
   const [messages, setMessages]       = useState<Message[]>([WELCOME]);
   const [input, setInput]             = useState("");
   const [loading, setLoading]         = useState(false);
@@ -125,10 +133,10 @@ export function LaivinhaChat() {
 
   return (
     <>
-      {/* Botão flutuante */}
+      {/* Botão flutuante — apenas desktop */}
       <button
         onClick={() => setOpen((o) => !o)}
-        className="fixed bottom-6 right-6 z-50 h-14 w-14 rounded-full bg-violet-600 hover:bg-violet-700 text-white shadow-lg flex items-center justify-center transition-all hover:scale-105 focus:outline-none"
+        className="fixed bottom-6 right-6 z-50 h-14 w-14 rounded-full bg-violet-600 hover:bg-violet-700 text-white shadow-lg hidden md:flex items-center justify-center transition-all hover:scale-105 focus:outline-none"
         title="Chat com a Laivinha"
         aria-label="Abrir chat com Laivinha"
       >
