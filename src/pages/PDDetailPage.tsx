@@ -208,9 +208,29 @@ const PDDetailPage = () => {
       }
       return [];
     };
-    tryLoad([["condicoespagamento", "descricao"], ["condicoes", "descricao"], ["condicoes", "nome"], ["condicaopagamento", "descricao"]]).then(setNomusCondicaoAll);
-    tryLoad([["formaspagamento", "descricao"], ["formas", "descricao"], ["formas", "nome"], ["formapagamento", "descricao"]]).then(setNomusFormaAll);
     tryLoad([["vendedores", "nome"]]).then(setNomusVendedorAll);
+    // Nomus não expõe endpoints dedicados para condições/formas — extrair dos pedidos existentes
+    fetch("/api/nomus/rest/pedidos", { headers: { Accept: "application/json" } })
+      .then(r => r.ok ? r.json() : [])
+      .then((body: any[]) => {
+        if (!Array.isArray(body)) return;
+        const conds = new Map<number, string>();
+        const forms = new Set<number>();
+        for (const p of body) {
+          const cid = Number(p.idCondicaoPagamento);
+          const ctxt = String(p.condicaoPagamentoTexto || "");
+          if (cid && !conds.has(cid)) conds.set(cid, ctxt || `Condição #${cid}`);
+          const fid = Number(p.idFormaPagamento);
+          if (fid) forms.add(fid);
+        }
+        setNomusCondicaoAll(
+          Array.from(conds.entries()).map(([id, nome]) => ({ id, nome: `${nome} (ID ${id})` })).sort((a, b) => a.id - b.id)
+        );
+        setNomusFormaAll(
+          Array.from(forms).map(id => ({ id, nome: `Forma #${id}` })).sort((a, b) => a - b)
+        );
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
