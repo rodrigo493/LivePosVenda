@@ -1326,7 +1326,7 @@ const PADetailPage = () => {
           <div className="flex justify-end pt-1">
             <Button size="sm" className="gap-1.5" onClick={handleSaveSquadNotes} disabled={savingSquad}>
               {savingSquad ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-              {savingSquad ? "Enviando..." : "Salvar e Enviar ao Squad"}
+              {savingSquad ? "Enviando..." : "Salvar e Enviar Alerta ao Squad"}
             </Button>
           </div>
         </div>
