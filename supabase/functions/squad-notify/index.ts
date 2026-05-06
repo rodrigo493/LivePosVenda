@@ -2,13 +2,14 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': 'https://posvenda.liveuni.com.br',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version, x-supabase-client-runtime-version',
 };
 
-const SQUAD_URL = 'https://squad.liveuni.com.br/api/pos-venda';
+const SQUAD_BASE = 'https://squad.liveuni.com.br';
 const POSVENDA_BASE = 'https://posvenda.liveuni.com.br';
 
-type RecordType = 'pa' | 'pg';
+type RecordType = 'pa' | 'pd' | 'pg';
+type Target = 'pos-venda' | 'gerar-op' | 'pedido-acessorios';
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -17,13 +18,32 @@ function jsonResponse(body: Record<string, unknown>, status = 200) {
   });
 }
 
+function squadUrlFor(target: Target): string {
+  const endpoints: Record<Target, string> = {
+    'pos-venda': `${SQUAD_BASE}/api/pos-venda`,
+    'gerar-op': `${SQUAD_BASE}/api/gerar-op`,
+    'pedido-acessorios': `${SQUAD_BASE}/api/pedido-acessorios`,
+  };
+  return endpoints[target] ?? endpoints['pos-venda'];
+}
+
 function pathFor(recordType: RecordType, recordId: string): string {
-  const segment = recordType === 'pa' ? 'pedidos-acessorios' : 'pedidos-garantia';
+  const segments: Record<RecordType, string> = {
+    pa: 'pedidos-acessorios',
+    pd: 'pedidos-direto',
+    pg: 'pedidos-garantia',
+  };
+  const segment = segments[recordType] ?? 'pedidos-acessorios';
   return `${POSVENDA_BASE}/${segment}/${recordId}`;
 }
 
 function tableFor(recordType: RecordType): string {
-  return recordType === 'pa' ? 'service_requests' : 'warranty_claims';
+  const tables: Record<RecordType, string> = {
+    pa: 'service_requests',
+    pd: 'service_requests',
+    pg: 'warranty_claims',
+  };
+  return tables[recordType] ?? 'service_requests';
 }
 
 Deno.serve(async (req) => {
@@ -39,39 +59,42 @@ Deno.serve(async (req) => {
     );
 
     const body = await req.json();
-    const { record_type, record_id, reference, message } = body as {
+    const { record_type, record_id, reference, message, target } = body as {
       record_type?: RecordType;
       record_id?: string;
       reference?: string;
       message?: string;
+      target?: Target;
     };
 
-    if (record_type !== 'pa' && record_type !== 'pg') {
-      return jsonResponse({ error: 'record_type must be "pa" or "pg"' }, 400);
+    if (record_type !== 'pa' && record_type !== 'pd' && record_type !== 'pg') {
+      return jsonResponse({ error: 'record_type must be "pa", "pd" or "pg"' }, 400);
     }
     if (!record_id || !reference) {
       return jsonResponse({ error: 'record_id and reference are required' }, 400);
     }
 
+    const resolvedTarget: Target = target ?? 'pos-venda';
+    const squadUrl = squadUrlFor(resolvedTarget);
     const url = pathFor(record_type, record_id);
     const table = tableFor(record_type);
 
-    // Use custom message if provided, otherwise fetch squad_notes from DB
+    // Usa message passado ou busca squad_notes no banco (apenas para pos-venda)
     let notes: string | null = message ?? null;
-    if (!notes) {
+    if (!notes && resolvedTarget === 'pos-venda') {
       const { data: record } = await supabase
         .from(table)
         .select('squad_notes')
         .eq('id', record_id)
         .maybeSingle();
-      notes = (record as any)?.squad_notes ?? null;
+      notes = (record as { squad_notes?: string | null } | null)?.squad_notes ?? null;
     }
 
     let status: number | null = null;
     let errorText: string | null = null;
 
     try {
-      const res = await fetch(SQUAD_URL, {
+      const res = await fetch(squadUrl, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${SQUAD_TOKEN}`,
@@ -81,10 +104,7 @@ Deno.serve(async (req) => {
       });
       status = res.status;
       if (!res.ok) {
-        // 409 = instância já existe no Squad → já foi notificado, tratar como sucesso
-        if (res.status === 409) {
-          status = 409;
-        } else {
+        if (res.status !== 409) {
           const text = await res.text().catch(() => '');
           errorText = `Squad [${res.status}]: ${text.slice(0, 500)}`;
         }
@@ -93,14 +113,17 @@ Deno.serve(async (req) => {
       errorText = e instanceof Error ? e.message : 'Falha de rede ao chamar Squad';
     }
 
-    await supabase
-      .from(table)
-      .update({
-        squad_sent_at: new Date().toISOString(),
-        squad_response_status: status,
-        squad_error: errorText,
-      })
-      .eq('id', record_id);
+    // Persiste resultado apenas para pos-venda (tem colunas squad_sent_at no banco)
+    if (resolvedTarget === 'pos-venda') {
+      await supabase
+        .from(table)
+        .update({
+          squad_sent_at: new Date().toISOString(),
+          squad_response_status: status,
+          squad_error: errorText,
+        })
+        .eq('id', record_id);
+    }
 
     if (errorText) return jsonResponse({ success: false, status, error: errorText });
     return jsonResponse({ success: true, status });
