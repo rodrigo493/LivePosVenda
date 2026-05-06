@@ -691,7 +691,7 @@ const PADetailPage = () => {
 
     setApproving(true);
     // Notifica o SquadOS logo ao aprovar, independente do resultado do ERP.
-    void notifySquad({ recordType: "pa", recordId: id!, reference: requestNumber });
+    void notifySquad({ recordType: "pa", recordId: id!, reference: requestNumber, target: "pedido-acessorios" });
     try {
       // Resolve client ID via nginx proxy
       let idPessoaCliente = nomusClientId;
@@ -1259,7 +1259,7 @@ const PADetailPage = () => {
                           title="Gerar Ordem de Produção"
                           onClick={async () => {
                             const name = item.description || item.products?.name || item.products?.code || "item";
-                            const ok = await notifySquad({ recordType: "pa", recordId: id!, reference: requestNumber, message: `Produzir/Comprar: ${name}` });
+                            const ok = await notifySquad({ recordType: "pa", recordId: id!, reference: requestNumber, message: `Produzir/Comprar: ${name}`, target: "gerar-op" });
                             if (ok) toast.success("Ordem enviada ao Squad!");
                           }}
                         >
