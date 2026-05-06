@@ -54,9 +54,10 @@ function useWhatsAppMessages(clientId: string | undefined, ticketId?: string, in
         query = query.eq("client_id", clientId!);
       }
 
-      // Isola por instância para evitar que mensagens de outras instâncias apareçam
+      // Isola por instância. Inclui também mensagens sem instance_id (NULL) pois são
+      // mensagens históricas ou de webhook sem instância identificada — nunca devem sumir.
       if (instanceId) {
-        query = query.eq("instance_id", instanceId);
+        query = query.or(`instance_id.eq.${instanceId},instance_id.is.null`);
       }
 
       const { data, error } = await query;

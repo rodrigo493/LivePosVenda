@@ -410,6 +410,22 @@ Deno.serve(async (req) => {
         console.log("Reject payload: token not in DB and mismatches UAZAPI_EXPECTED_TOKEN. instanceName=", body?.instanceName);
         return new Response(JSON.stringify({ ignored: true, reason: "wrong_instance" }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
+      // Token bate com a variável de ambiente legacy (token válido mas instância não foi
+      // cadastrada no banco ainda). Busca a instância padrão para evitar instance_id = NULL.
+      // Só faz isso quando há match explícito com UAZAPI_EXPECTED_TOKEN — tokens completamente
+      // desconhecidos ficam com pipelineInstance = null para não poluir a instância padrão.
+      if (expectedInstanceToken && incomingToken === expectedInstanceToken) {
+        const { data: defaultInstances } = await admin
+          .from("pipeline_whatsapp_instances")
+          .select("id, pipeline_id, base_url, instance_token, user_id")
+          .eq("active", true)
+          .order("created_at", { ascending: true })
+          .limit(1);
+        pipelineInstance = defaultInstances?.[0] ?? null;
+        if (pipelineInstance) {
+          console.log("Legacy token match: resolved to default instance", pipelineInstance.id);
+        }
+      }
     }
 
     const instanceId: string | null = pipelineInstance?.id ?? null;

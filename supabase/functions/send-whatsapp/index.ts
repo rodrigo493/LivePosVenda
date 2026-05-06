@@ -172,6 +172,20 @@ Deno.serve(async (req) => {
       }
     }
 
+    // 5. Último recurso: encontra a instância cujo token bate com o env var (evita instance_id = NULL)
+    if (!useInstanceId) {
+      const { data: envInst } = await adminClient
+        .from("pipeline_whatsapp_instances")
+        .select("id, instance_token, base_url")
+        .eq("instance_token", useToken)
+        .eq("active", true)
+        .maybeSingle();
+      if ((envInst as any)?.id) {
+        useInstanceId = (envInst as any).id;
+        useBaseUrl = (envInst as any).base_url || UAZAPI_BASE_URL;
+      }
+    }
+
     if (media_base64 && media_mime_type) {
       const ext = (media_filename || "file").split(".").pop() || "bin";
       const fileBytes = base64ToUint8Array(media_base64);
