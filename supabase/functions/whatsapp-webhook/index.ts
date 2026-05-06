@@ -93,7 +93,9 @@ async function decryptWhatsAppMedia(
 
     if (encrypted.length < 26) { dbg.cdnError = "encrypted_too_short"; return null; }
 
-    // Try multiple decryption variants to handle different Uazapi/WuzAPI versions:
+    // Try multiple decryption variants to handle different Uazapi/WuzAPI versions and
+    // WhatsApp proto types that don't match the MIME type (e.g. a JPEG file shared as a
+    // document uses "WhatsApp Document Keys" even though mimetype=image/jpeg).
     // V1/V2: HKDF-derived IV (standard whatsmeow format), with/without null byte
     // V3/V4: Embedded IV — first 16 bytes of CDN file as IV (some forks prepend IV)
     // V5/V6: Baileys key ordering — cipherKey=exp[48:80], IV=exp[32:48]
@@ -102,36 +104,47 @@ async function decryptWhatsAppMedia(
     const embeddedIV = encrypted.slice(0, 16);
     const ciphertextAfterIV = encrypted.slice(16, encrypted.length - 10);
     let decrypted: Uint8Array | null = null;
-    outer: for (const suffix of ["", "\x00"]) {
-      const info = new TextEncoder().encode(`WhatsApp ${mediaType} Keys${suffix}`);
-      const exp = await hkdfSha256(mediaKeyBytes, new Uint8Array(32), info, 112);
-      const attempts = [
-        { label: suffix ? "hkdf_null" : "hkdf_no_null", iv: exp.subarray(0, 16), key: exp.subarray(16, 48), data: encWithoutMac },
-        { label: suffix ? "hkdf_null_emb_iv" : "hkdf_no_null_emb_iv", iv: embeddedIV, key: exp.subarray(16, 48), data: ciphertextAfterIV },
-        { label: suffix ? "baileys_null" : "baileys_no_null", iv: exp.subarray(32, 48), key: exp.subarray(48, 80), data: encWithoutMac },
-      ];
-      for (const a of attempts) {
-        if (a.data.length === 0 || a.data.length % 16 !== 0) continue;
-        try {
-          const aesKey = await crypto.subtle.importKey("raw", a.key, { name: "AES-CBC" }, false, ["decrypt"]);
-          const buf = await crypto.subtle.decrypt({ name: "AES-CBC", iv: a.iv }, aesKey, a.data);
-          decrypted = new Uint8Array(buf);
-          dbg.decryptVariant = a.label;
-          dbg.cdnBytes = decrypted.length;
-          console.log("CDN decrypt ok variant=", a.label, decrypted.length, "bytes");
-          break outer;
-        } catch { /* try next */ }
+    // Try the primary type first, then all others — handles JPEG sent as Document, etc.
+    const allTypes = ["Image", "Video", "Audio", "Document"];
+    const typesToTry = [mediaType, ...allTypes.filter((t) => t !== mediaType)];
+    outer: for (const tryType of typesToTry) {
+      for (const suffix of ["", "\x00"]) {
+        const info = new TextEncoder().encode(`WhatsApp ${tryType} Keys${suffix}`);
+        const exp = await hkdfSha256(mediaKeyBytes, new Uint8Array(32), info, 112);
+        const attempts = [
+          { label: `${tryType}_${suffix ? "null" : "no_null"}_hkdf`, iv: exp.subarray(0, 16), key: exp.subarray(16, 48), data: encWithoutMac },
+          { label: `${tryType}_${suffix ? "null" : "no_null"}_emb_iv`, iv: embeddedIV, key: exp.subarray(16, 48), data: ciphertextAfterIV },
+          { label: `${tryType}_${suffix ? "null" : "no_null"}_baileys`, iv: exp.subarray(32, 48), key: exp.subarray(48, 80), data: encWithoutMac },
+        ];
+        for (const a of attempts) {
+          if (a.data.length === 0 || a.data.length % 16 !== 0) continue;
+          try {
+            const aesKey = await crypto.subtle.importKey("raw", a.key, { name: "AES-CBC" }, false, ["decrypt"]);
+            const buf = await crypto.subtle.decrypt({ name: "AES-CBC", iv: a.iv }, aesKey, a.data);
+            const candidate = new Uint8Array(buf);
+            if (looksLikeValidMedia(candidate, mime)) {
+              decrypted = candidate;
+              dbg.decryptVariant = a.label;
+              dbg.cdnBytes = decrypted.length;
+              console.log("CDN decrypt ok variant=", a.label, decrypted.length, "bytes");
+              break outer;
+            }
+          } catch { /* try next */ }
+        }
       }
     }
-    // V7: direct mediaKey as cipher key + embedded IV (no HKDF)
+    // V7: direct mediaKey as cipher key + embedded IV (no HKDF, type-independent)
     if (!decrypted && ciphertextAfterIV.length > 0 && ciphertextAfterIV.length % 16 === 0) {
       try {
         const aesKey = await crypto.subtle.importKey("raw", mediaKeyBytes.slice(0, 32), { name: "AES-CBC" }, false, ["decrypt"]);
         const buf = await crypto.subtle.decrypt({ name: "AES-CBC", iv: embeddedIV }, aesKey, ciphertextAfterIV);
-        decrypted = new Uint8Array(buf);
-        dbg.decryptVariant = "direct_key_emb_iv";
-        dbg.cdnBytes = decrypted.length;
-        console.log("CDN decrypt ok variant=direct_key_emb_iv", decrypted.length, "bytes");
+        const candidate = new Uint8Array(buf);
+        if (looksLikeValidMedia(candidate, mime)) {
+          decrypted = candidate;
+          dbg.decryptVariant = "direct_key_emb_iv";
+          dbg.cdnBytes = decrypted.length;
+          console.log("CDN decrypt ok variant=direct_key_emb_iv", decrypted.length, "bytes");
+        }
       } catch { /* failed */ }
     }
 
