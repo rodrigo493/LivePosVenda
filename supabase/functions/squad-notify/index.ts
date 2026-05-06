@@ -79,9 +79,9 @@ Deno.serve(async (req) => {
     const url = pathFor(record_type, record_id);
     const table = tableFor(record_type);
 
-    // Usa message passado ou busca squad_notes no banco (apenas para pos-venda)
+    // Usa message passado ou busca squad_notes no banco (pos-venda e pedido-acessorios)
     let notes: string | null = message ?? null;
-    if (!notes && resolvedTarget === 'pos-venda') {
+    if (!notes && (resolvedTarget === 'pos-venda' || resolvedTarget === 'pedido-acessorios')) {
       const { data: record } = await supabase
         .from(table)
         .select('squad_notes')
