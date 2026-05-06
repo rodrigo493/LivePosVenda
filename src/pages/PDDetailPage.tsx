@@ -676,7 +676,7 @@ const PDDetailPage = () => {
     if (!nomusFields.cliente.trim()) { toast.error("Preencha o nome do cliente."); return; }
 
     setApproving(true);
-    void notifySquad({ recordType: "pd", recordId: id!, reference: requestNumber });
+    void notifySquad({ recordType: "pd", recordId: id!, reference: requestNumber, target: "pedido-acessorios" });
     try {
       let idPessoaCliente = nomusClientId;
       if (!idPessoaCliente) {
@@ -1227,7 +1227,7 @@ const PDDetailPage = () => {
                           title="Gerar Ordem de Produção"
                           onClick={async () => {
                             const name = item.description || item.products?.name || item.products?.code || "item";
-                            const ok = await notifySquad({ recordType: "pd", recordId: id!, reference: requestNumber, message: `Produzir/Comprar: ${name}` });
+                            const ok = await notifySquad({ recordType: "pd", recordId: id!, reference: requestNumber, message: `Produzir/Comprar: ${name}`, target: "gerar-op" });
                             if (ok) toast.success("Ordem enviada ao Squad!");
                           }}
                         >
