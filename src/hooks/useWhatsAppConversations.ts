@@ -185,11 +185,14 @@ export function useWhatsAppConversations(
         }
       }
 
-      // ── Step 9: deduplica por telefone (últimos 8 dígitos) ──
+      // ── Step 9: deduplica por telefone (últimos 11 dígitos = DDD + 9 + número) ──
+      // Usar 8 dígitos é perigoso: clientes de DDDs diferentes (ex: 11 9 8707-3687 e
+      // 19 9 8707-3687) teriam a mesma chave e seriam fundidos incorretamente.
+      // 11 dígitos são suficientes para garantir unicidade em números brasileiros.
       const byPhone = new Map<string, Conversation>();
       for (const conv of map.values()) {
         const phoneKey = conv.client_phone
-          ? conv.client_phone.replace(/\D/g, "").slice(-8)
+          ? conv.client_phone.replace(/\D/g, "").slice(-11)
           : conv.client_id;
         const existing = byPhone.get(phoneKey);
         if (!existing) {
