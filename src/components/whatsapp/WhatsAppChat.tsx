@@ -37,7 +37,7 @@ interface WhatsAppChatProps {
 
 function useWhatsAppMessages(clientId: string | undefined, ticketId?: string, instanceId?: string) {
   return useQuery({
-    queryKey: ["whatsapp-messages", clientId, ticketId, instanceId],
+    queryKey: ["whatsapp-messages", clientId, ticketId],
     enabled: !!clientId,
     queryFn: async () => {
       let query = supabase
@@ -54,11 +54,8 @@ function useWhatsAppMessages(clientId: string | undefined, ticketId?: string, in
         query = query.eq("client_id", clientId!);
       }
 
-      // Isola por instância. Inclui também mensagens sem instance_id (NULL) pois são
-      // mensagens históricas ou de webhook sem instância identificada — nunca devem sumir.
-      if (instanceId) {
-        query = query.or(`instance_id.eq.${instanceId},instance_id.is.null`);
-      }
+      // Sem filtro por instance_id: mostra todo o histórico do cliente independente
+      // da instância. O instanceId é usado apenas para escolher por qual número enviar.
 
       const { data, error } = await query;
       if (error) throw error;
