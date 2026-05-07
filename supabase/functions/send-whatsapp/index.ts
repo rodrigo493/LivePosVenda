@@ -60,7 +60,7 @@ Deno.serve(async (req) => {
     }
 
     let cleanPhone = phone.replace(/\D/g, "");
-    if (cleanPhone.length <= 11) cleanPhone = "55" + cleanPhone;
+    if (cleanPhone.length <= 11) cleanPhone = "55" + cleanPhone; // BR: ≤ 11 dígitos = número local sem DDI
 
     const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     let useInstanceId: string | null = null;
