@@ -530,10 +530,11 @@ export default function ChatPage() {
             ) : (
               <AnimatePresence>
                 {filteredConversations.map((conv) => {
-                  const hasUnread = conv.unread_count > 0;
                   const isSelected = conv.channel === "instagram"
                     ? selectedIgChat?.id === (conv as InstagramConversation).id
                     : selectedChat?.client_id === (conv as any).client_id;
+                  // Conversa selecionada nunca mostra destaque — some imediatamente ao clicar
+                  const hasUnread = !isSelected && conv.unread_count > 0;
                   return (
                     <motion.button
                       key={conv.channel === "instagram" ? `ig-${(conv as InstagramConversation).id}` : (conv as any).client_id}

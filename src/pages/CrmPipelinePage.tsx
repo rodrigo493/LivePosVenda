@@ -62,8 +62,8 @@ import { PipelineEditMode } from "@/components/crm/PipelineEditMode";
 import { usePipelineAutomations, type AutomationActionType } from "@/hooks/useStageAutomations";
 import { useUpdatePipeline } from "@/hooks/useManagePipelines";
 import { useCreateStage, useUpdateStage, useDeleteStage, useReorderStages } from "@/hooks/useManageStages";
-import { useWhatsAppConversations } from "@/hooks/useWhatsAppConversations";
-import { useInstagramConversations } from "@/hooks/useInstagramConversations";
+import { useWhatsAppConversations, useMarkConversationRead } from "@/hooks/useWhatsAppConversations";
+import { useInstagramConversations, useMarkInstagramConversationRead } from "@/hooks/useInstagramConversations";
 import { useAuth } from "@/hooks/useAuth";
 import { useCreateClient } from "@/hooks/useClients";
 import { useCreateTicket } from "@/hooks/useTickets";
@@ -181,11 +181,21 @@ const CrmPipelinePage = () => {
   const [detailTicket, setDetailTicket] = useState<any>(null);
   const [detailInitialTab, setDetailInitialTab] = useState("info");
   const clearNewLead = useClearNewLead();
+  const markWppRead = useMarkConversationRead();
+  const markIgRead = useMarkInstagramConversationRead();
   const handleOpenTicket = useCallback((ticket: any, tab = "info") => {
     setDetailInitialTab(tab);
     setDetailTicket(ticket);
     if (ticket?.new_lead) clearNewLead(ticket.id);
-  }, [clearNewLead]);
+    // Limpa destaque de não-lido ao abrir o card
+    if (ticket?.client_id) {
+      if (ticket._unreadWhatsapp > 0) markWppRead.mutate(ticket.client_id);
+      if (ticket._unreadInstagram > 0) {
+        const igConv = igConversations?.find((c) => c.client_id === ticket.client_id);
+        if (igConv) markIgRead.mutate(igConv.id);
+      }
+    }
+  }, [clearNewLead, markWppRead, markIgRead, igConversations]);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [filterSource, setFilterSource] = useState<string>("all");
