@@ -61,6 +61,7 @@ async function processNode(node) {
   const { instanceId } = await new Promise(resolve =>
     chrome.runtime.sendMessage({ type: 'GET_STATUS' }, resolve)
   );
+  if (!instanceId) return; // Background não conectado ainda
 
   // ── Áudio ──
   const audioEl = el.querySelector('audio[src^="blob:"]') ||
