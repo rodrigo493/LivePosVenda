@@ -72,27 +72,21 @@ export function useWhatsAppConversations(
 
       // ── Step 4: resolve o responsável de cada cliente ─────────────────
       // Hierarquia (do mais para o menos prioritário):
-      //   1. clients.assigned_to  (atribuição manual — sempre respeitada)
-      //   2. pipeline_whatsapp_instances.user_id da última mensagem
-      //      (quem recebeu a última mensagem no WhatsApp é o dono da conversa no chat)
-      //   3. tickets.assigned_to  (ticket CRM — fallback quando nenhum dos acima se aplica)
+      //   1. pipeline_whatsapp_instances.user_id da última mensagem
+      //      (instância real do WhatsApp — sempre reflete quem recebeu a mensagem mais recente)
+      //   2. clients.assigned_to  (atribuição histórica — fallback quando cliente não tem
+      //      mensagem recente em instância conhecida)
+      //   3. tickets.assigned_to  (ticket CRM — último recurso)
       //
-      // L3 é o MAIS BAIXO porque um cliente pode ter um ticket CRM com a vendedora
-      // mas mandar mensagem para o pós-venda: nesse caso a conversa deve ir para
-      // o pós-venda (L2) e não continuar aparecendo para a vendedora (L3).
+      // L2 (instância) tem prioridade sobre L1 (assigned_to) porque evita o problema
+      // de cross-contamination: um cliente atribuído ao pós-venda que manda mensagem
+      // para o comercial deve aparecer no comercial, não no pós-venda.
       let clientOwnerMap = new Map<string, string>(); // client_id → user_id efetivo
 
       if (targetUserId && !instanceId) {
-        // Nível 1: clients.assigned_to (manual — maior prioridade)
-        for (const c of allClients) {
-          if (c.assigned_to) clientOwnerMap.set(c.id, c.assigned_to);
-        }
-
-        // Nível 2: user_id da instância da última mensagem (para clientes sem atribuição manual)
-        // Pulado quando strictOwnership=true (notificações pessoais), evitando que clientes
-        // "sem dono" sejam atribuídos a quem possui a instância principal.
-        const afterLevel1 = clientIds.filter((id) => !clientOwnerMap.has(id));
-        if (afterLevel1.length && !strictOwnership) {
+        // Nível 1 (maior prioridade): user_id da instância da última mensagem
+        // Pulado quando strictOwnership=true (notificações pessoais)
+        if (!strictOwnership) {
           const { data: instanceRows } = await (supabase as any)
             .from("pipeline_whatsapp_instances")
             .select("id, user_id")
@@ -102,7 +96,7 @@ export function useWhatsAppConversations(
             ((instanceRows ?? []) as any[]).map((i: any) => [i.id, i.user_id])
           );
 
-          for (const clientId of afterLevel1) {
+          for (const clientId of clientIds) {
             const lastInst = lastInstancePerClient.get(clientId);
             if (lastInst) {
               const instUser = instanceUserIdMap.get(lastInst);
@@ -111,7 +105,15 @@ export function useWhatsAppConversations(
           }
         }
 
-        // Nível 3: tickets.assigned_to para clientes sem L1 e sem L2 (ticket CRM como fallback)
+        // Nível 2: clients.assigned_to para clientes sem roteamento de instância
+        const afterLevel1 = clientIds.filter((id) => !clientOwnerMap.has(id));
+        for (const c of allClients) {
+          if (afterLevel1.includes(c.id) && c.assigned_to) {
+            clientOwnerMap.set(c.id, c.assigned_to);
+          }
+        }
+
+        // Nível 3: tickets.assigned_to (último fallback)
         const afterLevel2 = clientIds.filter((id) => !clientOwnerMap.has(id));
         if (afterLevel2.length) {
           const { data: tickets } = await (supabase as any)
