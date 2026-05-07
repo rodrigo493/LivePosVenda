@@ -39,7 +39,17 @@ async function init() {
     }
   }
 
-  if (instanceId) subscribeRealtime();
+  if (instanceId) {
+    subscribeRealtime();
+    pingHeartbeat().catch(console.error);
+  }
+}
+
+async function pingHeartbeat() {
+  if (!sb || !instanceId) return;
+  await sb.from('pipeline_whatsapp_instances')
+    .update({ extension_last_ping: new Date().toISOString() })
+    .eq('id', instanceId);
 }
 
 function subscribeRealtime() {
@@ -173,8 +183,9 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'keepalive') {
     if (!sb) {
       init().catch(console.error);
-    } else if (!rtChannel || rtChannel.state !== 'joined') {
-      subscribeRealtime();
+    } else {
+      if (!rtChannel || rtChannel.state !== 'joined') subscribeRealtime();
+      pingHeartbeat().catch(console.error);
     }
   } else if (alarm.name === 'token-refresh') {
     refreshToken().catch(console.error);

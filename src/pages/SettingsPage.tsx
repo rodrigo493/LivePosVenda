@@ -391,6 +391,23 @@ async function callEdge(method: string, body?: object, query = "") {
   return payload;
 }
 
+function WaStatusDot({ ping }: { ping: string | null }) {
+  const online = !!ping && Date.now() - new Date(ping).getTime() < 5 * 60 * 1000;
+  if (!ping) return null;
+  return (
+    <span title={online ? "WhatsApp ativo agora" : "Extensão WhatsApp offline"} className="shrink-0">
+      {online ? (
+        <span className="relative flex h-2 w-2">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+        </span>
+      ) : (
+        <span className="inline-flex rounded-full h-2 w-2 bg-muted-foreground/30" />
+      )}
+    </span>
+  );
+}
+
 function UserManagement() {
   const qc = useQueryClient();
   const { user: me } = useAuth();
@@ -402,6 +419,22 @@ function UserManagement() {
   const [editName, setEditName] = useState("");
   const [editEmail, setEditEmail] = useState("");
   const [editFunctions, setEditFunctions] = useState<string[]>([]);
+
+  const { data: waPings } = useQuery<Record<string, string | null>>({
+    queryKey: ["wa-user-pings"],
+    queryFn: async () => {
+      const { data } = await (supabase as any)
+        .from("pipeline_whatsapp_instances")
+        .select("user_id, extension_last_ping")
+        .not("user_id", "is", null);
+      const map: Record<string, string | null> = {};
+      for (const row of data ?? []) {
+        if (row.user_id) map[row.user_id] = row.extension_last_ping;
+      }
+      return map;
+    },
+    refetchInterval: 30_000,
+  });
 
   // Query direta ao Supabase — evita o mismatch de IDs no edge function GET
   const { data: users = [], isLoading } = useQuery<UserRow[]>({
@@ -538,7 +571,10 @@ function UserManagement() {
             {users.map((u) => (
               <div key={u.user_id} className="flex items-center gap-3 p-3 rounded-lg bg-muted/40 hover:bg-muted/60 transition-colors">
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{u.full_name}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium truncate">{u.full_name}</p>
+                    <WaStatusDot ping={waPings?.[u.user_id] ?? null} />
+                  </div>
                   <p className="text-xs text-muted-foreground truncate">{u.email}</p>
                   {u.job_functions.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-1">
