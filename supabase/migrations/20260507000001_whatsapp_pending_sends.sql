@@ -22,4 +22,13 @@ CREATE POLICY "Users see own pending sends"
     )
   );
 
-ALTER PUBLICATION supabase_realtime ADD TABLE public.whatsapp_pending_sends;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime'
+      AND tablename = 'whatsapp_pending_sends'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.whatsapp_pending_sends;
+  END IF;
+END $$;
