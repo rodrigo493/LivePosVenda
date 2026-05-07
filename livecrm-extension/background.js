@@ -83,6 +83,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     handleLogin(msg.email, msg.password).then(sendResponse);
     return true;
   } else if (msg.type === 'LOGOUT') {
+    if (rtChannel && sb) sb.removeChannel(rtChannel);
     chrome.storage.local.clear();
     sb = null; instanceId = null; rtChannel = null;
   }
@@ -90,6 +91,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
 async function handleInbound({ phone, text, mediaUrl, mimetype, waMessageId }) {
   if (!sb || !instanceId) return;
+  if (!waMessageId) return;
 
   const { data: existing } = await sb
     .from('whatsapp_messages')
