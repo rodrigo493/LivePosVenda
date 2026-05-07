@@ -62,10 +62,11 @@ O Meta enxerga um humano usando o WhatsApp Web normalmente.
 
 1. Contato envia WhatsApp → aparece na aba WA Web do usuário
 2. `content_script.js` detecta via MutationObserver no DOM
-3. Extrai: remetente (phone), texto, hora, chat aberto (`instance_id` do usuário)
-4. Envia para `background.js` via `chrome.runtime.sendMessage`
-5. Background chama Supabase: insere em `whatsapp_messages` (direction: inbound)
-6. CRM recebe via Realtime → exibe no chat em tempo real
+3. Extrai: remetente (phone), texto, hora, `instance_id` do usuário
+4. **Mídia (áudio/imagem):** WA Web decripta automaticamente e cria `<audio>` ou `<img>` com `blob:` URL. O content_script faz `fetch(blobUrl)` → bytes em memória → upload para Supabase Storage bucket `whatsapp-media` → salva URL pública
+5. Envia para `background.js` via `chrome.runtime.sendMessage`
+6. Background insere em `whatsapp_messages` com `media_url` preenchida (direction: inbound)
+7. CRM recebe via Realtime → exibe texto ou player `<audio>`/`<img>` com a URL do Storage
 
 ### Fluxo: Envio pelo CRM (mesmo usuário)
 
@@ -116,6 +117,16 @@ CREATE TABLE whatsapp_pending_sends (
 -- RLS: extensão usa service_role key para gravar; edge function usa service_role
 -- Realtime habilitado na tabela (filtro por instance_id)
 ```
+
+---
+
+## Supabase Storage
+
+Bucket `whatsapp-media` (público):
+- Armazena áudios (.ogg/.mp3), imagens (.jpg/.png/.webp) recebidos via WA Web
+- Path: `{instance_id}/{client_id}/{timestamp}.{ext}`
+- Tamanho máximo por arquivo: 16 MB (limite WA)
+- Vídeos: upload apenas se < 10 MB, caso contrário salva placeholder "🎥 Vídeo"
 
 ---
 
@@ -187,6 +198,6 @@ Extensão **não publicada em store** — distribuída como `.zip` via link inte
 ## Fora de Escopo
 
 - Mensagens de grupo (apenas DMs por ora)
-- Mensagens de voz/vídeo (apenas texto e imagens estáticas)
+- Enviar voz/vídeo pelo CRM (requer upload de arquivo no DOM do WA Web — complexidade alta)
 - Multi-dispositivo sem browser aberto
 - Publicação nas stores Chrome Web Store / Firefox Add-ons
