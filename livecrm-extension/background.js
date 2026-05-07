@@ -26,6 +26,9 @@ async function init() {
     global: { headers: { Authorization: `Bearer ${stored.session.access_token}` } },
   });
 
+  // Agendar refresh do token a cada 50 minutos (expira em 60min)
+  chrome.alarms.create('token-refresh', { periodInMinutes: 50 });
+
   instanceId = stored.instanceId;
   if (!instanceId) {
     const { data } = await sb.from('pipeline_whatsapp_instances')
@@ -123,6 +126,36 @@ async function handleInbound({ phone, text, mediaUrl, mimetype, waMessageId }) {
   if (insertErr) console.error('[LiveCRM] insert inbound failed:', insertErr.message, '| phone:', phone);
 }
 
+async function refreshToken() {
+  const stored = await getStored(['session']);
+  if (!stored.session?.refresh_token) return;
+
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+    method: 'POST',
+    headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refresh_token: stored.session.refresh_token }),
+  });
+
+  if (!res.ok) return;
+  const data = await res.json();
+  if (!data.access_token) return;
+
+  const newSession = { ...stored.session, access_token: data.access_token, refresh_token: data.refresh_token || stored.session.refresh_token };
+  await setStored({ session: newSession });
+
+  // Recriar cliente com novo token
+  sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: { persistSession: false },
+    global: { headers: { Authorization: `Bearer ${data.access_token}` } },
+  });
+
+  if (rtChannel) {
+    sb.removeChannel(rtChannel);
+    rtChannel = null;
+  }
+  subscribeRealtime();
+}
+
 async function handleLogin(email, password) {
   const tempClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: { persistSession: false },
@@ -143,6 +176,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     } else if (!rtChannel || rtChannel.state !== 'joined') {
       subscribeRealtime();
     }
+  } else if (alarm.name === 'token-refresh') {
+    refreshToken().catch(console.error);
   }
 });
 
