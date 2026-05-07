@@ -4,6 +4,31 @@ console.log('[LiveCRM CS] content_script carregado, readyState:', document.ready
 
 const processedIds = new Set();
 
+// ── Lê o telefone ativo via background (chrome.scripting no mundo principal) ──
+async function getPhoneFromBackground() {
+  return Promise.race([
+    new Promise(resolve => {
+      try {
+        chrome.runtime.sendMessage({ type: 'GET_ACTIVE_PHONE' }, resp => {
+          if (chrome.runtime.lastError) {
+            console.warn('[LiveCRM CS] lastError GET_ACTIVE_PHONE:', chrome.runtime.lastError.message);
+            resolve(null);
+            return;
+          }
+          resolve(resp?.phone || null);
+        });
+      } catch (e) {
+        console.warn('[LiveCRM CS] sendMessage falhou:', e.message);
+        resolve(null);
+      }
+    }),
+    new Promise(resolve => setTimeout(() => {
+      console.warn('[LiveCRM CS] GET_ACTIVE_PHONE timeout 5s — SW não respondeu');
+      resolve(null);
+    }, 5000)),
+  ]);
+}
+
 // ── Aguarda elemento aparecer no DOM ─────────────────────────────────────────
 
 function waitForEl(selector, timeout = 60000) {
@@ -55,26 +80,73 @@ async function uploadAudio(blobUrl, instanceId, phone) {
 // ── Telefone da conversa ativa ────────────────────────────────────────────────
 
 function getActiveChatPhone() {
-  // 1. Item selecionado no sidebar tem data-id com o JID
-  const selected =
-    document.querySelector('[role="listitem"][aria-selected="true"]') ||
-    document.querySelector('[data-testid="cell-frame-container"][aria-selected="true"]') ||
-    document.querySelector('[tabindex="-1"][aria-selected="true"]');
-
-  if (selected) {
-    const raw = selected.getAttribute('data-id') || selected.dataset?.id || '';
-    if (raw.includes('@c.us')) return raw.replace(/@c\.us.*/, '');
-    if (raw.includes('@s.whatsapp.net')) return raw.replace(/@s\.whatsapp\.net.*/, '');
+  // 1. Sidebar: item selecionado — tenta múltiplos seletores
+  const sidebarSelectors = [
+    '[role="listitem"][aria-selected="true"]',
+    '[data-testid="cell-frame-container"][aria-selected="true"]',
+    '[tabindex="-1"][aria-selected="true"]',
+    '[aria-selected="true"]',
+    '[aria-current="true"]',
+  ];
+  for (const sel of sidebarSelectors) {
+    for (const el of document.querySelectorAll(sel)) {
+      const raw = el.getAttribute('data-id') || el.dataset?.id || '';
+      if (raw.includes('@c.us')) return raw.replace(/@c\.us.*/, '');
+      if (raw.includes('@s.whatsapp.net')) return raw.replace(/@s\.whatsapp\.net.*/, '');
+      // JID pode estar num filho direto
+      const child = el.querySelector('[data-id*="@c.us"]');
+      if (child) return child.getAttribute('data-id').replace(/@c\.us.*/, '');
+    }
   }
 
-  // 2. Header da conversa — funciona quando contato está salvo como número
-  const headerSpans = document.querySelectorAll('header span[title], [data-testid="conversation-header"] span[title]');
-  for (const span of headerSpans) {
-    const title = span.getAttribute('title') || '';
-    const digits = title.replace(/[\s\(\)\-\+]/g, '');
-    if (digits.length >= 10 && /^\d+$/.test(digits)) return digits;
+  // 2. Header principal: qualquer atributo (data-jid, title, aria-label) contendo JID
+  const headerEl = document.querySelector('#main header, [data-testid="conversation-header"]');
+  if (headerEl) {
+    for (const el of headerEl.querySelectorAll('*')) {
+      for (const attr of ['data-jid', 'title', 'aria-label']) {
+        const val = el.getAttribute(attr) || '';
+        if (val.includes('@c.us')) return val.replace(/@c\.us.*/, '');
+        if (val.includes('@s.whatsapp.net')) return val.replace(/@s\.whatsapp\.net.*/, '');
+      }
+      // Texto puro que parece número de telefone
+      const text = el.childElementCount === 0 ? (el.textContent || '').trim() : '';
+      const digits = text.replace(/[\s\(\)\-\+]/g, '');
+      if (digits.length >= 10 && digits.length <= 15 && /^\d+$/.test(digits)) return digits;
+    }
   }
 
+  // 3. Varredura global por data-jid contendo @c.us
+  const withJid = document.querySelector('[data-jid*="@c.us"]');
+  if (withJid) return (withJid.getAttribute('data-jid') || '').replace(/@c\.us.*/, '');
+
+  // 4. URL — algumas versões do WA Web codificam o JID no hash
+  const phoneMatch = window.location.href.match(/[?&/](\d{10,15})(?:@|$|&)/);
+  if (phoneMatch) return phoneMatch[1];
+
+  // Dump diagnóstico para identificar seletores corretos na próxima iteração
+  const headerHtml = document.querySelector('#main header')?.outerHTML?.substring(0, 500) || 'não encontrado';
+  const ariaSelected = [...document.querySelectorAll('[aria-selected]')]
+    .map(e => `${e.tagName}|data-id=${(e.getAttribute('data-id') || '').substring(0, 30)}|sel=${e.getAttribute('aria-selected')}`)
+    .join(' | ');
+  console.warn('[LiveCRM CS] getActiveChatPhone falhou.',
+    '\n  [aria-selected]:', ariaSelected || 'nenhum',
+    '\n  header HTML:', headerHtml,
+  );
+
+  return null;
+}
+
+// Sobe pelos ancestrais do elemento de mensagem procurando um JID no data-id / data-jid
+function getPhoneFromAncestors(el) {
+  let node = el.parentElement;
+  while (node && node !== document.body) {
+    for (const attr of ['data-id', 'data-jid']) {
+      const val = node.getAttribute(attr) || '';
+      if (val.includes('@c.us')) return val.replace(/@c\.us.*/, '');
+      if (val.includes('@s.whatsapp.net')) return val.replace(/@s\.whatsapp\.net.*/, '');
+    }
+    node = node.parentElement;
+  }
   return null;
 }
 
@@ -123,8 +195,13 @@ async function processNode(node) {
       console.log('[LiveCRM CS] mensagem outbound, ignorando');
       return;
     }
-    phone = getActiveChatPhone();
     waMessageId = dataId;
+    // Tenta subir pelo DOM antes de varrer o header
+    phone = getPhoneFromAncestors(el) || getActiveChatPhone();
+    if (!phone) {
+      // Último recurso: pede ao background para ler o React fiber via chrome.scripting
+      phone = await getPhoneFromBackground();
+    }
     if (!phone) {
       console.warn('[LiveCRM CS] não encontrou telefone da conversa ativa');
       return;
@@ -133,33 +210,50 @@ async function processNode(node) {
 
   console.log('[LiveCRM CS] mensagem inbound de:', phone);
 
-  console.log('[LiveCRM CS] mensagem inbound de:', phone);
-
   const statusResp = await new Promise(resolve =>
-    chrome.runtime.sendMessage({ type: 'GET_STATUS' }, resolve)
+    chrome.runtime.sendMessage({ type: 'GET_STATUS' }, resp => {
+      if (chrome.runtime.lastError) {
+        console.warn('[LiveCRM CS] GET_STATUS erro:', chrome.runtime.lastError.message);
+        resolve(null);
+      } else {
+        resolve(resp);
+      }
+    })
   );
+  console.log('[LiveCRM CS] GET_STATUS resp:', JSON.stringify(statusResp));
   const instanceId = statusResp?.instanceId;
   if (!instanceId) {
     console.warn('[LiveCRM CS] background não conectado ainda, mensagem ignorada');
     return;
   }
 
-  // ── Áudio ──
-  const audioEl = el.querySelector('audio[src^="blob:"]') ||
-                  el.closest('[class*="message-in"], [data-id]')?.querySelector('audio[src^="blob:"]');
-  if (audioEl?.src) {
-    console.log('[LiveCRM CS] áudio detectado, fazendo upload...');
-    try {
-      const mediaUrl = await uploadAudio(audioEl.src, instanceId, phone);
+  // ── Áudio / voz ──
+  // WA Web 2026: áudio pode não ter blob: ainda carregado — detecta pela estrutura
+  // Usa audio[src] para evitar false-positives com <audio> vazios no DOM
+  const audioEl = el.querySelector('audio[src]') ||
+    el.querySelector('[data-testid*="audio"], [data-testid*="ptt"], [data-icon="ptt"], [data-icon="audio-play"]') ||
+    el.querySelector('[aria-label*="audio"], [aria-label*="áudio"], [aria-label*="voz"]');
+  if (audioEl) {
+    const blobAudio = el.querySelector('audio[src^="blob:"]');
+    if (blobAudio?.src) {
+      console.log('[LiveCRM CS] áudio (blob) detectado, fazendo upload...');
+      try {
+        const mediaUrl = await uploadAudio(blobAudio.src, instanceId, phone);
+        chrome.runtime.sendMessage({
+          type: 'INBOUND_MESSAGE',
+          data: { phone, text: '🎵 Áudio', mediaUrl, mimetype: 'audio/ogg', waMessageId },
+        });
+      } catch {
+        chrome.runtime.sendMessage({
+          type: 'INBOUND_MESSAGE',
+          data: { phone, text: '🎵 Áudio', waMessageId },
+        });
+      }
+    } else {
+      console.log('[LiveCRM CS] áudio detectado (sem blob)');
       chrome.runtime.sendMessage({
         type: 'INBOUND_MESSAGE',
-        data: { phone, text: '🎵 audio.ogg', mediaUrl, mimetype: 'audio/ogg', waMessageId },
-      });
-    } catch (err) {
-      console.warn('[LiveCRM CS] upload áudio falhou:', err.message);
-      chrome.runtime.sendMessage({
-        type: 'INBOUND_MESSAGE',
-        data: { phone, text: '🎵 audio.ogg', mediaUrl: null, waMessageId },
+        data: { phone, text: '🎵 Áudio', waMessageId },
       });
     }
     return;
@@ -177,7 +271,8 @@ async function processNode(node) {
   }
 
   // ── Vídeo ──
-  const videoEl = el.querySelector('video');
+  const videoEl = el.querySelector('video') ||
+    el.querySelector('[data-testid*="video"], [data-icon="video"]');
   if (videoEl) {
     console.log('[LiveCRM CS] vídeo detectado');
     chrome.runtime.sendMessage({
@@ -199,19 +294,42 @@ async function processNode(node) {
   }
 
   // ── Texto ──
+  // WA Web 2026 usa atomic CSS — seleciona por atributos estruturais, não por classes
   const textEl =
     el.querySelector('span.selectable-text') ||
     el.querySelector('.copyable-text') ||
     el.querySelector('[class*="selectable"]') ||
-    el.querySelector('span[dir="ltr"]');
-  const text = textEl?.innerText?.trim();
+    el.querySelector('span[dir="ltr"]') ||
+    el.querySelector('span[dir="auto"]') ||
+    el.querySelector('span[dir="rtl"]') ||
+    el.querySelector('[data-pre-plain-text] span') ||
+    el.querySelector('[data-pre-plain-text]');
+
+  let text = textEl?.innerText?.trim() || textEl?.textContent?.trim();
+
+  // Fallback: pega o primeiro span com dir attribute e conteúdo real
+  if (!text) {
+    for (const span of el.querySelectorAll('span[dir]')) {
+      const t = span.innerText?.trim() || span.textContent?.trim();
+      if (t && t.length > 0) { text = t; break; }
+    }
+  }
+
+  // Fallback final: qualquer texto visível no nó excluindo timestamps
+  if (!text) {
+    const clone = el.cloneNode(true);
+    clone.querySelectorAll('[data-testid*="msg-meta"], [data-testid*="status"], [class*="tail"]').forEach(n => n.remove());
+    const raw = clone.innerText?.trim() || clone.textContent?.trim();
+    if (raw && raw.length > 0 && raw.length < 4000) text = raw;
+  }
+
+  // Descarta se o "texto" é só um horário (artefato de áudio/vídeo do WA Web)
+  if (text && /^\d{1,2}:\d{2}(\s*[AP]M)?$/.test(text.trim())) text = null;
 
   if (text) {
     console.log('[LiveCRM CS] texto:', text.substring(0, 50));
-    chrome.runtime.sendMessage({
-      type: 'INBOUND_MESSAGE',
-      data: { phone, text, waMessageId },
-    });
+    console.log('[LiveCRM CS] enviando INBOUND_MESSAGE ao SW...');
+    chrome.runtime.sendMessage({ type: 'INBOUND_MESSAGE', data: { phone, text, waMessageId } });
   } else {
     console.log('[LiveCRM CS] nó sem conteúdo legível, ignorando. HTML:', el.innerHTML.substring(0, 100));
   }
@@ -253,62 +371,139 @@ function startObserver() {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// Insere texto em contenteditable compatível com React sem precisar de gesto do usuário
+function setContentEditable(el, text) {
+  el.focus();
+  el.textContent = text;
+  // Move cursor para o fim
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  range.collapse(false);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  // Dispara evento que o React consegue capturar
+  el.dispatchEvent(new InputEvent('input', {
+    data: text, inputType: 'insertText', bubbles: true, composed: true,
+  }));
+}
+
 async function injectSend({ sendId, phone, message }) {
   try {
-    const searchBox =
+    // ── 1. Abre a caixa de busca ──────────────────────────────────────────────
+    const searchContainer =
       document.querySelector('[data-testid="chat-list-search"]') ||
-      document.querySelector('div[title="Pesquisar ou começar uma nova conversa"]') ||
-      document.querySelector('[data-tab="3"]');
+      document.querySelector('[data-testid="search-container"]');
+
+    const searchBox = searchContainer
+      ? (searchContainer.querySelector('[contenteditable="true"]') || searchContainer)
+      : (document.querySelector('[role="searchbox"]') ||
+         document.querySelector('div[contenteditable="true"][data-tab="3"]'));
 
     if (!searchBox) throw new Error('Search box not found');
 
-    searchBox.focus();
-    searchBox.textContent = '';
-    searchBox.dispatchEvent(new InputEvent('input', { bubbles: true }));
-    await sleep(300);
+    searchBox.click();
+    await sleep(200);
 
-    document.execCommand('insertText', false, phone);
-    searchBox.dispatchEvent(new InputEvent('input', { bubbles: true, data: phone }));
-    await sleep(1500);
+    setContentEditable(searchBox, phone);
+    console.log('[LiveCRM CS] INJECT_SEND: buscando', phone, '→ conteúdo:', JSON.stringify(searchBox.textContent));
+    await sleep(2000);
 
+    // ── 2. Clica no primeiro resultado ────────────────────────────────────────
     const firstResult =
       document.querySelector('[data-testid="cell-frame-container"]') ||
       document.querySelector('[tabindex="-1"][role="listitem"]');
 
+    console.log('[LiveCRM CS] INJECT_SEND: resultado?', !!firstResult, 'texto:', firstResult?.textContent?.substring(0, 40));
     if (!firstResult) throw new Error(`No chat found for phone ${phone}`);
     firstResult.click();
-    await sleep(800);
+    await sleep(1000);
 
-    const input =
-      document.querySelector('[data-testid="conversation-compose-box-input"]') ||
-      document.querySelector('div[contenteditable="true"][data-tab="10"]') ||
-      document.querySelector('div[contenteditable="true"][title="Digite uma mensagem"]');
-
-    if (!input) throw new Error('Compose input not found');
-
-    input.focus();
-    document.execCommand('insertText', false, message);
-    await sleep(200);
-
-    input.dispatchEvent(new KeyboardEvent('keydown', {
-      key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true,
+    // ── 3. Fecha a busca (ESC) para não interferir no compose ─────────────────
+    searchBox.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true,
     }));
     await sleep(300);
 
-    chrome.runtime.sendMessage({ type: 'SEND_CONFIRMED', sendId });
+    // ── 4. Abre o input de compose e escreve ──────────────────────────────────
+    const composeInput =
+      document.querySelector('[data-testid="conversation-compose-box-input"]') ||
+      document.querySelector('div[contenteditable="true"][data-tab="10"]') ||
+      document.querySelector('div[contenteditable="true"][title="Digite uma mensagem"]') ||
+      document.querySelector('#main div[contenteditable="true"]');
+
+    if (!composeInput) throw new Error('Compose input not found');
+
+    setContentEditable(composeInput, message);
+    await sleep(300);
+
+    // ── 5. Envia com Enter ────────────────────────────────────────────────────
+    composeInput.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true,
+    }));
+    await sleep(500);
+
+    console.log('[LiveCRM CS] INJECT_SEND: enviado para', phone);
+    try { if (chrome.runtime?.id) chrome.runtime.sendMessage({ type: 'SEND_CONFIRMED', sendId }); } catch { /* context invalidado */ }
   } catch (e) {
     console.error('[LiveCRM CS] INJECT_SEND failed:', e.message);
-    chrome.runtime.sendMessage({ type: 'SEND_FAILED', sendId, error: e.message });
+    try { if (chrome.runtime?.id) chrome.runtime.sendMessage({ type: 'SEND_FAILED', sendId, error: e.message }); } catch { /* context invalidado */ }
   }
+}
+
+// ── Fila de envios: processa um de cada vez ───────────────────────────────────
+const sendQueue = [];
+let isSending = false;
+
+async function drainSendQueue() {
+  if (isSending) return;
+  isSending = true;
+  while (sendQueue.length > 0) {
+    const job = sendQueue.shift();
+    await injectSend(job);
+    await sleep(600);
+  }
+  isSending = false;
 }
 
 // ── Listeners ─────────────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'INJECT_SEND') {
-    injectSend(msg).catch(console.error);
+    sendQueue.push(msg);
+    drainSendQueue().catch(console.error);
   }
 });
+
+// ── Recebe mensagens do wa_hook.js (roda no MAIN world) ──────────────────────
+window.addEventListener('message', (event) => {
+  if (event.source !== window) return;
+  if (!event.data || event.data.type !== 'LIVECRM_INBOUND') return;
+
+  const { phone, text, msgId } = event.data;
+  if (!phone || !msgId) return;
+  if (processedIds.has(msgId)) return;
+  processedIds.add(msgId);
+
+  console.log('[LiveCRM CS] wa_hook: mensagem de', phone, 'texto:', (text || '').substring(0, 40));
+  try {
+    if (!chrome.runtime?.id) return; // context invalidado após reload da extensão
+    chrome.runtime.sendMessage({
+      type: 'INBOUND_MESSAGE',
+      data: { phone, text, waMessageId: msgId },
+    });
+  } catch { /* context invalidado — aba do WA Web precisa de F5 */ }
+});
+
+// ── Heartbeat: acorda o SW a cada 10s para processar envios pendentes ────────
+setInterval(() => {
+  try {
+    if (!chrome.runtime?.id) return; // context invalidado após reload da extensão
+    chrome.runtime.sendMessage({ type: 'HEARTBEAT' }, () => {
+      void chrome.runtime.lastError; // suprime erro se SW não respondeu
+    });
+  } catch { /* context invalidado — aba do WA Web precisa de F5 */ }
+}, 10000);
 
 // ── Aguarda WA Web carregar antes de iniciar ──────────────────────────────────
 

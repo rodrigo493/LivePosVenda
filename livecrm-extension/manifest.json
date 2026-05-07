@@ -3,7 +3,7 @@
   "name": "LiveCRM WhatsApp",
   "version": "1.0.0",
   "description": "Integra WhatsApp Web com LiveCRM via Supabase",
-  "permissions": ["storage", "alarms"],
+  "permissions": ["storage", "alarms", "scripting"],
   "host_permissions": ["https://web.whatsapp.com/*"],
   "background": {
     "service_worker": "background.js"
@@ -13,6 +13,12 @@
       "matches": ["https://web.whatsapp.com/*"],
       "js": ["lib/supabase-umd.js", "config.js", "content_script.js"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://web.whatsapp.com/*"],
+      "js": ["wa_hook.js"],
+      "run_at": "document_idle",
+      "world": "MAIN"
     }
   ],
   "action": {
