@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body { font-family: sans-serif; width: 280px; padding: 16px; background: #111827; color: #f9fafb; margin: 0; }
+    h2 { margin: 0 0 12px; font-size: 14px; color: #60a5fa; }
+    .status { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 13px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; }
+    .dot.green { background: #4ade80; }
+    .dot.red { background: #f87171; }
+    label { display: block; font-size: 12px; color: #9ca3af; margin-bottom: 4px; }
+    input { width: 100%; box-sizing: border-box; background: #1f2937; border: 1px solid #374151; color: #f9fafb; padding: 6px 8px; border-radius: 6px; font-size: 13px; margin-bottom: 8px; }
+    button { width: 100%; padding: 7px; border-radius: 6px; border: none; font-size: 13px; cursor: pointer; }
+    .btn-primary { background: #3b82f6; color: white; }
+    .btn-danger { background: #dc2626; color: white; margin-top: 8px; }
+    .error { color: #f87171; font-size: 12px; margin-top: 4px; }
+    #status-section, #login-section { display: none; }
+    .info { font-size: 12px; color: #9ca3af; margin-bottom: 4px; }
+  </style>
+</head>
+<body>
+  <h2>LiveCRM — WhatsApp</h2>
+
+  <div id="login-section">
+    <label>Email CRM</label>
+    <input id="email" type="email" placeholder="usuario@liveequipamentos.com.br">
+    <label>Senha</label>
+    <input id="password" type="password" placeholder="Senha">
+    <button class="btn-primary" id="btn-login">Entrar</button>
+    <div class="error" id="login-error"></div>
+  </div>
+
+  <div id="status-section">
+    <div class="status">
+      <div class="dot" id="dot"></div>
+      <span id="status-text">Verificando...</span>
+    </div>
+    <div class="info" id="instance-info"></div>
+    <div class="info" id="wa-info"></div>
+    <button class="btn-danger" id="btn-logout">Sair</button>
+  </div>
+</body>
+<script src="popup.js"></script>
+</html>
