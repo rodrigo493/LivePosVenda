@@ -52,6 +52,43 @@ async function uploadAudio(blobUrl, instanceId, phone) {
   return `${SUPABASE_URL}/storage/v1/object/public/whatsapp-media/${path}`;
 }
 
+// ── Telefone da conversa ativa ────────────────────────────────────────────────
+
+function getActiveChatPhone() {
+  // 1. Item selecionado no sidebar tem data-id com o JID
+  const selected =
+    document.querySelector('[role="listitem"][aria-selected="true"]') ||
+    document.querySelector('[data-testid="cell-frame-container"][aria-selected="true"]') ||
+    document.querySelector('[tabindex="-1"][aria-selected="true"]');
+
+  if (selected) {
+    const raw = selected.getAttribute('data-id') || selected.dataset?.id || '';
+    if (raw.includes('@c.us')) return raw.replace(/@c\.us.*/, '');
+    if (raw.includes('@s.whatsapp.net')) return raw.replace(/@s\.whatsapp\.net.*/, '');
+  }
+
+  // 2. Header da conversa — funciona quando contato está salvo como número
+  const headerSpans = document.querySelectorAll('header span[title], [data-testid="conversation-header"] span[title]');
+  for (const span of headerSpans) {
+    const title = span.getAttribute('title') || '';
+    const digits = title.replace(/[\s\(\)\-\+]/g, '');
+    if (digits.length >= 10 && /^\d+$/.test(digits)) return digits;
+  }
+
+  return null;
+}
+
+// ── Direção da mensagem ───────────────────────────────────────────────────────
+
+function isOutboundMessage(el) {
+  // Mensagens enviadas têm ícone de status (check/dblcheck/time)
+  return !!(
+    el.querySelector('[data-testid="msg-dblcheck"], [data-testid="msg-check"], [data-testid="msg-time"]') ||
+    el.querySelector('[data-icon="msg-dblcheck"], [data-icon="msg-check"], [data-icon="msg-time"]') ||
+    el.closest('[class*="message-out"]')
+  );
+}
+
 // ── Processar nó de mensagem ──────────────────────────────────────────────────
 
 async function processNode(node) {
@@ -64,27 +101,37 @@ async function processNode(node) {
 
   console.log('[LiveCRM CS] data-id encontrado:', dataId);
 
-  // Formato: "false_5511999999999@c.us_ABCDEF" ou "false_5511999999999@c.us_ABCDEF_1"
-  const underscoreIdx = dataId.indexOf('_');
-  const secondUnderscore = dataId.indexOf('_', underscoreIdx + 1);
-  if (underscoreIdx === -1 || secondUnderscore === -1) {
-    console.log('[LiveCRM CS] data-id formato inesperado, ignorando:', dataId);
-    return;
+  let phone, waMessageId;
+
+  if (dataId.includes('_')) {
+    // ── Formato antigo: "false_5511999999999@c.us_ABCDEF"
+    const underscoreIdx = dataId.indexOf('_');
+    const secondUnderscore = dataId.indexOf('_', underscoreIdx + 1);
+    const direction = dataId.substring(0, underscoreIdx);
+    const jid = dataId.substring(underscoreIdx + 1, secondUnderscore);
+
+    if (direction === 'true') return; // outbound
+    if (!jid.includes('@c.us')) {
+      console.log('[LiveCRM CS] grupo ignorado:', jid);
+      return;
+    }
+    phone = jid.replace('@c.us', '');
+    waMessageId = dataId;
+  } else {
+    // ── Formato novo: apenas ID da mensagem ("3EB08094CFF84F59678488")
+    if (isOutboundMessage(el)) {
+      console.log('[LiveCRM CS] mensagem outbound, ignorando');
+      return;
+    }
+    phone = getActiveChatPhone();
+    waMessageId = dataId;
+    if (!phone) {
+      console.warn('[LiveCRM CS] não encontrou telefone da conversa ativa');
+      return;
+    }
   }
 
-  const direction = dataId.substring(0, underscoreIdx); // 'false' = inbound, 'true' = outbound
-  const jid = dataId.substring(underscoreIdx + 1, secondUnderscore);
-
-  const isOutbound = direction === 'true';
-  if (isOutbound) return;
-
-  if (!jid.includes('@c.us')) {
-    console.log('[LiveCRM CS] grupo ou broadcast ignorado:', jid);
-    return;
-  }
-
-  const phone = jid.replace('@c.us', '');
-  const waMessageId = dataId;
+  console.log('[LiveCRM CS] mensagem inbound de:', phone);
 
   console.log('[LiveCRM CS] mensagem inbound de:', phone);
 
@@ -180,6 +227,17 @@ function startObserver() {
     for (const m of mutations) {
       for (const node of m.addedNodes) {
         if (node.nodeType !== 1) continue;
+
+        // Debug: loga qualquer nó com data-id ou que contenha data-id
+        const hasDataId = node.hasAttribute?.('data-id') || node.querySelector?.('[data-id]');
+        if (hasDataId) {
+          const ids = [
+            node.getAttribute?.('data-id'),
+            ...[...node.querySelectorAll?.('[data-id]') || []].map(el => el.getAttribute('data-id'))
+          ].filter(Boolean);
+          console.log('[LiveCRM CS] nó com data-id detectado:', ids);
+        }
+
         processNode(node).catch(console.error);
         node.querySelectorAll?.('[data-id]').forEach(child => {
           processNode(child).catch(console.error);
