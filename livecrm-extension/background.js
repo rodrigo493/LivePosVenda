@@ -100,13 +100,16 @@ async function handleInbound({ phone, text, mediaUrl, mimetype, waMessageId }) {
     .maybeSingle();
   if (existing) return;
 
+  const phoneWithoutDdi = phone.startsWith('55') && phone.length >= 12
+    ? phone.slice(2)
+    : phone;
   const { data: client } = await sb
     .from('clients')
     .select('id')
-    .or(`phone.eq.${phone},phone.eq.+${phone}`)
+    .or(`phone.eq.${phone},phone.eq.+${phone},phone.eq.${phoneWithoutDdi}`)
     .maybeSingle();
 
-  await sb.from('whatsapp_messages').insert({
+  const { error: insertErr } = await sb.from('whatsapp_messages').insert({
     client_id: client?.id || null,
     instance_id: instanceId,
     direction: 'inbound',
@@ -117,6 +120,7 @@ async function handleInbound({ phone, text, mediaUrl, mimetype, waMessageId }) {
     status: 'received',
     manychat_message_id: waMessageId,
   });
+  if (insertErr) console.error('[LiveCRM] insert inbound failed:', insertErr.message, '| phone:', phone);
 }
 
 async function handleLogin(email, password) {
@@ -134,7 +138,11 @@ async function handleLogin(email, password) {
 chrome.alarms.create('keepalive', { periodInMinutes: 4 });
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'keepalive') {
-    if (!rtChannel || rtChannel.state !== 'joined') subscribeRealtime();
+    if (!sb) {
+      init().catch(console.error);
+    } else if (!rtChannel || rtChannel.state !== 'joined') {
+      subscribeRealtime();
+    }
   }
 });
 

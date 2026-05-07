@@ -3,7 +3,7 @@
   "name": "LiveCRM WhatsApp",
   "version": "1.0.0",
   "description": "Integra WhatsApp Web com LiveCRM via Supabase",
-  "permissions": ["storage"],
+  "permissions": ["storage", "alarms"],
   "host_permissions": ["https://web.whatsapp.com/*"],
   "background": {
     "service_worker": "background.js"
