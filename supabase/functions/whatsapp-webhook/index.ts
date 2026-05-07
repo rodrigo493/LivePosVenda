@@ -441,6 +441,28 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Fallback: resolve by instanceName when token doesn't match any DB record.
+    // Handles token rotation / misconfiguration without losing routing attribution.
+    // Uazapi always sends instanceName in the body — match against uazapi_instance_name.
+    if (!pipelineInstance) {
+      const bodyInstanceName: string = (body?.instanceName || body?.instance || "").trim();
+      if (bodyInstanceName) {
+        const { data: instByName } = await admin
+          .from("pipeline_whatsapp_instances")
+          .select("id, pipeline_id, base_url, instance_token, user_id")
+          .eq("uazapi_instance_name", bodyInstanceName)
+          .eq("active", true)
+          .order("created_at", { ascending: true })
+          .limit(1);
+        pipelineInstance = instByName?.[0] ?? null;
+        if (pipelineInstance) {
+          console.log("TOKEN_MISMATCH resolved by instanceName fallback:", bodyInstanceName, "→", pipelineInstance.id, "| incomingToken:", incomingToken);
+        } else {
+          console.warn("TOKEN_MISMATCH unresolved: instanceName=", bodyInstanceName, "token=", incomingToken, "— instance_id will be NULL");
+        }
+      }
+    }
+
     const instanceId: string | null = pipelineInstance?.id ?? null;
     const instancePipelineId: string | null = pipelineInstance?.pipeline_id ?? null;
     const instanceBaseUrl: string = pipelineInstance?.base_url ?? UAZAPI_BASE_URL;
