@@ -391,18 +391,18 @@ async function callEdge(method: string, body?: object, query = "") {
   return payload;
 }
 
-function WaStatusDot({ ping }: { ping: string | null }) {
+function WaStatusDot({ ping, hasInstance }: { ping: string | null | undefined; hasInstance: boolean }) {
+  if (!hasInstance) return null;
   const online = !!ping && Date.now() - new Date(ping).getTime() < 5 * 60 * 1000;
-  if (!ping) return null;
   return (
-    <span title={online ? "WhatsApp ativo agora" : "Extensão WhatsApp offline"} className="shrink-0">
+    <span title={online ? "WhatsApp ativo agora" : ping ? "Extensão offline" : "Extensão nunca conectada"} className="shrink-0">
       {online ? (
         <span className="relative flex h-2 w-2">
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
           <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
         </span>
       ) : (
-        <span className="inline-flex rounded-full h-2 w-2 bg-muted-foreground/30" />
+        <span className="inline-flex rounded-full h-2 w-2 bg-muted-foreground/30" title={ping ? "offline" : "nunca conectou"} />
       )}
     </span>
   );
@@ -420,21 +420,20 @@ function UserManagement() {
   const [editEmail, setEditEmail] = useState("");
   const [editFunctions, setEditFunctions] = useState<string[]>([]);
 
-  const { data: waPings } = useQuery<Record<string, string | null>>({
+  // Busca TODAS as instâncias com user_id para mostrar indicador mesmo quando offline
+  const { data: waInstances } = useQuery<{ userId: string; ping: string | null }[]>({
     queryKey: ["wa-user-pings"],
     queryFn: async () => {
       const { data } = await (supabase as any)
         .from("pipeline_whatsapp_instances")
         .select("user_id, extension_last_ping")
         .not("user_id", "is", null);
-      const map: Record<string, string | null> = {};
-      for (const row of data ?? []) {
-        if (row.user_id) map[row.user_id] = row.extension_last_ping;
-      }
-      return map;
+      return (data ?? []).map((r: any) => ({ userId: r.user_id, ping: r.extension_last_ping }));
     },
     refetchInterval: 30_000,
   });
+  const waPings = Object.fromEntries((waInstances ?? []).map(r => [r.userId, r.ping]));
+  const waUserIds = new Set((waInstances ?? []).map(r => r.userId));
 
   // Query direta ao Supabase — evita o mismatch de IDs no edge function GET
   const { data: users = [], isLoading } = useQuery<UserRow[]>({
@@ -573,7 +572,7 @@ function UserManagement() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-medium truncate">{u.full_name}</p>
-                    <WaStatusDot ping={waPings?.[u.user_id] ?? null} />
+                    <WaStatusDot ping={waPings[u.user_id]} hasInstance={waUserIds.has(u.user_id)} />
                   </div>
                   <p className="text-xs text-muted-foreground truncate">{u.email}</p>
                   {u.job_functions.length > 0 && (
