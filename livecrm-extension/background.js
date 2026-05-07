@@ -31,12 +31,27 @@ async function init() {
 
   instanceId = stored.instanceId;
   if (!instanceId) {
-    const { data } = await sb.from('pipeline_whatsapp_instances')
-      .select('id').limit(1).single();
+    // Decodifica JWT para obter user_id do usuário logado
+    let userId = null;
+    try {
+      const payload = JSON.parse(atob(stored.session.access_token.split('.')[1]));
+      userId = payload.sub;
+    } catch { /* token inválido */ }
+
+    const query = sb.from('pipeline_whatsapp_instances').select('id').eq('active', true).limit(1);
+    const { data } = userId
+      ? await query.eq('user_id', userId).maybeSingle()
+      : await query.maybeSingle();
+
     if (data?.id) {
       instanceId = data.id;
       await setStored({ instanceId });
+      console.log('[LiveCRM BG] instance encontrada:', instanceId, 'para userId:', userId);
+    } else {
+      console.warn('[LiveCRM BG] nenhuma instância encontrada para userId:', userId);
     }
+  } else {
+    console.log('[LiveCRM BG] instance do storage:', instanceId);
   }
 
   if (instanceId) {
