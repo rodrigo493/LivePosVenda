@@ -66,7 +66,9 @@ O Meta enxerga um humano usando o WhatsApp Web normalmente.
 4. **Mídia (áudio/imagem):** WA Web decripta automaticamente e cria `<audio>` ou `<img>` com `blob:` URL. O content_script faz `fetch(blobUrl)` → bytes em memória → upload para Supabase Storage bucket `whatsapp-media` → salva URL pública
 5. Envia para `background.js` via `chrome.runtime.sendMessage`
 6. Background insere em `whatsapp_messages` com `media_url` preenchida (direction: inbound)
-7. CRM recebe via Realtime → exibe texto ou player `<audio>`/`<img>` com a URL do Storage
+7. CRM recebe via Realtime → exibe conforme tipo:
+   - **Áudio:** player `<audio>` inline (ouve direto no CRM) — principal melhoria vs. Uazapi
+   - **Imagem / Vídeo / Documento:** botão de download (comportamento igual ao atual)
 
 ### Fluxo: Envio pelo CRM (mesmo usuário)
 
@@ -123,10 +125,10 @@ CREATE TABLE whatsapp_pending_sends (
 ## Supabase Storage
 
 Bucket `whatsapp-media` (público):
-- Armazena áudios (.ogg/.mp3), imagens (.jpg/.png/.webp) recebidos via WA Web
-- Path: `{instance_id}/{client_id}/{timestamp}.{ext}`
-- Tamanho máximo por arquivo: 16 MB (limite WA)
-- Vídeos: upload apenas se < 10 MB, caso contrário salva placeholder "🎥 Vídeo"
+- Armazena **apenas áudios** (.ogg/.mp3/.opus) recebidos via WA Web
+- Path: `{instance_id}/{client_id}/{timestamp}.ogg`
+- Tamanho máximo: 16 MB (limite WA para áudio)
+- Imagens / Vídeos / Documentos: extensão detecta o tipo e salva placeholder ("📷 Imagem", "🎥 Vídeo", "📎 Arquivo") + botão de download apontando para a URL do WA Web enquanto disponível
 
 ---
 
