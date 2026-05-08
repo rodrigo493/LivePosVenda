@@ -1134,6 +1134,129 @@ function renderSidebarData(phone, { client, ticket, stageLabel }) {
     msgSelArea.style.display = 'flex';
     msgHistBtn.textContent = '✕ Cancelar seleção';
   });
+
+  // ── Produtos / Negociação ──────────────────────────────────────────────────
+  if (ticket) {
+    const sep2 = document.createElement('hr');
+    Object.assign(sep2.style, { border: 'none', borderTop: '1px solid #e5e7eb', margin: '10px 0' });
+    body.appendChild(sep2);
+    renderProductsSection(body, ticket, client);
+  }
+}
+
+async function renderProductsSection(container, ticket, client) {
+  const wrap = document.createElement('div');
+  container.appendChild(wrap);
+
+  const lbl = document.createElement('div');
+  lbl.textContent = 'PRODUTOS';
+  Object.assign(lbl.style, { fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.5px', color: '#6b7280', marginBottom: '6px' });
+  wrap.appendChild(lbl);
+
+  const listEl = document.createElement('div');
+  listEl.style.marginBottom = '6px';
+  wrap.appendChild(listEl);
+
+  const totalEl = document.createElement('div');
+  Object.assign(totalEl.style, { fontSize: '12px', fontWeight: '700', color: '#111827', marginBottom: '8px', textAlign: 'right' });
+  wrap.appendChild(totalEl);
+
+  async function reloadProducts() {
+    listEl.textContent = '';
+    totalEl.textContent = '';
+    const resp = await sendToBackground({ type: 'GET_TICKET_PRODUCTS', ticketId: ticket.id });
+    const products = resp.products || [];
+    if (!products.length) {
+      const empty = document.createElement('p');
+      empty.textContent = 'Nenhum produto adicionado.';
+      Object.assign(empty.style, { color: '#9ca3af', fontSize: '11px', margin: '0 0 6px' });
+      listEl.appendChild(empty);
+      return;
+    }
+    let total = 0;
+    products.forEach(p => {
+      const subtotal = p.unit_price * p.quantity;
+      total += subtotal;
+      const row = document.createElement('div');
+      Object.assign(row.style, { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0', fontSize: '11px', borderBottom: '1px solid #f3f4f6' });
+      const info = document.createElement('span');
+      info.textContent = `${p.name} × ${p.quantity}`;
+      Object.assign(info.style, { color: '#374151', flex: '1' });
+      const price = document.createElement('span');
+      price.textContent = `R$ ${subtotal.toFixed(2).replace('.', ',')}`;
+      Object.assign(price.style, { color: '#111827', fontWeight: '600', marginRight: '6px' });
+      const delBtn = document.createElement('button');
+      delBtn.textContent = '×';
+      Object.assign(delBtn.style, { background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: '14px', padding: '0', lineHeight: '1' });
+      delBtn.onclick = async () => {
+        delBtn.disabled = true;
+        try {
+          await sendToBackground({ type: 'DELETE_TICKET_PRODUCT', productId: p.id });
+          await reloadProducts();
+        } catch (e) { delBtn.disabled = false; alert('Erro ao remover: ' + e.message); }
+      };
+      row.appendChild(info); row.appendChild(price); row.appendChild(delBtn);
+      listEl.appendChild(row);
+    });
+    totalEl.textContent = `Total: R$ ${total.toFixed(2).replace('.', ',')}`;
+  }
+
+  await reloadProducts().catch(() => {});
+
+  const addBtn = styledBtn('+ Adicionar produto', false);
+  wrap.appendChild(addBtn);
+
+  const formEl = document.createElement('div');
+  formEl.style.display = 'none';
+  Object.assign(formEl.style, { marginTop: '8px' });
+  wrap.appendChild(formEl);
+
+  addBtn.addEventListener('click', async () => {
+    if (formEl.style.display !== 'none') { formEl.style.display = 'none'; addBtn.textContent = '+ Adicionar produto'; return; }
+    formEl.textContent = '';
+    formEl.style.display = 'block';
+    addBtn.textContent = '✕ Fechar';
+
+    const catalogResp = await sendToBackground({ type: 'GET_CATALOG_PRODUCTS' }).catch(() => ({ products: [] }));
+    const catalog = catalogResp.products || [];
+
+    const prodSelect = styledSelect([{ value: '', label: 'Selecione um produto...' }, ...catalog.map(p => ({ value: p.id, label: `${p.name} — R$ ${parseFloat(p.base_price).toFixed(2).replace('.', ',')}` }))]);
+    formEl.appendChild(prodSelect);
+
+    const priceInput = styledInput('Preço unitário', '');
+    Object.assign(priceInput.style, { marginTop: '6px', marginBottom: '6px' });
+    formEl.appendChild(priceInput);
+
+    const qtyInput = styledInput('Quantidade', '1');
+    Object.assign(qtyInput.style, { marginBottom: '6px' });
+    formEl.appendChild(qtyInput);
+
+    prodSelect.addEventListener('change', () => {
+      const sel = catalog.find(p => p.id === prodSelect.value);
+      if (sel) priceInput.value = parseFloat(sel.base_price).toFixed(2);
+    });
+
+    const saveBtn = styledBtn('Salvar produto', true);
+    formEl.appendChild(saveBtn);
+
+    saveBtn.addEventListener('click', async () => {
+      const selected = catalog.find(p => p.id === prodSelect.value);
+      const name = selected?.name || prodSelect.options[prodSelect.selectedIndex]?.text || '';
+      const unitPrice = parseFloat(priceInput.value);
+      const quantity = parseInt(qtyInput.value, 10) || 1;
+      if (!name || !unitPrice) { alert('Selecione um produto e informe o preço.'); return; }
+      saveBtn.disabled = true; saveBtn.textContent = 'Salvando...';
+      try {
+        await sendToBackground({ type: 'SAVE_TICKET_PRODUCT', ticketId: ticket.id, productId: selected?.id || null, name, unitPrice, quantity });
+        formEl.style.display = 'none';
+        addBtn.textContent = '+ Adicionar produto';
+        await reloadProducts();
+      } catch (e) {
+        saveBtn.disabled = false; saveBtn.textContent = 'Salvar produto';
+        alert('Erro: ' + e.message);
+      }
+    });
+  });
 }
 
 async function renderSidebarNotFound(phone) {
