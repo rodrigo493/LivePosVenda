@@ -869,14 +869,56 @@ function renderSidebarData(phone, { client, ticket, stageLabel }) {
     const stageWrap = document.createElement('div');
     stageWrap.style.marginBottom = '10px';
     const lbl = document.createElement('div');
-    lbl.textContent = 'FUNIL';
+    lbl.textContent = 'FUNIL / ETAPA';
     Object.assign(lbl.style, { fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.5px', color: '#6b7280', marginBottom: '4px' });
     stageWrap.appendChild(lbl);
-    stageWrap.appendChild(badge(stageLabel || ticket.pipeline_stage || '-'));
+
     const pname = document.createElement('div');
     pname.textContent = ticket.pipeline_name || '';
-    Object.assign(pname.style, { fontSize: '11px', color: '#6b7280', marginTop: '2px' });
+    Object.assign(pname.style, { fontSize: '11px', color: '#6b7280', marginBottom: '4px' });
     stageWrap.appendChild(pname);
+
+    const stageSelect = styledSelect([{ value: ticket.pipeline_stage, label: stageLabel || ticket.pipeline_stage }]);
+    stageSelect.style.marginBottom = '4px';
+    stageWrap.appendChild(stageSelect);
+
+    const stageFeedback = document.createElement('div');
+    Object.assign(stageFeedback.style, { fontSize: '11px', minHeight: '16px', color: '#065f46' });
+    stageWrap.appendChild(stageFeedback);
+
+    sendToBackground({ type: 'GET_PIPELINE_STAGES', pipelineId: ticket.pipeline_id }).then(resp => {
+      stageSelect.textContent = '';
+      (resp.stages || []).forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.key;
+        opt.textContent = s.label;
+        if (s.key === ticket.pipeline_stage) opt.selected = true;
+        stageSelect.appendChild(opt);
+      });
+    }).catch(() => {});
+
+    stageSelect.addEventListener('change', async () => {
+      const newStage = stageSelect.value;
+      if (newStage === ticket.pipeline_stage) return;
+      stageSelect.disabled = true;
+      stageFeedback.textContent = 'Movendo...';
+      stageFeedback.style.color = '#6b7280';
+      try {
+        await sendToBackground({ type: 'MOVE_STAGE', ticketId: ticket.id, pipelineId: ticket.pipeline_id, newStage, previousStage: ticket.pipeline_stage });
+        ticket.pipeline_stage = newStage;
+        stageFeedback.textContent = '✓ Movido';
+        stageFeedback.style.color = '#065f46';
+        setTimeout(() => { stageFeedback.textContent = ''; }, 2000);
+      } catch (e) {
+        stageSelect.value = ticket.pipeline_stage;
+        stageFeedback.textContent = '✗ Falha ao mover';
+        stageFeedback.style.color = '#dc2626';
+        setTimeout(() => { stageFeedback.textContent = ''; }, 2000);
+      } finally {
+        stageSelect.disabled = false;
+      }
+    });
+
     body.appendChild(stageWrap);
 
     const openBtn = styledBtn('↗ Abrir no CRM', true);
