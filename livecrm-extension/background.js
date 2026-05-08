@@ -534,6 +534,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   } else if (msg.type === 'OPEN_WA_CHAT') {
     handleOpenWaTab(msg.phone).then(sendResponse).catch(e => sendResponse({ error: e.message }));
     return true;
+  } else if (msg.type === 'UPDATE_CLIENT_NAME') {
+    handleUpdateClientName(msg.clientId, msg.name).then(sendResponse).catch(e => sendResponse({ error: e.message }));
+    return true;
   } else if (msg.type === 'GET_STATUS') {
     sendResponse({ connected: !!sb, instanceId });
     return true;
@@ -991,6 +994,14 @@ async function handleDeleteTicketProduct(productId) {
 // ── Abertura de conversa WA Web a partir do CRM ──────────────────────────────
 // O CRM chama chrome.runtime.sendMessage(extId, { type:'OPEN_WA_CHAT', phone })
 // Este handler foca a aba do WA Web existente e navega até o chat do número.
+async function handleUpdateClientName(clientId, name) {
+  if (!sb) throw new Error('Extensão não autenticada');
+  if (!clientId || !name?.trim()) throw new Error('Parâmetros inválidos');
+  const { error } = await sb.from('clients').update({ name: name.trim() }).eq('id', clientId);
+  if (error) throw new Error(error.message);
+  return { ok: true };
+}
+
 async function handleOpenWaTab(phone) {
   const cleaned = String(phone || '').replace(/\D/g, '');
   if (!cleaned) throw new Error('no phone');

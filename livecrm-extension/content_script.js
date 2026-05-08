@@ -875,7 +875,97 @@ function renderSidebarData(phone, { client, ticket, stageLabel }) {
 
   const waName = getContactName();
   const displayName = (waName && waName !== phone) ? waName : (client.name && client.name !== phone ? client.name : null);
-  if (displayName) body.appendChild(infoRow('Contato', displayName));
+
+  // Nome do contato com lápis para edição inline
+  const nameWrap = document.createElement('div');
+  Object.assign(nameWrap.style, { marginBottom: '10px' });
+  const nameLblEl = document.createElement('div');
+  nameLblEl.textContent = 'CONTATO';
+  Object.assign(nameLblEl.style, { fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.5px', color: '#6b7280', marginBottom: '2px' });
+  nameWrap.appendChild(nameLblEl);
+
+  const nameRow = document.createElement('div');
+  Object.assign(nameRow.style, { display: 'flex', alignItems: 'center', gap: '6px' });
+
+  const nameVal = document.createElement('div');
+  nameVal.textContent = displayName || phone;
+  Object.assign(nameVal.style, { fontWeight: '600', color: '#111827', fontSize: '14px', flex: '1' });
+
+  const editBtn = document.createElement('button');
+  editBtn.title = 'Editar nome';
+  editBtn.textContent = '✏';
+  Object.assign(editBtn.style, { background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', color: '#6b7280', padding: '0', lineHeight: '1', flexShrink: '0' });
+
+  nameRow.appendChild(nameVal);
+  nameRow.appendChild(editBtn);
+  nameWrap.appendChild(nameRow);
+
+  // Campo de edição (oculto inicialmente)
+  const nameEditRow = document.createElement('div');
+  nameEditRow.style.display = 'none';
+  Object.assign(nameEditRow.style, { display: 'none', gap: '4px', marginTop: '4px' });
+
+  const nameInput = document.createElement('input');
+  nameInput.type = 'text';
+  nameInput.value = displayName || '';
+  Object.assign(nameInput.style, {
+    flex: '1', padding: '4px 6px', borderRadius: '4px', border: '1px solid #d1d5db',
+    fontSize: '13px', fontFamily: 'inherit',
+  });
+
+  const saveNameBtn = document.createElement('button');
+  saveNameBtn.textContent = '✓';
+  Object.assign(saveNameBtn.style, {
+    background: '#065f46', color: '#fff', border: 'none', borderRadius: '4px',
+    cursor: 'pointer', padding: '4px 8px', fontSize: '13px', flexShrink: '0',
+  });
+
+  const cancelNameBtn = document.createElement('button');
+  cancelNameBtn.textContent = '✕';
+  Object.assign(cancelNameBtn.style, {
+    background: '#6b7280', color: '#fff', border: 'none', borderRadius: '4px',
+    cursor: 'pointer', padding: '4px 6px', fontSize: '13px', flexShrink: '0',
+  });
+
+  nameEditRow.appendChild(nameInput);
+  nameEditRow.appendChild(saveNameBtn);
+  nameEditRow.appendChild(cancelNameBtn);
+  nameWrap.appendChild(nameEditRow);
+  body.appendChild(nameWrap);
+
+  editBtn.addEventListener('click', () => {
+    nameRow.style.display = 'none';
+    nameEditRow.style.display = 'flex';
+    nameInput.focus();
+    nameInput.select();
+  });
+
+  const cancelEdit = () => {
+    nameEditRow.style.display = 'none';
+    nameRow.style.display = 'flex';
+  };
+
+  cancelNameBtn.addEventListener('click', cancelEdit);
+
+  const saveName = async () => {
+    const newName = nameInput.value.trim();
+    if (!newName || newName === nameVal.textContent) { cancelEdit(); return; }
+    saveNameBtn.disabled = true;
+    try {
+      await sendToBackground({ type: 'UPDATE_CLIENT_NAME', clientId: client.id, name: newName });
+      nameVal.textContent = newName;
+      client.name = newName;
+      cancelEdit();
+    } catch (e) {
+      alert('Erro ao salvar: ' + e.message);
+    } finally {
+      saveNameBtn.disabled = false;
+    }
+  };
+
+  saveNameBtn.addEventListener('click', saveName);
+  nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') saveName(); else if (e.key === 'Escape') cancelEdit(); });
+
   body.appendChild(infoRow('Telefone', phone));
 
   if (ticket) {
