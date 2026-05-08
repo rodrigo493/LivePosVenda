@@ -371,82 +371,179 @@ function startObserver() {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-// Insere texto em contenteditable compatível com React sem precisar de gesto do usuário
-function setContentEditable(el, text) {
+// Insere texto num contenteditable React usando execCommand('insertText') — dispara
+// eventos beforeinput+input nativos que o React 18 reconhece corretamente.
+// Fallback para textContent+InputEvent sintético se execCommand não funcionar.
+function insertTextReact(el, text) {
   el.focus();
-  el.textContent = text;
-  // Move cursor para o fim
-  const range = document.createRange();
-  range.selectNodeContents(el);
-  range.collapse(false);
-  const sel = window.getSelection();
-  sel.removeAllRanges();
-  sel.addRange(range);
-  // Dispara evento que o React consegue capturar
-  el.dispatchEvent(new InputEvent('input', {
-    data: text, inputType: 'insertText', bubbles: true, composed: true,
-  }));
+  document.execCommand('selectAll', false, null);
+  const ok = document.execCommand('insertText', false, text);
+  const domAfter = el.textContent?.trim();
+  console.log('[LiveCRM CS] insertTextReact: execCommand ok=', ok,
+    '→ DOM:', JSON.stringify(domAfter?.substring(0, 30)),
+    ok && domAfter === text.trim() ? '✓' : '⚠ divergência');
+  if (!ok || !domAfter) {
+    el.textContent = text;
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    range.collapse(false);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    el.dispatchEvent(new InputEvent('input', {
+      data: text, inputType: 'insertText', bubbles: true, composed: true,
+    }));
+    console.log('[LiveCRM CS] insertTextReact: fallback direto → DOM:', JSON.stringify(el.textContent?.substring(0, 30)));
+  }
 }
 
 async function injectSend({ sendId, phone, message }) {
+  console.log('[LiveCRM CS] ▶ INJECT_SEND start', { sendId, phone, msg: message?.substring(0, 30) });
   try {
-    // ── 1. Abre a caixa de busca ──────────────────────────────────────────────
-    const searchContainer =
-      document.querySelector('[data-testid="chat-list-search"]') ||
-      document.querySelector('[data-testid="search-container"]');
+    const targetDigits = phone.replace(/\D/g, '').slice(-9);
 
-    const searchBox = searchContainer
-      ? (searchContainer.querySelector('[contenteditable="true"]') || searchContainer)
-      : (document.querySelector('[role="searchbox"]') ||
-         document.querySelector('div[contenteditable="true"][data-tab="3"]'));
+    // ── 0. Verifica se já estamos na conversa correta ─────────────────────────
+    const currentPhone = getActiveChatPhone();
+    const alreadyHere = currentPhone && currentPhone.replace(/\D/g, '').slice(-9) === targetDigits;
+    console.log('[LiveCRM CS] INJECT_SEND: currentPhone=', currentPhone, '| alreadyHere=', alreadyHere);
 
-    if (!searchBox) throw new Error('Search box not found');
+    if (!alreadyHere) {
+      // ── Tenta 1: contato visível na lista (sem precisar de busca) ─────────
+      const listItems = [...document.querySelectorAll('[data-testid="cell-frame-container"]')];
+      const inList = listItems.find(el => {
+        const id = el.getAttribute('data-id') ||
+          el.querySelector('[data-id]')?.getAttribute('data-id') || '';
+        return id.replace(/\D/g, '').includes(targetDigits);
+      });
 
-    searchBox.click();
-    await sleep(200);
+      if (inList) {
+        console.log('[LiveCRM CS] INJECT_SEND: contato na lista visível:', inList.textContent?.substring(0, 30));
+        inList.click();
+        await sleep(800);
+      } else {
+        // ── Tenta 2: abre painel via botão "Nova conversa" / busca ────────────
+        // WA Web 2026 não tem search box persistente — precisa de trigger
+        const header = document.querySelector('header');
+        const btns = header ? [...header.querySelectorAll('[role="button"],[tabindex="0"],button')].slice(0, 10) : [];
+        const btnsLog = btns.map(b =>
+          `[testid=${b.getAttribute('data-testid')}|aria=${b.getAttribute('aria-label')}|icon=${b.querySelector('[data-icon]')?.getAttribute('data-icon')}]`
+        ).join(' ');
+        console.log('[LiveCRM CS] INJECT_SEND: botões no header:', btnsLog || '(header não encontrado)');
 
-    setContentEditable(searchBox, phone);
-    console.log('[LiveCRM CS] INJECT_SEND: buscando', phone, '→ conteúdo:', JSON.stringify(searchBox.textContent));
-    await sleep(2000);
+        const trigger =
+          document.querySelector('[data-testid="new-chat-btn"]') ||
+          document.querySelector('[data-testid="search-action"]') ||
+          document.querySelector('[aria-label="Nova conversa"]') ||
+          document.querySelector('[aria-label="New chat"]') ||
+          document.querySelector('[aria-label="Pesquisar"]') ||
+          (() => {
+            for (const iconName of ['new-chat-outline', 'chat-new', 'chat-add', 'search']) {
+              const span = document.querySelector(`span[data-icon="${iconName}"]`);
+              if (!span) continue;
+              let p = span.parentElement;
+              for (let i = 0; i < 5 && p; i++, p = p.parentElement) {
+                if (p.tagName === 'BUTTON' || p.getAttribute('role') === 'button' ||
+                    p.getAttribute('tabindex') === '0') return p;
+              }
+            }
+            return null;
+          })();
 
-    // ── 2. Clica no primeiro resultado ────────────────────────────────────────
-    const firstResult =
-      document.querySelector('[data-testid="cell-frame-container"]') ||
-      document.querySelector('[tabindex="-1"][role="listitem"]');
+        console.log('[LiveCRM CS] INJECT_SEND: trigger?', !!trigger,
+          trigger ? `[testid=${trigger.getAttribute('data-testid')}|aria=${trigger.getAttribute('aria-label')}]` : '');
 
-    console.log('[LiveCRM CS] INJECT_SEND: resultado?', !!firstResult, 'texto:', firstResult?.textContent?.substring(0, 40));
-    if (!firstResult) throw new Error(`No chat found for phone ${phone}`);
-    firstResult.click();
-    await sleep(1000);
+        if (!trigger) {
+          const h = document.querySelector('header');
+          console.warn('[LiveCRM CS] INJECT_SEND: nenhum trigger encontrado. Header HTML:',
+            h?.innerHTML?.substring(0, 600) || '(sem header)');
+          throw new Error('Search trigger not found and contact not in visible list');
+        }
 
-    // ── 3. Fecha a busca (ESC) para não interferir no compose ─────────────────
-    searchBox.dispatchEvent(new KeyboardEvent('keydown', {
-      key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true,
-    }));
-    await sleep(300);
+        trigger.click();
+        await sleep(500);
 
-    // ── 4. Abre o input de compose e escreve ──────────────────────────────────
+        // Aguarda o searchbox aparecer no DOM após o clique
+        const searchBox = await waitForEl(
+          '[role="searchbox"], div[contenteditable="true"][data-tab="3"], [data-testid="chat-list-search"]',
+          4000
+        );
+
+        if (!searchBox) {
+          const ceNow = [...document.querySelectorAll('[contenteditable="true"]')].map(e =>
+            `[tab=${e.getAttribute('data-tab')}|role=${e.getAttribute('role')}|testid=${e.getAttribute('data-testid')}]`
+          ).join(' ');
+          throw new Error('Search box não apareceu após trigger. contenteditable: ' + ceNow);
+        }
+
+        console.log('[LiveCRM CS] INJECT_SEND: searchBox apareceu:',
+          `[tab=${searchBox.getAttribute('data-tab')}|role=${searchBox.getAttribute('role')}|testid=${searchBox.getAttribute('data-testid')}]`);
+
+        insertTextReact(searchBox, phone);
+        await sleep(300);
+        console.log('[LiveCRM CS] INJECT_SEND: searchBox 300ms depois:',
+          JSON.stringify(searchBox.textContent?.trim()?.substring(0, 20)));
+
+        // Aguarda resultado de busca (polling 300ms, max 5s)
+        let firstResult = null;
+        const deadline = Date.now() + 5000;
+        while (Date.now() < deadline) {
+          const pool = [
+            ...document.querySelectorAll('[data-testid="cell-frame-container"]'),
+            ...document.querySelectorAll('[tabindex="-1"][role="listitem"]'),
+          ];
+          console.log('[LiveCRM CS] INJECT_SEND: pool=', pool.length,
+            '| pool[0]:', pool[0]?.textContent?.replace(/\s+/g, ' ').substring(0, 30));
+          const matched = pool.find(el => el.textContent.replace(/\D/g, '').includes(targetDigits));
+          if (matched) { firstResult = matched; break; }
+          if (pool.length > 0 && pool.length <= 3) { firstResult = pool[0]; break; }
+          await sleep(300);
+        }
+
+        if (!firstResult) throw new Error(`Contato não encontrado para telefone ${phone}`);
+
+        console.log('[LiveCRM CS] INJECT_SEND: resultado:', firstResult.textContent?.replace(/\s+/g, ' ').substring(0, 40));
+        firstResult.click();
+        await sleep(1000);
+
+        searchBox.dispatchEvent(new KeyboardEvent('keydown', {
+          key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true,
+        }));
+        await sleep(300);
+      }
+    }
+
+    // ── Compose input ─────────────────────────────────────────────────────────
     const composeInput =
       document.querySelector('[data-testid="conversation-compose-box-input"]') ||
       document.querySelector('div[contenteditable="true"][data-tab="10"]') ||
       document.querySelector('div[contenteditable="true"][title="Digite uma mensagem"]') ||
       document.querySelector('#main div[contenteditable="true"]');
 
-    if (!composeInput) throw new Error('Compose input not found');
+    console.log('[LiveCRM CS] INJECT_SEND: composeInput?', !!composeInput,
+      composeInput ? `[tab=${composeInput.getAttribute('data-tab')}|testid=${composeInput.getAttribute('data-testid')}]` : '');
 
-    setContentEditable(composeInput, message);
+    if (!composeInput) {
+      const ceNow = [...document.querySelectorAll('[contenteditable="true"]')].map(e =>
+        `[tab=${e.getAttribute('data-tab')}|testid=${e.getAttribute('data-testid')}]`
+      ).join(' ');
+      throw new Error('Compose input not found. contenteditable: ' + ceNow);
+    }
+
+    insertTextReact(composeInput, message);
     await sleep(300);
+    console.log('[LiveCRM CS] INJECT_SEND: compose 300ms depois:',
+      JSON.stringify(composeInput.textContent?.substring(0, 40)));
+    await sleep(200);
 
-    // ── 5. Envia com Enter ────────────────────────────────────────────────────
     composeInput.dispatchEvent(new KeyboardEvent('keydown', {
       key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true,
     }));
     await sleep(500);
 
-    console.log('[LiveCRM CS] INJECT_SEND: enviado para', phone);
+    console.log('[LiveCRM CS] ✅ INJECT_SEND: enviado para', phone);
     try { if (chrome.runtime?.id) chrome.runtime.sendMessage({ type: 'SEND_CONFIRMED', sendId }); } catch { /* context invalidado */ }
   } catch (e) {
-    console.error('[LiveCRM CS] INJECT_SEND failed:', e.message);
+    console.error('[LiveCRM CS] ❌ INJECT_SEND failed:', e.message);
     try { if (chrome.runtime?.id) chrome.runtime.sendMessage({ type: 'SEND_FAILED', sendId, error: e.message }); } catch { /* context invalidado */ }
   }
 }
@@ -468,10 +565,11 @@ async function drainSendQueue() {
 
 // ── Listeners ─────────────────────────────────────────────────────────────────
 
-chrome.runtime.onMessage.addListener((msg) => {
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'INJECT_SEND') {
     sendQueue.push(msg);
     drainSendQueue().catch(console.error);
+    sendResponse({ queued: true }); // Responde imediatamente para evitar "message port closed"
   }
 });
 
