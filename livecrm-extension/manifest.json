@@ -27,7 +27,8 @@
     {
       "matches": ["https://posvenda.liveuni.com.br/*"],
       "js": ["crm_bridge.js"],
-      "run_at": "document_start"
+      "run_at": "document_start",
+      "world": "MAIN"
     }
   ],
   "action": {
