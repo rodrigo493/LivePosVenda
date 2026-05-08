@@ -1,6 +1,6 @@
 import React, { lazy, Suspense } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
@@ -133,7 +133,8 @@ function AppRoutes() {
             <Route path="/configuracoes" element={<SettingsPage />} />
             <Route path="/importar-historico" element={<HistoricalImportPage />} />
             <Route path="/crm" element={<CrmPipelinePage />} />
-            <Route path="/chat" element={<ChatPage />} />
+            {/* Rota /chat desabilitada — INJECT_SEND instável, evita envios não intencionais */}
+            <Route path="/chat" element={<Navigate to="/crm" replace />} />
             <Route path="/meu-painel" element={<MyDashboardPage />} />
             <Route path="/meu-perfil" element={<ProfilePage />} />
             <Route path="/manual" element={<ManualPage />} />
