@@ -528,6 +528,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   } else if (msg.type === 'DELETE_TICKET_PRODUCT') {
     handleDeleteTicketProduct(msg.productId).then(sendResponse).catch(e => sendResponse({ error: e.message }));
     return true;
+  } else if (msg.type === 'OPEN_CRM_TICKET') {
+    handleOpenCrmTicket(msg.ticketId).then(sendResponse).catch(e => sendResponse({ error: e.message }));
+    return true;
+  } else if (msg.type === 'OPEN_WA_CHAT') {
+    handleOpenWaTab(msg.phone).then(sendResponse).catch(e => sendResponse({ error: e.message }));
+    return true;
   } else if (msg.type === 'GET_STATUS') {
     sendResponse({ connected: !!sb, instanceId });
     return true;
@@ -990,30 +996,41 @@ async function handleDeleteTicketProduct(productId) {
 // ── Abertura de conversa WA Web a partir do CRM ──────────────────────────────
 // O CRM chama chrome.runtime.sendMessage(extId, { type:'OPEN_WA_CHAT', phone })
 // Este handler foca a aba do WA Web existente e navega até o chat do número.
+async function handleOpenWaTab(phone) {
+  const cleaned = String(phone || '').replace(/\D/g, '');
+  if (!cleaned) throw new Error('no phone');
+  const tabs = await chrome.tabs.query({ url: 'https://web.whatsapp.com/*' });
+  if (tabs.length > 0) {
+    const tab = tabs[0];
+    await chrome.windows.update(tab.windowId, { focused: true });
+    await chrome.tabs.update(tab.id, { active: true });
+    chrome.tabs.sendMessage(tab.id, { type: 'LIVECRM_OPEN_PHONE', phone: cleaned }, () => void chrome.runtime.lastError);
+    return { ok: true };
+  } else {
+    await chrome.tabs.create({ url: `https://web.whatsapp.com/send?phone=${cleaned}` });
+    return { ok: true, opened: true };
+  }
+}
+
+async function handleOpenCrmTicket(ticketId) {
+  const url = 'https://posvenda.liveuni.com.br/crm?open_ticket=' + ticketId;
+  const tabs = await chrome.tabs.query({ url: 'https://posvenda.liveuni.com.br/*' });
+  if (tabs.length > 0) {
+    const tab = tabs[0];
+    await chrome.windows.update(tab.windowId, { focused: true });
+    await chrome.tabs.update(tab.id, { active: true, url });
+    return { ok: true };
+  } else {
+    await chrome.tabs.create({ url });
+    return { ok: true, opened: true };
+  }
+}
+
+// Mantido para compatibilidade (externally_connectable — chamada direta da página CRM)
 chrome.runtime.onMessageExternal.addListener((req, _sender, sendResponse) => {
   if (req.type !== 'OPEN_WA_CHAT') return false;
-
   const phone = String(req.phone || '').replace(/\D/g, '');
   if (!phone) { sendResponse({ ok: false, reason: 'no phone' }); return true; }
-
-  chrome.tabs.query({ url: 'https://web.whatsapp.com/*' }, (tabs) => {
-    if (tabs.length > 0) {
-      const tab = tabs[0];
-      // Foca a janela e a aba do WA Web, depois navega para o chat
-      chrome.windows.update(tab.windowId, { focused: true }, () => {
-        chrome.tabs.update(tab.id, { active: true }, () => {
-          chrome.tabs.sendMessage(tab.id, { type: 'LIVECRM_OPEN_PHONE', phone }, () => {
-            void chrome.runtime.lastError; // ignora erro se CS ainda não carregou
-          });
-          sendResponse({ ok: true });
-        });
-      });
-    } else {
-      // WA Web não está aberto — abre em nova aba
-      chrome.tabs.create({ url: `https://web.whatsapp.com/send?phone=${phone}` });
-      sendResponse({ ok: true, opened: true });
-    }
-  });
-
-  return true; // indica que sendResponse é assíncrono
+  handleOpenWaTab(phone).then(sendResponse).catch(e => sendResponse({ ok: false, error: e.message }));
+  return true;
 });

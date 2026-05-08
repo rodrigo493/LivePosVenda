@@ -936,7 +936,7 @@ function renderSidebarData(phone, { client, ticket, stageLabel }) {
 
     const openBtn = styledBtn('↗ Abrir no CRM', true);
     openBtn.addEventListener('click', () => {
-      window.open(CRM_BASE_URL + '/crm?open_ticket=' + ticket.id, '_blank');
+      chrome.runtime.sendMessage({ type: 'OPEN_CRM_TICKET', ticketId: ticket.id }, () => void chrome.runtime.lastError);
     });
     body.appendChild(openBtn);
   } else {

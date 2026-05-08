@@ -694,17 +694,23 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
       return;
     }
     const fallback = () => window.open(`https://web.whatsapp.com/send?phone=${rawPhone}`, "_blank");
-    const extId = (window as any).__livecrm_ext_id as string | undefined;
-    if (extId && typeof (globalThis as any).chrome?.runtime?.sendMessage === "function") {
-      // Timeout de 3s: se a extensão não responder, abre no navegador
+    // Usa o bridge DOM (crm_bridge.js ISOLATED world) se extensão estiver ativa
+    if (document.documentElement.getAttribute("data-livecrm-ext") === "true") {
+      const requestId = Date.now().toString();
       let settled = false;
       const timer = setTimeout(() => { if (!settled) { settled = true; fallback(); } }, 3000);
-      (globalThis as any).chrome.runtime.sendMessage(extId, { type: "OPEN_WA_CHAT", phone: rawPhone }, (resp: any) => {
+      const onResp = (ev: Event) => {
+        const detail = (ev as CustomEvent).detail;
+        if (detail.requestId !== requestId) return;
+        window.removeEventListener("livecrm:messageResponse", onResp);
         settled = true;
         clearTimeout(timer);
-        const err = (globalThis as any).chrome?.runtime?.lastError;
-        if (err || !resp?.ok) fallback();
-      });
+        if (detail.error || !detail.response?.ok) fallback();
+      };
+      window.addEventListener("livecrm:messageResponse", onResp);
+      window.dispatchEvent(new CustomEvent("livecrm:sendMessage", {
+        detail: { type: "OPEN_WA_CHAT", phone: rawPhone, __requestId: requestId }
+      }));
     } else {
       fallback();
     }
