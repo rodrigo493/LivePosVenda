@@ -48,6 +48,14 @@ export function useMovePipelineStage() {
     }) => {
       const now = new Date().toISOString();
 
+      // Captura etapa anterior para só disparar automações quando a etapa muda de fato
+      const { data: currentTicketState } = await (supabase as any)
+        .from("tickets")
+        .select("pipeline_stage")
+        .eq("id", id)
+        .single();
+      const previousStage = (currentTicketState as any)?.pipeline_stage ?? null;
+
       const { data: stageTickets } = await (supabase as any)
         .from("tickets")
         .select("id, pipeline_position")
@@ -133,21 +141,22 @@ export function useMovePipelineStage() {
         });
       }
 
-      // Fire-and-forget: agendar automações da etapa de destino
-      // Need stage UUID — look up from pipeline_stages by pipeline_id + key
-      const { data: stageRow } = await (supabase as any)
-        .from("pipeline_stages")
-        .select("id")
-        .eq("pipeline_id", pipelineId)
-        .eq("key", stage)
-        .maybeSingle();
+      // Dispara automações apenas quando o card realmente entrou em uma nova etapa
+      if (previousStage !== stage) {
+        const { data: stageRow } = await (supabase as any)
+          .from("pipeline_stages")
+          .select("id")
+          .eq("pipeline_id", pipelineId)
+          .eq("key", stage)
+          .maybeSingle();
 
-      if (stageRow?.id) {
-        (supabase as any).functions
-          .invoke("trigger-automations", {
-            body: { ticket_id: id, stage_id: stageRow.id },
-          })
-          .catch((e: unknown) => console.warn("[automations]", e));
+        if (stageRow?.id) {
+          (supabase as any).functions
+            .invoke("trigger-automations", {
+              body: { ticket_id: id, stage_id: stageRow.id },
+            })
+            .catch((e: unknown) => console.warn("[automations]", e));
+        }
       }
     },
     onSuccess: () => {

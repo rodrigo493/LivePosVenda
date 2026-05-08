@@ -3,13 +3,32 @@
 console.log('[LiveCRM CS] content_script carregado, readyState:', document.readyState);
 
 const processedIds = new Set();
+let activeObserver = null;
+
+function isContextAlive() {
+  try { return !!chrome.runtime?.id; } catch { return false; }
+}
+
+function stopObserverIfOrphaned() {
+  if (!isContextAlive()) {
+    if (activeObserver) {
+      activeObserver.disconnect();
+      activeObserver = null;
+      console.warn('[LiveCRM CS] contexto invalidado — observer desconectado. Recarregue a aba do WA Web.');
+    }
+    return true;
+  }
+  return false;
+}
 
 // ── Lê o telefone ativo via background (chrome.scripting no mundo principal) ──
 async function getPhoneFromBackground() {
+  let resolved = false;
   return Promise.race([
     new Promise(resolve => {
       try {
         chrome.runtime.sendMessage({ type: 'GET_ACTIVE_PHONE' }, resp => {
+          resolved = true;
           if (chrome.runtime.lastError) {
             console.warn('[LiveCRM CS] lastError GET_ACTIVE_PHONE:', chrome.runtime.lastError.message);
             resolve(null);
@@ -19,11 +38,12 @@ async function getPhoneFromBackground() {
         });
       } catch (e) {
         console.warn('[LiveCRM CS] sendMessage falhou:', e.message);
+        resolved = true;
         resolve(null);
       }
     }),
     new Promise(resolve => setTimeout(() => {
-      console.warn('[LiveCRM CS] GET_ACTIVE_PHONE timeout 5s — SW não respondeu');
+      if (!resolved) console.warn('[LiveCRM CS] GET_ACTIVE_PHONE timeout 5s — SW não respondeu');
       resolve(null);
     }, 5000)),
   ]);
@@ -80,6 +100,11 @@ async function uploadAudio(blobUrl, instanceId, phone) {
 // ── Telefone da conversa ativa ────────────────────────────────────────────────
 
 function getActiveChatPhone() {
+  // 0. wa_hook.js (MAIN world) rastreia via React fiber e anota em data-livecrm-phone
+  const main = document.getElementById('main') || document.querySelector('#main');
+  const hookedPhone = main?.getAttribute('data-livecrm-phone');
+  if (hookedPhone) return hookedPhone;
+
   // 1. Sidebar: item selecionado — tenta múltiplos seletores
   const sidebarSelectors = [
     '[role="listitem"][aria-selected="true"]',
@@ -119,17 +144,44 @@ function getActiveChatPhone() {
   const withJid = document.querySelector('[data-jid*="@c.us"]');
   if (withJid) return (withJid.getAttribute('data-jid') || '').replace(/@c\.us.*/, '');
 
-  // 4. URL — algumas versões do WA Web codificam o JID no hash
-  const phoneMatch = window.location.href.match(/[?&/](\d{10,15})(?:@|$|&)/);
+  // 3b. Varredura global por data-id contendo @c.us (mensagens formato antigo ainda visíveis)
+  const withJidDataId = document.querySelector('[data-id*="@c.us"], [data-id*="@s.whatsapp.net"]');
+  if (withJidDataId) {
+    const v = withJidDataId.getAttribute('data-id') || '';
+    if (v.includes('@c.us')) return v.replace(/@c\.us.*/, '');
+    return v.replace(/@s\.whatsapp\.net.*/, '');
+  }
+
+  // 4. URL — algumas versões do WA Web codificam o JID no hash ou query
+  const phoneMatch = window.location.href.match(/[?&/](\d{10,15})(?:@|$|&|#)/);
   if (phoneMatch) return phoneMatch[1];
 
+  // 5. WA Web 2026: varre todos os elementos de #main procurando JID em qualquer atributo data-*
+  const mainEl = document.getElementById('main') || document.querySelector('#main, [data-testid="conversation-panel-body"]');
+  if (mainEl) {
+    for (const el of mainEl.querySelectorAll('*')) {
+      for (const attr of el.attributes) {
+        const v = attr.value;
+        if (v.includes('@c.us')) return v.replace(/@c\.us.*/, '');
+        if (v.includes('@s.whatsapp.net')) return v.replace(/@s\.whatsapp\.net.*/, '');
+      }
+    }
+  }
+
   // Dump diagnóstico para identificar seletores corretos na próxima iteração
-  const headerHtml = document.querySelector('#main header')?.outerHTML?.substring(0, 500) || 'não encontrado';
+  const headerHtml = document.querySelector('[data-testid="conversation-header"], #main header')
+    ?.outerHTML?.substring(0, 600) || 'não encontrado';
   const ariaSelected = [...document.querySelectorAll('[aria-selected]')]
     .map(e => `${e.tagName}|data-id=${(e.getAttribute('data-id') || '').substring(0, 30)}|sel=${e.getAttribute('aria-selected')}`)
     .join(' | ');
+  const mainAttrs = mainEl
+    ? [...mainEl.querySelectorAll('[data-id],[data-jid]')].slice(0, 5)
+        .map(e => `${e.tagName}[data-id=${(e.getAttribute('data-id') || '').substring(0, 20)}]`)
+        .join(' | ')
+    : 'sem #main';
   console.warn('[LiveCRM CS] getActiveChatPhone falhou.',
     '\n  [aria-selected]:', ariaSelected || 'nenhum',
+    '\n  #main [data-id/jid]:', mainAttrs,
     '\n  header HTML:', headerHtml,
   );
 
@@ -153,11 +205,12 @@ function getPhoneFromAncestors(el) {
 // ── Direção da mensagem ───────────────────────────────────────────────────────
 
 function isOutboundMessage(el) {
-  // Mensagens enviadas têm ícone de status (check/dblcheck/time)
   return !!(
-    el.querySelector('[data-testid="msg-dblcheck"], [data-testid="msg-check"], [data-testid="msg-time"]') ||
-    el.querySelector('[data-icon="msg-dblcheck"], [data-icon="msg-check"], [data-icon="msg-time"]') ||
-    el.closest('[class*="message-out"]')
+    el.querySelector('[data-testid="msg-dblcheck"], [data-testid="msg-check"]') ||
+    el.querySelector('[data-icon="msg-dblcheck"], [data-icon="msg-check"]') ||
+    el.closest('[class*="message-out"]') ||
+    el.querySelector('[class*="message-out"]') ||
+    el.querySelector('[class*="msg-out"]')
   );
 }
 
@@ -328,6 +381,7 @@ async function processNode(node) {
 
   if (text) {
     console.log('[LiveCRM CS] texto:', text.substring(0, 50));
+    if (!isContextAlive()) { stopObserverIfOrphaned(); return; }
     console.log('[LiveCRM CS] enviando INBOUND_MESSAGE ao SW...');
     chrome.runtime.sendMessage({ type: 'INBOUND_MESSAGE', data: { phone, text, waMessageId } });
   } else {
@@ -341,7 +395,8 @@ function startObserver() {
   snapshotExisting();
   console.log('[LiveCRM CS] MutationObserver iniciado em document.body');
 
-  const observer = new MutationObserver((mutations) => {
+  activeObserver = new MutationObserver((mutations) => {
+    if (stopObserverIfOrphaned()) return;
     for (const m of mutations) {
       for (const node of m.addedNodes) {
         if (node.nodeType !== 1) continue;
@@ -364,232 +419,100 @@ function startObserver() {
     }
   });
 
-  observer.observe(document.body, { childList: true, subtree: true });
+  activeObserver.observe(document.body, { childList: true, subtree: true });
 }
 
 // ── Inject Send ───────────────────────────────────────────────────────────────
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-// Fallback de navegação via botão "Nova conversa" — usado quando o sidebar search falha
-async function injectSendViaNewChat(phone, targetDigits, existingSearchBox) {
-  const trigger =
-    document.querySelector('[data-testid="new-chat-btn"]') ||
-    document.querySelector('[data-testid="search-action"]') ||
-    document.querySelector('[aria-label="Nova conversa"]') ||
-    document.querySelector('[aria-label="New chat"]') ||
-    document.querySelector('[aria-label="Pesquisar"]') ||
-    (() => {
-      for (const iconName of ['new-chat-outline', 'chat-new', 'chat-add', 'search', 'compose']) {
-        const span = document.querySelector(`span[data-icon="${iconName}"]`);
-        if (!span) continue;
-        let p = span.parentElement;
-        for (let i = 0; i < 5 && p; i++, p = p.parentElement) {
-          if (p.tagName === 'BUTTON' || p.getAttribute('role') === 'button' ||
-              p.getAttribute('tabindex') === '0') return p;
-        }
-      }
-      return null;
-    })();
-
-  if (!trigger) {
-    const header = document.querySelector('header');
-    console.warn('[LiveCRM CS] INJECT_SEND: nenhum trigger "Nova conversa" encontrado.',
-      '\n  Header HTML:', header?.innerHTML?.substring(0, 600) || '(sem header)');
-    throw new Error('Trigger "Nova conversa" não encontrado e sidebar search falhou');
-  }
-
-  console.log('[LiveCRM CS] INJECT_SEND: trigger encontrado:',
-    `[testid=${trigger.getAttribute('data-testid')}|aria=${trigger.getAttribute('aria-label')}]`);
-
-  trigger.click();
-  await sleep(600);
-
-  // Aguarda searchbox aparecer (pode ser o mesmo sidebar ou um painel novo)
-  const searchBox = existingSearchBox ||
-    await waitForEl(
-      '[role="searchbox"], div[contenteditable="true"][data-tab="3"], [data-testid="chat-list-search"]',
-      4000
-    );
-
-  if (!searchBox) {
-    const ceNow = [...document.querySelectorAll('[contenteditable="true"]')].map(e =>
-      `[tab=${e.getAttribute('data-tab')}|role=${e.getAttribute('role')}]`
-    ).join(' ');
-    throw new Error('Searchbox não apareceu após trigger. contenteditable: ' + ceNow);
-  }
-
-  insertTextReact(searchBox, phone);
-  await sleep(600);
-
-  let firstResult = null;
-  const deadline = Date.now() + 5000;
-  while (Date.now() < deadline) {
-    const pool = [
-      ...document.querySelectorAll('[data-testid="cell-frame-container"]'),
-      ...document.querySelectorAll('[role="listitem"]'),
-    ];
-    const matched = pool.find(el => el.textContent?.replace(/\D/g, '').includes(targetDigits));
-    if (matched) { firstResult = matched; break; }
-    if (pool.length > 0 && pool.length <= 3) { firstResult = pool[0]; break; }
-    await sleep(300);
-  }
-
-  if (!firstResult) throw new Error(`Contato não encontrado para telefone ${phone} via Nova conversa`);
-
-  console.log('[LiveCRM CS] INJECT_SEND (nova conversa): resultado:', firstResult.textContent?.replace(/\s+/g, ' ').substring(0, 40));
-  firstResult.click();
-  await sleep(1000);
-
-  searchBox.dispatchEvent(new KeyboardEvent('keydown', {
-    key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true,
-  }));
-  await sleep(300);
-}
-
-// Insere texto num contenteditable React usando execCommand('insertText') — dispara
-// eventos beforeinput+input nativos que o React 18 reconhece corretamente.
-// Fallback para textContent+InputEvent sintético se execCommand não funcionar.
-function insertTextReact(el, text) {
+// Insere texto no contenteditable Lexical do WA Web 2026.
+// execCommand sozinho não funciona — o Lexical reverte via EditorState reconciliation.
+// Usar beforeinput insertFromPaste → Lexical processa e atualiza EditorState → sem revert.
+async function insertTextReact(el, text) {
   el.focus();
-  document.execCommand('selectAll', false, null);
-  const ok = document.execCommand('insertText', false, text);
-  const domAfter = el.textContent?.trim();
-  console.log('[LiveCRM CS] insertTextReact: execCommand ok=', ok,
-    '→ DOM:', JSON.stringify(domAfter?.substring(0, 30)),
-    ok && domAfter === text.trim() ? '✓' : '⚠ divergência');
-  if (!ok || !domAfter) {
-    el.textContent = text;
-    const range = document.createRange();
-    range.selectNodeContents(el);
-    range.collapse(false);
-    const sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
-    el.dispatchEvent(new InputEvent('input', {
-      data: text, inputType: 'insertText', bubbles: true, composed: true,
-    }));
-    console.log('[LiveCRM CS] insertTextReact: fallback direto → DOM:', JSON.stringify(el.textContent?.substring(0, 30)));
+  await sleep(50);
+
+  // Seleciona todo o conteúdo existente via Selection API
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+
+  // Primary: beforeinput insertFromPaste — o Lexical trata este evento nativamente
+  // e atualiza o EditorState, prevenindo que a reconciliação reverta a mudança
+  const dt = new DataTransfer();
+  dt.setData('text/plain', text);
+  el.dispatchEvent(new InputEvent('beforeinput', {
+    inputType: 'insertFromPaste',
+    dataTransfer: dt,
+    bubbles: true,
+    cancelable: true,
+  }));
+  await sleep(150);
+
+  // Fallback: se o Lexical não processou o evento, usa execCommand
+  if (el.textContent?.trim() !== text.trim()) {
+    console.warn('[LiveCRM CS] insertFromPaste não atualizou DOM, fallback execCommand');
+    document.execCommand('insertText', false, text);
   }
 }
+
+const COMPOSE_SEL = [
+  '[data-testid="conversation-compose-box-input"]',
+  'div[contenteditable="true"][data-tab="10"]',
+  '#main div[contenteditable="true"]',
+].join(', ');
 
 async function injectSend({ sendId, phone, message }) {
   console.log('[LiveCRM CS] ▶ INJECT_SEND start', { sendId, phone, msg: message?.substring(0, 30) });
   try {
     const targetDigits = phone.replace(/\D/g, '').slice(-9);
 
-    // ── 0. Verifica se já estamos na conversa correta ─────────────────────────
+    // ── Passo 1: navega para a conversa se necessário ─────────────────────────
     const currentPhone = getActiveChatPhone();
     const alreadyHere = currentPhone && currentPhone.replace(/\D/g, '').slice(-9) === targetDigits;
     console.log('[LiveCRM CS] INJECT_SEND: currentPhone=', currentPhone, '| alreadyHere=', alreadyHere);
 
     if (!alreadyHere) {
-      // ── Tenta 1: contato visível na lista (click direto, sem busca) ────────
-      const listItems = [...document.querySelectorAll('[data-testid="cell-frame-container"]')];
-      console.log('[LiveCRM CS] INJECT_SEND: lista visível =', listItems.length, 'itens');
-      const inList = listItems.find(el => {
-        const id = el.getAttribute('data-id') || el.querySelector('[data-id]')?.getAttribute('data-id') || '';
-        if (id.replace(/\D/g, '').includes(targetDigits)) return true;
-        // Fallback: número como texto visível (ex: exibição em listas sem data-id)
-        return el.textContent?.replace(/\D/g, '').includes(targetDigits);
-      });
+      // Fast path: contato visível na lista → click direto
+      const inList = [...document.querySelectorAll('[data-testid="cell-frame-container"]')]
+        .find(el => el.textContent?.replace(/\D/g, '').includes(targetDigits));
 
       if (inList) {
-        console.log('[LiveCRM CS] INJECT_SEND: contato na lista visível, clicando');
+        console.log('[LiveCRM CS] INJECT_SEND: contato na lista → click direto');
         inList.click();
-        await sleep(800);
       } else {
-        // ── Tenta 2: searchbox do sidebar — sempre presente no DOM do WA Web ───
-        // Em WA Web 2026 a caixa de busca (data-tab="3") persiste no sidebar sem precisar de trigger.
-        const sidebarSearch =
-          document.querySelector('div[contenteditable="true"][data-tab="3"]') ||
-          document.querySelector('[aria-label="Busca ou nova conversa"]') ||
-          document.querySelector('[aria-label="Pesquisar ou começar uma nova conversa"]') ||
-          document.querySelector('[aria-label="Search or start new chat"]') ||
-          document.querySelector('[data-testid="chat-list-search"]') ||
-          document.querySelector('[role="searchbox"]');
-
-        console.log('[LiveCRM CS] INJECT_SEND: sidebarSearch?', !!sidebarSearch,
-          sidebarSearch ? `[tab=${sidebarSearch.getAttribute('data-tab')}|role=${sidebarSearch.getAttribute('role')}|aria=${(sidebarSearch.getAttribute('aria-label') || '').substring(0, 30)}]` : '');
-
-        if (sidebarSearch) {
-          insertTextReact(sidebarSearch, phone);
-          await sleep(600);
-          console.log('[LiveCRM CS] INJECT_SEND: sidebarSearch texto atual:',
-            JSON.stringify(sidebarSearch.textContent?.trim()?.substring(0, 20)));
-
-          // Polling de resultado na lista filtrada (máx 5s)
-          let firstResult = null;
-          const deadline = Date.now() + 5000;
-          while (Date.now() < deadline) {
-            const pool = [
-              ...document.querySelectorAll('[data-testid="cell-frame-container"]'),
-              ...document.querySelectorAll('[role="listitem"]'),
-            ];
-            console.log('[LiveCRM CS] INJECT_SEND: pool filtrado=', pool.length,
-              pool[0] ? '| [0]=' + pool[0].textContent?.replace(/\s+/g, ' ').substring(0, 30) : '');
-            const matched = pool.find(el => el.textContent?.replace(/\D/g, '').includes(targetDigits));
-            if (matched) { firstResult = matched; break; }
-            if (pool.length > 0 && pool.length <= 3) { firstResult = pool[0]; break; }
-            await sleep(300);
-          }
-
-          if (firstResult) {
-            console.log('[LiveCRM CS] INJECT_SEND: resultado encontrado, clicando');
-            firstResult.click();
-            await sleep(800);
-            // Limpa a busca para não deixar o sidebar filtrado
-            sidebarSearch.dispatchEvent(new KeyboardEvent('keydown', {
-              key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true,
-            }));
-            await sleep(200);
-          } else {
-            // ── Tenta 3: botão "Nova conversa" / trigger ─────────────────────
-            console.warn('[LiveCRM CS] INJECT_SEND: sidebar search sem resultado, tentando trigger');
-            await injectSendViaNewChat(phone, targetDigits, sidebarSearch);
-          }
-        } else {
-          // Sidebar search não encontrado — dump diagnóstico e tenta trigger
-          const ceNow = [...document.querySelectorAll('[contenteditable="true"]')].map(e =>
-            `[tab=${e.getAttribute('data-tab')}|role=${e.getAttribute('role')}|aria=${(e.getAttribute('aria-label') || '').substring(0, 20)}]`
-          ).join(' ');
-          const header = document.querySelector('header');
-          const btns = header ? [...header.querySelectorAll('[role="button"],[tabindex="0"],button')].slice(0, 8) : [];
-          console.warn('[LiveCRM CS] INJECT_SEND: sidebar search não encontrado.',
-            '\n  contenteditable:', ceNow || '(nenhum)',
-            '\n  header buttons:', btns.map(b => `[testid=${b.getAttribute('data-testid')}|aria=${b.getAttribute('aria-label')}|icon=${b.querySelector('[data-icon]')?.getAttribute('data-icon')}]`).join(' ') || '(sem header)');
-          await injectSendViaNewChat(phone, targetDigits, null);
-        }
+        // Navegação SPA via history.pushState — wa_hook.js processa no MAIN world
+        console.log('[LiveCRM CS] INJECT_SEND: LIVECRM_OPEN_PHONE →', phone);
+        window.postMessage({ type: 'LIVECRM_OPEN_PHONE', phone }, '*');
       }
+
+      // Aguarda WA Web processar a navegação antes de buscar o compose
+      await sleep(2000);
     }
 
-    // ── Compose input ─────────────────────────────────────────────────────────
-    const composeInput =
-      document.querySelector('[data-testid="conversation-compose-box-input"]') ||
-      document.querySelector('div[contenteditable="true"][data-tab="10"]') ||
-      document.querySelector('div[contenteditable="true"][title="Digite uma mensagem"]') ||
-      document.querySelector('#main div[contenteditable="true"]');
-
-    console.log('[LiveCRM CS] INJECT_SEND: composeInput?', !!composeInput,
-      composeInput ? `[tab=${composeInput.getAttribute('data-tab')}|testid=${composeInput.getAttribute('data-testid')}]` : '');
+    // ── Passo 2: aguarda compose input ────────────────────────────────────────
+    const composeInput = document.querySelector(COMPOSE_SEL) ||
+      await waitForEl(COMPOSE_SEL, 15000);
 
     if (!composeInput) {
-      const ceNow = [...document.querySelectorAll('[contenteditable="true"]')].map(e =>
-        `[tab=${e.getAttribute('data-tab')}|testid=${e.getAttribute('data-testid')}]`
-      ).join(' ');
-      throw new Error('Compose input not found. contenteditable: ' + ceNow);
+      const ceNow = [...document.querySelectorAll('[contenteditable="true"]')]
+        .map(e => `[tab=${e.getAttribute('data-tab')}|testid=${e.getAttribute('data-testid')}]`).join(' ');
+      throw new Error('Compose input não encontrado para ' + phone + '. contenteditable: ' + ceNow);
     }
+    console.log('[LiveCRM CS] INJECT_SEND: compose [tab=', composeInput.getAttribute('data-tab'),
+      '|testid=', composeInput.getAttribute('data-testid'), ']');
 
-    insertTextReact(composeInput, message);
-    await sleep(300);
-    console.log('[LiveCRM CS] INJECT_SEND: compose 300ms depois:',
-      JSON.stringify(composeInput.textContent?.substring(0, 40)));
-    await sleep(200);
-
+    // ── Passo 3: insere mensagem e envia ──────────────────────────────────────
+    await insertTextReact(composeInput, message);
+    await sleep(600);
+    console.log('[LiveCRM CS] INJECT_SEND: compose texto:', JSON.stringify(composeInput.textContent?.substring(0, 40)));
     composeInput.dispatchEvent(new KeyboardEvent('keydown', {
       key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true,
     }));
-    await sleep(500);
+    await sleep(400);
 
     console.log('[LiveCRM CS] ✅ INJECT_SEND: enviado para', phone);
     try { if (chrome.runtime?.id) chrome.runtime.sendMessage({ type: 'SEND_CONFIRMED', sendId }); } catch { /* context invalidado */ }
@@ -604,14 +527,22 @@ const sendQueue = [];
 let isSending = false;
 
 async function drainSendQueue() {
-  if (isSending) return;
-  isSending = true;
-  while (sendQueue.length > 0) {
-    const job = sendQueue.shift();
-    await injectSend(job);
-    await sleep(600);
+  console.log('[LiveCRM CS] drainSendQueue: isSending=', isSending, '| fila=', sendQueue.length);
+  if (isSending) {
+    console.warn('[LiveCRM CS] drainSendQueue: envio em curso, job aguarda na fila');
+    return;
   }
-  isSending = false;
+  isSending = true;
+  try {
+    while (sendQueue.length > 0) {
+      const job = sendQueue.shift();
+      await injectSend(job);
+      await sleep(600);
+    }
+  } finally {
+    isSending = false;
+    console.log('[LiveCRM CS] drainSendQueue: concluído');
+  }
 }
 
 // ── Listeners ─────────────────────────────────────────────────────────────────
@@ -621,6 +552,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     sendQueue.push(msg);
     drainSendQueue().catch(console.error);
     sendResponse({ queued: true }); // Responde imediatamente para evitar "message port closed"
+  }
+
+  // Relay de navegação vindo do background → wa_hook.js (MAIN world)
+  if (msg.type === 'LIVECRM_OPEN_PHONE') {
+    window.postMessage({ type: 'LIVECRM_OPEN_PHONE', phone: msg.phone }, '*');
+    sendResponse({ ok: true });
   }
 });
 
@@ -666,10 +603,512 @@ async function main() {
     console.log('[LiveCRM CS] WA Web pronto:', app.tagName, app.id || app.className?.substring(0, 40));
   }
   startObserver();
+  injectSidebar();
+  startSidebarWatcher();
 }
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', main);
 } else {
   main();
+}
+
+// ── Sidebar LiveCRM ───────────────────────────────────────────────────────────
+
+function mkEl(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+
+function injectSidebar() {
+  if (document.getElementById('livecrm-toggle')) return;
+  console.log('[LiveCRM CS] injectSidebar: criando botão CRM...');
+
+  const toggle = document.createElement('button');
+  toggle.id = 'livecrm-toggle';
+  toggle.textContent = 'CRM';
+  Object.assign(toggle.style, {
+    position: 'fixed',
+    bottom: '80px',
+    right: '0',
+    zIndex: '2147483647',
+    background: '#075e54',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '8px 0 0 8px',
+    padding: '10px 8px',
+    fontSize: '11px',
+    fontWeight: '700',
+    cursor: 'pointer',
+    writingMode: 'vertical-rl',
+    letterSpacing: '1px',
+    boxShadow: '-2px 0 8px rgba(0,0,0,.25)',
+    fontFamily: 'sans-serif',
+    lineHeight: '1.2',
+  });
+  document.documentElement.appendChild(toggle);
+  console.log('[LiveCRM CS] botão CRM criado, position:', toggle.style.position, 'zIndex:', toggle.style.zIndex);
+
+  const panel = document.createElement('div');
+  panel.id = 'livecrm-panel';
+  Object.assign(panel.style, {
+    position: 'fixed',
+    top: '0',
+    right: '0',
+    width: '280px',
+    height: '100vh',
+    zIndex: '2147483646',
+    background: '#fff',
+    borderLeft: '1px solid #e5e7eb',
+    boxShadow: '-4px 0 16px rgba(0,0,0,.12)',
+    display: 'flex',
+    flexDirection: 'column',
+    fontFamily: '-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',
+    fontSize: '13px',
+    transform: 'translateX(100%)',
+    transition: 'transform .2s ease',
+    boxSizing: 'border-box',
+  });
+
+  const hdr = document.createElement('div');
+  hdr.id = 'livecrm-panel-header';
+  Object.assign(hdr.style, {
+    background: '#075e54',
+    color: '#fff',
+    padding: '14px 16px',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    fontWeight: '700',
+    fontSize: '14px',
+    flexShrink: '0',
+  });
+  const hdrTitle = document.createElement('span');
+  hdrTitle.textContent = 'LiveCRM';
+  const closeBtn = document.createElement('button');
+  closeBtn.id = 'livecrm-close';
+  closeBtn.title = 'Fechar';
+  closeBtn.textContent = '✕';
+  Object.assign(closeBtn.style, {
+    background: 'none',
+    border: 'none',
+    color: '#fff',
+    cursor: 'pointer',
+    fontSize: '18px',
+    padding: '0',
+    lineHeight: '1',
+    opacity: '.8',
+  });
+  hdr.appendChild(hdrTitle);
+  hdr.appendChild(closeBtn);
+
+  const body = document.createElement('div');
+  body.id = 'livecrm-panel-body';
+  Object.assign(body.style, {
+    flex: '1',
+    overflowY: 'auto',
+    padding: '14px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '10px',
+  });
+
+  panel.appendChild(hdr);
+  panel.appendChild(body);
+  document.documentElement.appendChild(panel);
+
+  toggle.addEventListener('click', async () => {
+    const isOpen = panel.style.transform === 'translateX(0px)' || panel.style.transform === 'translateX(0)';
+    panel.style.transform = isOpen ? 'translateX(100%)' : 'translateX(0)';
+    if (!isOpen) {
+      sidebarCurrentPhone = null;
+      const phone = await getPhoneFromBackground();
+      sidebarCurrentPhone = phone;
+      refreshSidebar(phone);
+    }
+  });
+  closeBtn.addEventListener('click', () => { panel.style.transform = 'translateX(100%)'; });
+}
+
+function sidebarMsg(text, isError) {
+  const body = document.getElementById('livecrm-panel-body');
+  if (!body) return;
+  body.textContent = '';
+  const p = mkEl('p', 'lcrm-msg' + (isError ? ' error' : ''), text);
+  body.appendChild(p);
+}
+
+function extractVisibleMessages() {
+  const msgs = [];
+  document.querySelectorAll('[data-id]').forEach(node => {
+    const isOut = !!node.querySelector('[class*="message-out"]');
+    const textEl = node.querySelector('[class*="selectable-text"]') || node.querySelector('span[dir]');
+    const text = textEl?.textContent?.trim();
+    if (text) msgs.push({ direction: isOut ? 'outbound' : 'inbound', text });
+  });
+  return msgs.slice(-30);
+}
+
+function sendToBackground(msg) {
+  return new Promise((resolve, reject) => {
+    try {
+      chrome.runtime.sendMessage(msg, resp => {
+        if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
+        if (resp?.error) return reject(new Error(resp.error));
+        resolve(resp);
+      });
+    } catch (e) { reject(e); }
+  });
+}
+
+function getContactName() {
+  const header = document.querySelector('header[data-testid="conversation-header"]');
+  if (!header) return null;
+  const el = header.querySelector('[data-testid="conversation-info-header-chat-title"] span') ||
+    header.querySelector('span[title][class]') ||
+    header.querySelector('._amig') ||
+    header.querySelector('h1') ||
+    header.querySelector('span[dir="auto"]');
+  return el?.textContent?.trim() || null;
+}
+
+function styledBtn(text, primary) {
+  const btn = document.createElement('button');
+  btn.textContent = text;
+  Object.assign(btn.style, {
+    width: '100%', padding: '9px 12px', borderRadius: '6px', cursor: 'pointer',
+    fontSize: '12px', fontWeight: '600', textAlign: 'center', boxSizing: 'border-box',
+    border: primary ? '1px solid #075e54' : '1px solid #e5e7eb',
+    background: primary ? '#075e54' : '#fff',
+    color: primary ? '#fff' : '#374151',
+    marginTop: '6px', fontFamily: 'inherit',
+  });
+  btn.onmouseover = () => { btn.style.opacity = '.85'; };
+  btn.onmouseout = () => { btn.style.opacity = '1'; };
+  return btn;
+}
+
+function styledInput(placeholder, value) {
+  const el = document.createElement('input');
+  el.type = 'text';
+  el.placeholder = placeholder;
+  if (value) el.value = value;
+  Object.assign(el.style, {
+    width: '100%', padding: '8px', borderRadius: '6px', boxSizing: 'border-box',
+    border: '1px solid #d1d5db', fontSize: '13px', fontFamily: 'inherit', marginTop: '4px',
+  });
+  return el;
+}
+
+function styledSelect(options) {
+  const sel = document.createElement('select');
+  Object.assign(sel.style, {
+    width: '100%', padding: '8px', borderRadius: '6px', boxSizing: 'border-box',
+    border: '1px solid #d1d5db', fontSize: '13px', fontFamily: 'inherit', marginTop: '4px',
+    background: '#fff',
+  });
+  options.forEach(({ value, label }) => {
+    const opt = document.createElement('option');
+    opt.value = value; opt.textContent = label;
+    sel.appendChild(opt);
+  });
+  return sel;
+}
+
+function infoRow(label, value) {
+  const wrap = document.createElement('div');
+  Object.assign(wrap.style, { marginBottom: '10px' });
+  const lbl = document.createElement('div');
+  lbl.textContent = label;
+  Object.assign(lbl.style, { fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.5px', color: '#6b7280', marginBottom: '2px' });
+  const val = document.createElement('div');
+  val.textContent = value;
+  Object.assign(val.style, { fontWeight: '600', color: '#111827', fontSize: '14px' });
+  wrap.appendChild(lbl); wrap.appendChild(val);
+  return wrap;
+}
+
+function badge(text) {
+  const el = document.createElement('span');
+  el.textContent = text;
+  Object.assign(el.style, {
+    display: 'inline-block', background: '#d1fae5', color: '#065f46',
+    borderRadius: '20px', padding: '2px 10px', fontSize: '11px', fontWeight: '600',
+  });
+  return el;
+}
+
+function renderSidebarData(phone, { client, ticket, stageLabel }) {
+  const body = document.getElementById('livecrm-panel-body');
+  if (!body) return;
+  body.textContent = '';
+
+  const waName = getContactName();
+  const displayName = (waName && waName !== phone) ? waName : (client.name && client.name !== phone ? client.name : null);
+  if (displayName) body.appendChild(infoRow('Contato', displayName));
+  body.appendChild(infoRow('Telefone', phone));
+
+  if (ticket) {
+    const stageWrap = document.createElement('div');
+    stageWrap.style.marginBottom = '10px';
+    const lbl = document.createElement('div');
+    lbl.textContent = 'FUNIL';
+    Object.assign(lbl.style, { fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.5px', color: '#6b7280', marginBottom: '4px' });
+    stageWrap.appendChild(lbl);
+    stageWrap.appendChild(badge(stageLabel || ticket.pipeline_stage || '-'));
+    const pname = document.createElement('div');
+    pname.textContent = ticket.pipeline_name || '';
+    Object.assign(pname.style, { fontSize: '11px', color: '#6b7280', marginTop: '2px' });
+    stageWrap.appendChild(pname);
+    body.appendChild(stageWrap);
+
+    const openBtn = styledBtn('↗ Abrir no CRM', true);
+    openBtn.addEventListener('click', () => {
+      window.open(CRM_BASE_URL + '/crm?open_ticket=' + ticket.id, '_blank');
+    });
+    body.appendChild(openBtn);
+  } else {
+    // Cliente existe mas sem ticket — mostra formulário de criação de card
+    const noTicket = document.createElement('p');
+    noTicket.textContent = 'Sem card ativo. Crie um novo:';
+    Object.assign(noTicket.style, { color: '#6b7280', fontSize: '12px', margin: '0 0 8px' });
+    body.appendChild(noTicket);
+
+    const pipelineLbl = document.createElement('div');
+    pipelineLbl.textContent = 'Funil';
+    Object.assign(pipelineLbl.style, { fontSize: '11px', color: '#374151', fontWeight: '600', marginBottom: '2px' });
+    body.appendChild(pipelineLbl);
+
+    const pipelineSelect = styledSelect([{ value: '', label: 'Carregando funis...' }]);
+    pipelineSelect.style.marginBottom = '10px';
+    body.appendChild(pipelineSelect);
+
+    sendToBackground({ type: 'GET_PIPELINES' }).then(resp => {
+      pipelineSelect.textContent = '';
+      (resp.pipelines || []).forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id; opt.textContent = p.name;
+        pipelineSelect.appendChild(opt);
+      });
+    }).catch(() => {});
+
+    const createCardBtn = styledBtn('+ Criar Card', true);
+    createCardBtn.addEventListener('click', async () => {
+      const pipelineId = pipelineSelect.value;
+      if (!pipelineId) { alert('Selecione um funil'); return; }
+      createCardBtn.disabled = true; createCardBtn.textContent = 'Criando...';
+      try {
+        await sendToBackground({ type: 'CREATE_TICKET', phone, name: displayName || phone, pipelineId });
+        sidebarCurrentPhone = null;
+        await refreshSidebar(phone);
+      } catch (e) {
+        createCardBtn.disabled = false; createCardBtn.textContent = '+ Criar Card';
+        alert('Erro: ' + e.message);
+      }
+    });
+    body.appendChild(createCardBtn);
+  }
+
+  const sep = document.createElement('hr');
+  Object.assign(sep.style, { border: 'none', borderTop: '1px solid #e5e7eb', margin: '10px 0' });
+  body.appendChild(sep);
+
+  const noteToggle = styledBtn('+ Adicionar nota', false);
+  body.appendChild(noteToggle);
+
+  const noteArea = document.createElement('div');
+  noteArea.style.display = 'none';
+  const textarea = document.createElement('textarea');
+  textarea.placeholder = 'Escreva uma observação...';
+  Object.assign(textarea.style, {
+    width: '100%', border: '1px solid #d1d5db', borderRadius: '6px',
+    padding: '8px', fontSize: '12px', resize: 'vertical', minHeight: '72px',
+    fontFamily: 'inherit', boxSizing: 'border-box', marginTop: '6px',
+  });
+  const noteSaveBtn = styledBtn('Salvar nota', true);
+  noteArea.appendChild(textarea); noteArea.appendChild(noteSaveBtn);
+  body.appendChild(noteArea);
+
+  // ── Seção: Salvar mensagens no histórico técnico ─────────────────────────────
+  const msgHistBtn = styledBtn('Salvar mensagens no histórico', false);
+  body.appendChild(msgHistBtn);
+
+  const msgSelArea = document.createElement('div');
+  msgSelArea.style.display = 'none';
+  body.appendChild(msgSelArea);
+
+  noteToggle.addEventListener('click', () => {
+    noteArea.style.display = noteArea.style.display === 'none' ? 'block' : 'none';
+  });
+
+  noteSaveBtn.addEventListener('click', async () => {
+    const text = textarea.value.trim();
+    if (!text) return;
+    noteSaveBtn.disabled = true; noteSaveBtn.textContent = 'Salvando...';
+    try {
+      await sendToBackground({ type: 'SAVE_NOTE', ticketId: ticket?.id || null, clientId: client.id, text });
+      textarea.value = ''; noteArea.style.display = 'none';
+      noteToggle.textContent = '✓ Nota salva';
+      setTimeout(() => { noteToggle.textContent = '+ Adicionar nota'; }, 2000);
+    } catch (e) { alert('Erro ao salvar nota: ' + e.message); }
+    finally { noteSaveBtn.disabled = false; noteSaveBtn.textContent = 'Salvar nota'; }
+  });
+
+  msgHistBtn.addEventListener('click', () => {
+    const visible = msgSelArea.style.display !== 'none';
+    if (visible) { msgSelArea.style.display = 'none'; msgHistBtn.textContent = 'Salvar mensagens no histórico'; return; }
+
+    const msgs = extractVisibleMessages();
+    msgSelArea.textContent = '';
+    msgSelArea.style.cssText = 'display:flex;flex-direction:column;gap:4px;margin-top:6px;';
+
+    if (!msgs.length) {
+      const empty = document.createElement('p');
+      empty.textContent = 'Nenhuma mensagem visível.';
+      Object.assign(empty.style, { color: '#6b7280', fontSize: '12px', margin: '0' });
+      msgSelArea.appendChild(empty);
+      return;
+    }
+
+    const checkboxes = [];
+    msgs.forEach((m, i) => {
+      const row = document.createElement('label');
+      Object.assign(row.style, {
+        display: 'flex', alignItems: 'flex-start', gap: '6px', cursor: 'pointer',
+        padding: '4px 6px', borderRadius: '4px', background: i % 2 === 0 ? '#f9fafb' : '#fff',
+        fontSize: '11px', lineHeight: '1.4',
+      });
+      const cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.style.marginTop = '2px'; cb.style.flexShrink = '0';
+      const span = document.createElement('span');
+      span.textContent = (m.direction === 'outbound' ? '→ ' : '← ') + m.text.slice(0, 120);
+      Object.assign(span.style, { color: m.direction === 'outbound' ? '#065f46' : '#1f2937' });
+      row.appendChild(cb); row.appendChild(span);
+      msgSelArea.appendChild(row);
+      checkboxes.push({ cb, msg: m });
+    });
+
+    const actRow = document.createElement('div');
+    Object.assign(actRow.style, { display: 'flex', gap: '6px', marginTop: '6px' });
+    const selAllBtn = document.createElement('button');
+    selAllBtn.textContent = 'Todas';
+    Object.assign(selAllBtn.style, { fontSize: '11px', padding: '4px 8px', border: '1px solid #d1d5db', borderRadius: '4px', cursor: 'pointer', background: '#fff', fontFamily: 'inherit' });
+    selAllBtn.onclick = () => checkboxes.forEach(({ cb }) => { cb.checked = true; });
+    const cancelBtn = document.createElement('button');
+    cancelBtn.textContent = 'Cancelar';
+    Object.assign(cancelBtn.style, { fontSize: '11px', padding: '4px 8px', border: '1px solid #d1d5db', borderRadius: '4px', cursor: 'pointer', background: '#fff', fontFamily: 'inherit' });
+    cancelBtn.onclick = () => { msgSelArea.style.display = 'none'; msgHistBtn.textContent = 'Salvar mensagens no histórico'; };
+    const okBtn = styledBtn('✓ Salvar selecionadas', true);
+    okBtn.style.marginTop = '0'; okBtn.style.flex = '1';
+    okBtn.addEventListener('click', async () => {
+      const selected = checkboxes.filter(({ cb }) => cb.checked).map(({ msg }) => msg);
+      if (!selected.length) { alert('Selecione ao menos uma mensagem.'); return; }
+      okBtn.disabled = true; okBtn.textContent = 'Salvando...';
+      try {
+        await sendToBackground({ type: 'SAVE_HISTORY_MESSAGES', clientId: client.id, ticketId: ticket?.id || null, messages: selected });
+        msgSelArea.style.display = 'none';
+        msgHistBtn.textContent = '✓ Histórico salvo!';
+        setTimeout(() => { msgHistBtn.textContent = 'Salvar mensagens no histórico'; }, 2500);
+      } catch (e) {
+        okBtn.disabled = false; okBtn.textContent = '✓ Salvar selecionadas';
+        alert('Erro: ' + e.message);
+      }
+    });
+    actRow.appendChild(selAllBtn); actRow.appendChild(cancelBtn); actRow.appendChild(okBtn);
+    msgSelArea.appendChild(actRow);
+    msgSelArea.style.display = 'flex';
+    msgHistBtn.textContent = '✕ Cancelar seleção';
+  });
+}
+
+async function renderSidebarNotFound(phone) {
+  const body = document.getElementById('livecrm-panel-body');
+  if (!body) return;
+  body.textContent = '';
+
+  const waName = getContactName();
+  body.appendChild(infoRow('Telefone', phone));
+  if (waName) body.appendChild(infoRow('Nome no WhatsApp', waName));
+
+  const noCard = document.createElement('p');
+  noCard.textContent = 'Sem card no CRM para este contato.';
+  Object.assign(noCard.style, { color: '#6b7280', fontSize: '12px', margin: '8px 0' });
+  body.appendChild(noCard);
+
+  // Formulário de criação
+  const formWrap = document.createElement('div');
+  Object.assign(formWrap.style, { borderTop: '1px solid #e5e7eb', paddingTop: '12px', marginTop: '4px' });
+
+  const nameLbl = document.createElement('div');
+  nameLbl.textContent = 'Nome do contato';
+  Object.assign(nameLbl.style, { fontSize: '11px', color: '#374151', fontWeight: '600', marginBottom: '2px' });
+  formWrap.appendChild(nameLbl);
+  const nameInput = styledInput('Ex: João Silva', waName || '');
+  nameInput.style.marginBottom = '8px';
+  formWrap.appendChild(nameInput);
+
+  const pipelineLbl = document.createElement('div');
+  pipelineLbl.textContent = 'Funil';
+  Object.assign(pipelineLbl.style, { fontSize: '11px', color: '#374151', fontWeight: '600', marginBottom: '2px' });
+  formWrap.appendChild(pipelineLbl);
+
+  const pipelineSelect = styledSelect([{ value: '', label: 'Carregando funis...' }]);
+  pipelineSelect.style.marginBottom = '10px';
+  formWrap.appendChild(pipelineSelect);
+
+  // Carrega pipelines
+  sendToBackground({ type: 'GET_PIPELINES' }).then(resp => {
+    pipelineSelect.textContent = '';
+    (resp.pipelines || []).forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.id; opt.textContent = p.name;
+      pipelineSelect.appendChild(opt);
+    });
+  }).catch(() => {
+    pipelineSelect.textContent = '';
+    const opt = document.createElement('option'); opt.value = ''; opt.textContent = 'Erro ao carregar';
+    pipelineSelect.appendChild(opt);
+  });
+
+  const createBtn = styledBtn('+ Criar Card', true);
+  createBtn.addEventListener('click', async () => {
+    const name = nameInput.value.trim() || phone;
+    const pipelineId = pipelineSelect.value;
+    if (!pipelineId) { alert('Selecione um funil'); return; }
+    createBtn.disabled = true; createBtn.textContent = 'Criando...';
+    try {
+      await sendToBackground({ type: 'CREATE_TICKET', phone, name, pipelineId });
+      await refreshSidebar(phone);
+    } catch (e) {
+      createBtn.disabled = false; createBtn.textContent = '+ Criar Card';
+      alert('Erro ao criar card: ' + e.message);
+    }
+  });
+  formWrap.appendChild(createBtn);
+  body.appendChild(formWrap);
+}
+
+let sidebarCurrentPhone = null;
+
+async function refreshSidebar(phone) {
+  if (!phone) { sidebarMsg('Abra uma conversa para ver dados do contato.'); return; }
+  sidebarMsg('Carregando...');
+  try {
+    const resp = await sendToBackground({ type: 'GET_CLIENT_DATA', phone });
+    if (!resp?.client) await renderSidebarNotFound(phone);
+    else renderSidebarData(phone, resp);
+  } catch (e) { sidebarMsg('Erro: ' + e.message, true); }
+}
+
+function startSidebarWatcher() {
+  setInterval(async () => {
+    const panel = document.getElementById('livecrm-panel');
+    if (!panel || (panel.style.transform !== 'translateX(0px)' && panel.style.transform !== 'translateX(0)')) return;
+    const phone = await getPhoneFromBackground();
+    if (phone === sidebarCurrentPhone) return;
+    sidebarCurrentPhone = phone;
+    refreshSidebar(phone);
+  }, 2000);
 }

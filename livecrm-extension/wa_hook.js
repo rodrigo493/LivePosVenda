@@ -1,10 +1,13 @@
-// Roda no MAIN world — hooka o store de mensagens do WA Web para capturar
-// mensagens de QUALQUER conversa, não só a aberta.
+// Roda no MAIN world — duas responsabilidades:
+// 1. Hookear o store de mensagens do WA Web (captura de QUALQUER conversa)
+// 2. Rastrear o telefone da conversa ativa via React fiber → anota em data-livecrm-phone
 (function () {
   if (window.__livecrm_hook_loaded) return;
   window.__livecrm_hook_loaded = true;
 
   const HOOK_START_TS = Math.floor(Date.now() / 1000);
+
+  // ── Utilitários JID ─────────────────────────────────────────────────────────
 
   function jidToPhone(jid) {
     if (!jid) return null;
@@ -20,31 +23,310 @@
     return null;
   }
 
+  function jidFromString(s) {
+    if (typeof s !== 'string') return null;
+    if (s.includes('@g.us')) return null;
+    if (s.includes('@c.us')) return s.replace(/@c\.us.*/, '');
+    if (s.includes('@s.whatsapp.net')) return s.replace(/@s\.whatsapp\.net.*/, '');
+    return null;
+  }
+
+  function extractJidDeep(v) {
+    if (!v) return null;
+    const r = jidFromString(v);
+    if (r) return r;
+    if (typeof v !== 'object') return null;
+    try {
+      const candidates = [
+        v._serialized, v.jid, v.id,
+        v.user && (v.server === 'c.us' || v.server === 's.whatsapp.net') ? v.user : null,
+        v.remote?._serialized, v.from?._serialized, v.to?._serialized,
+        v.id?._serialized, v.id?.user,
+        v.chatId?._serialized, v.chatId,
+        v.remoteJid, v.conversationId,
+      ];
+      for (const c of candidates) {
+        const r2 = jidFromString(c);
+        if (r2) return r2;
+      }
+    } catch {}
+    return null;
+  }
+
+  // Scan de props até 3 níveis, com fast-path para chaves conhecidas do WA Web
+  function scanPropsDeep(props) {
+    if (!props || typeof props !== 'object' || Array.isArray(props)) return null;
+    try {
+      // Fast-path: chaves conhecidas de modelos de chat do WA Web
+      for (const key of ['chat', 'chatId', 'id', 'jid', 'phone', 'contact', 'model',
+                          'conversationId', 'remoteJid', 'chatModel', 'chatData']) {
+        if (!(key in props)) continue;
+        const v = props[key];
+        const r = extractJidDeep(v);
+        if (r) return r;
+        if (v && typeof v === 'object' && !Array.isArray(v)) {
+          for (const key2 of ['_serialized', 'user', 'id', 'jid', 'chatId']) {
+            try { const r2 = jidFromString(v[key2]); if (r2) return r2; } catch {}
+          }
+        }
+      }
+      // Varredura genérica com limite
+      const entries = Object.entries(props);
+      if (entries.length > 120) return null; // skip stores/coleções grandes
+      for (const [, v] of entries) {
+        if (typeof v === 'function' || v instanceof Element) continue;
+        const r = extractJidDeep(v);
+        if (r) return r;
+        if (v && typeof v === 'object' && !Array.isArray(v)) {
+          let sub;
+          try { sub = Object.entries(v); } catch { continue; }
+          if (sub.length > 60) continue;
+          for (const [, v2] of sub) {
+            if (typeof v2 === 'function' || v2 instanceof Element) continue;
+            const r2 = extractJidDeep(v2);
+            if (r2) return r2;
+            if (v2 && typeof v2 === 'object' && !Array.isArray(v2)) {
+              let sub2;
+              try { sub2 = Object.entries(v2); } catch { continue; }
+              if (sub2.length > 30) continue;
+              for (const [, v3] of sub2) {
+                const r3 = extractJidDeep(v3);
+                if (r3) return r3;
+              }
+            }
+          }
+        }
+      }
+    } catch {}
+    return null;
+  }
+
+  // Sobe pelo fiber tree a partir de um elemento DOM, checando props + hooks state
+  function fiberSearchForPhone(startEl) {
+    let fk;
+    try { fk = Object.keys(startEl).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactProps')); }
+    catch { return null; }
+    if (!fk) return null;
+
+    if (fk.startsWith('__reactProps')) return scanPropsDeep(startEl[fk]);
+
+    let f;
+    try { f = startEl[fk]; } catch { return null; }
+
+    for (let i = 0; i < 200 && f; i++) {
+      try {
+        // memoizedProps / pendingProps
+        const r1 = scanPropsDeep(f.memoizedProps) || scanPropsDeep(f.pendingProps);
+        if (r1) return r1;
+
+        // memoizedState: lista encadeada de hooks (useState, useContext, useReducer…)
+        let ms = f.memoizedState;
+        for (let h = 0; h < 30 && ms; h++, ms = ms?.next) {
+          const mv = ms.memoizedState;
+          if (!mv) continue;
+          const r2 = extractJidDeep(mv);
+          if (r2) return r2;
+          if (typeof mv === 'object' && !(mv instanceof Element)) {
+            const r3 = scanPropsDeep(mv);
+            if (r3) return r3;
+            // store com getActive() — padrão MobX
+            try {
+              const chat = (typeof mv.getActive === 'function' ? mv.getActive() : null)
+                || mv.active || mv.activeChat;
+              if (chat) {
+                const r4 = extractJidDeep(chat.id?._serialized || chat.id || chat.jid);
+                if (r4) return r4;
+              }
+            } catch {}
+            // useRef: { current: ... }
+            if (mv.current) {
+              const r5 = extractJidDeep(mv.current);
+              if (r5) return r5;
+            }
+          }
+        }
+
+        // stateNode (componentes de classe)
+        if (f.stateNode && !(f.stateNode instanceof Element) && typeof f.stateNode === 'object') {
+          const r6 = scanPropsDeep(f.stateNode.props || f.stateNode);
+          if (r6) return r6;
+        }
+      } catch {}
+      try { f = f.return; } catch { break; }
+    }
+    return null;
+  }
+
+  // Extrai telefone da conversa ativa via múltiplas estratégias
+  function getActivePhoneFromFiber() {
+    // 1. Header da conversa — sinal mais confiável da conversa ativa
+    const header = document.querySelector(
+      '[data-testid="conversation-header"], #main header'
+    );
+    if (header) {
+      const r = fiberSearchForPhone(header);
+      if (r) return r;
+    }
+
+    // 2. Item selecionado no sidebar
+    const selected = document.querySelector('[aria-selected="true"]');
+    if (selected) {
+      const r = fiberSearchForPhone(selected);
+      if (r) return r;
+    }
+
+    // 3. Painel principal (#main)
+    const mainEl = document.getElementById('main');
+    if (mainEl) {
+      const fk = Object.keys(mainEl).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactProps'));
+      if (fk) {
+        if (fk.startsWith('__reactProps')) {
+          const r = scanPropsDeep(mainEl[fk]);
+          if (r) return r;
+        } else {
+          let f;
+          try { f = mainEl[fk]; } catch {}
+          for (let i = 0; i < 50 && f; i++) {
+            try {
+              const r = scanPropsDeep(f.memoizedProps) || scanPropsDeep(f.pendingProps);
+              if (r) return r;
+              f = f.return;
+            } catch { break; }
+          }
+        }
+      }
+    }
+
+    // 4. Webpack module cache — procura store com active/getActive
+    try {
+      const cache = window.__webpack_module_cache__;
+      if (cache) {
+        for (const mod of Object.values(cache)) {
+          const e = mod?.exports;
+          if (!e || typeof e !== 'object') continue;
+          for (const v of Object.values(e)) {
+            if (!v || typeof v !== 'object' || Array.isArray(v)) continue;
+            try {
+              const chat = (typeof v.getActive === 'function' ? v.getActive() : null)
+                || v.active || v.activeChat;
+              if (!chat || typeof chat !== 'object') continue;
+              const r = extractJidDeep(
+                chat.id?._serialized || chat.id || chat.jid || chat.chatId
+              );
+              if (r) return r;
+            } catch {}
+          }
+        }
+      }
+    } catch {}
+
+    // 5. window.require com nomes de módulo conhecidos
+    try {
+      if (typeof window.require === 'function') {
+        for (const id of ['WAWebActiveConversation', 'WAWebConversations', 'WAWebChat',
+                          'WAWebChatModel', 'WAWebConversationModel']) {
+          try {
+            const mod = window.require(id);
+            if (!mod) continue;
+            const chat = mod.getActive?.() || mod.active || mod.default?.getActive?.() || mod.default?.active;
+            if (chat) {
+              const r = extractJidDeep(chat.id?._serialized || chat.id?.user || chat.jid);
+              if (r) return r;
+            }
+          } catch {}
+        }
+      }
+    } catch {}
+
+    return null;
+  }
+
+  // ── Phone Tracker: anota data-livecrm-phone em #main ───────────────────────
+
+  let lastAnnotatedPhone = null;
+
+  function updateActiveChatPhone() {
+    const phone = getActivePhoneFromFiber();
+    const main = document.getElementById('main');
+    if (!main) return;
+
+    if (phone) {
+      if (phone !== lastAnnotatedPhone) {
+        main.setAttribute('data-livecrm-phone', phone);
+        lastAnnotatedPhone = phone;
+        console.log('[LiveCRM Hook] telefone ativo:', phone);
+      }
+    }
+    // Não limpa o atributo ao falhar — mantém último valor conhecido
+  }
+
+  function startPhoneTracker() {
+    updateActiveChatPhone(); // leitura inicial
+
+    let debounceTimer = null;
+    const scheduleUpdate = (delay = 250) => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(updateActiveChatPhone, delay);
+    };
+
+    // Observer do header: dispara quando muda de conversa (título muda)
+    const header = document.querySelector('[data-testid="conversation-header"], #main header');
+    const main = document.getElementById('main');
+    const headerTarget = header || main || document.body;
+    const headerObs = new MutationObserver(() => scheduleUpdate(150));
+    headerObs.observe(headerTarget, { childList: true, subtree: true });
+
+    // Observer do sidebar: dispara imediatamente quando aria-selected muda
+    const sidebar = document.querySelector(
+      '[data-testid="chat-list"], #pane-side, [role="list"]'
+    );
+    if (sidebar) {
+      const sidebarObs = new MutationObserver(() => scheduleUpdate(0)); // sem debounce
+      sidebarObs.observe(sidebar, {
+        attributes: true, subtree: true, attributeFilter: ['aria-selected'],
+      });
+    }
+
+    console.log('[LiveCRM Hook] phone tracker iniciado');
+  }
+
+  function initPhoneTracker() {
+    const main = document.getElementById('main');
+    if (main) {
+      setTimeout(startPhoneTracker, 800);
+      return;
+    }
+    // Aguarda #main aparecer no DOM
+    const bodyObs = new MutationObserver(() => {
+      if (document.getElementById('main')) {
+        bodyObs.disconnect();
+        setTimeout(startPhoneTracker, 800);
+      }
+    });
+    bodyObs.observe(document.body, { childList: true, subtree: true });
+  }
+
+  // ── Backbone/Message store hook (captura de background conversations) ───────
+
   function notifyMsg(msg) {
     try {
       if (!msg || msg.isSentByMe || msg.type === 'revoked') return;
-
       const msgTs = msg.t || msg.timestamp;
       if (msgTs && msgTs < HOOK_START_TS - 30) return;
-
       const phone = jidToPhone(msg.from || msg.chatId);
       if (!phone) return;
-
       const msgId = msg.id?.id || msg.id?._serialized || (typeof msg.id === 'string' ? msg.id : null);
       if (!msgId || typeof msgId !== 'string') return;
-
       const text = msg.body || msg.caption || '';
-      const mediaType = msg.type;
-
       let textOut = text;
       if (!textOut) {
-        if (mediaType === 'ptt' || mediaType === 'audio') textOut = '🎵 Áudio';
-        else if (mediaType === 'image') textOut = '📷 Imagem';
-        else if (mediaType === 'video') textOut = '🎥 Vídeo';
-        else if (mediaType === 'document') textOut = '📎 Arquivo';
-        else textOut = `(${mediaType || 'mensagem'})`;
+        const t = msg.type;
+        if (t === 'ptt' || t === 'audio') textOut = '🎵 Áudio';
+        else if (t === 'image') textOut = '📷 Imagem';
+        else if (t === 'video') textOut = '🎥 Vídeo';
+        else if (t === 'document') textOut = '📎 Arquivo';
+        else textOut = `(${t || 'mensagem'})`;
       }
-
       window.postMessage({ type: 'LIVECRM_INBOUND', phone, text: textOut, msgId }, '*');
     } catch (e) {
       console.warn('[LiveCRM Hook] notifyMsg erro:', e.message);
@@ -53,16 +335,13 @@
 
   function looksLikeMsgStore(store) {
     if (!store || typeof store !== 'object') return false;
-    // Backbone/EventEmitter collection: tem .on() e .models ou ._byId
     return typeof store.on === 'function' &&
            (store.models !== undefined || store._byId !== undefined || typeof store.getModelsArray === 'function');
   }
 
-  // ── 1. Tenta via cache webpack (módulos já executados — sem noise de require) ──
   function tryHookCache() {
     const cache = window.__webpack_module_cache__;
     if (!cache || typeof cache !== 'object') return false;
-
     for (const entry of Object.values(cache)) {
       try {
         const exports = entry?.exports;
@@ -74,16 +353,14 @@
             return true;
           }
         }
-      } catch { /* skip */ }
+      } catch {}
     }
     return false;
   }
 
-  // ── 2. Tenta via enumeração de chunks (window.require com IDs numéricos) ──
   function tryHookChunks() {
     const chunk = window.webpackChunkwhatsapp_web_client;
     if (!Array.isArray(chunk)) return false;
-
     const tried = new Set();
     for (const entry of chunk) {
       if (!Array.isArray(entry) || !entry[1] || typeof entry[1] !== 'object') continue;
@@ -101,20 +378,17 @@
               return true;
             }
           }
-        } catch { /* módulo não exporta nada útil */ }
+        } catch {}
       }
     }
     return false;
   }
 
-  // ── 3. Tenta nomes legados (WA Web pré-2025) — apenas uma vez ──────────────
   let legacyTried = false;
   function tryHookLegacy() {
     if (legacyTried) return false;
     legacyTried = true;
-
     if (typeof window.require !== 'function') return false;
-
     const candidates = ['WAWebMsgStore', 'WAWebMsgsStore', 'MsgStore', 'WAWebStore', 'WAWebStores'];
     for (const id of candidates) {
       try {
@@ -126,24 +400,11 @@
           console.log('[LiveCRM Hook] hookeado via nome legado:', id);
           return true;
         }
-        if (store.models && Object.getPrototypeOf(store)?.add) {
-          const proto = Object.getPrototypeOf(store);
-          const origAdd = proto.add;
-          proto.add = function (msgs, ...args) {
-            const result = origAdd.call(this, msgs, ...args);
-            const list = Array.isArray(msgs) ? msgs : [msgs];
-            list.forEach(m => { if (m?.isNewMsg !== false) notifyMsg(m); });
-            return result;
-          };
-          console.log('[LiveCRM Hook] hookeado via proto.add legado:', id);
-          return true;
-        }
-      } catch { /* módulo não existe — ignora silenciosamente após o primeiro try */ }
+      } catch {}
     }
     return false;
   }
 
-  // ── Intercept webpack chunk push para tentar de novo após novos chunks ───────
   function hookWebpackPush(onNewChunk) {
     const chunk = window.webpackChunkwhatsapp_web_client;
     if (!chunk?.push || chunk.__livecrm_hooked) return;
@@ -151,12 +412,11 @@
     const origPush = chunk.push.bind(chunk);
     chunk.push = function (...args) {
       const result = origPush(...args);
-      if (onNewChunk()) chunk.push = origPush; // restaura quando hookeou
+      if (onNewChunk()) chunk.push = origPush;
       return result;
     };
   }
 
-  // ── Sequência de tentativas ──────────────────────────────────────────────────
   function tryAll() {
     return tryHookLegacy() || tryHookCache() || tryHookChunks();
   }
@@ -172,6 +432,24 @@
     }
   }
 
+  // ── Navegação direta para uma conversa (INJECT_SEND) ───────────────────────
+  // Usa o roteador interno do WA Web via history.pushState + popstate
+  window.addEventListener('message', (e) => {
+    if (e.source !== window || e.data?.type !== 'LIVECRM_OPEN_PHONE') return;
+    const phone = String(e.data.phone || '').replace(/\D/g, '');
+    if (!phone) return;
+    try {
+      window.history.pushState(null, '', '/send?phone=' + phone);
+      window.dispatchEvent(new PopStateEvent('popstate', { state: null }));
+      console.log('[LiveCRM Hook] navegando para:', phone);
+    } catch (err) {
+      console.warn('[LiveCRM Hook] navegação falhou:', err.message);
+    }
+  });
+
+  // ── Inicialização ───────────────────────────────────────────────────────────
+
   tryHook();
+  setTimeout(initPhoneTracker, 1500);
   console.log('[LiveCRM Hook] iniciado no MAIN world');
 })();

@@ -171,7 +171,16 @@ function subscribeRealtime() {
         return;
       }
       console.log('[LiveCRM BG] Realtime pending send:', id, 'phone:', phone);
-      chrome.tabs.sendMessage(tab.id, { type: 'INJECT_SEND', sendId: id, phone, message });
+      chrome.tabs.sendMessage(tab.id, { type: 'INJECT_SEND', sendId: id, phone, message }, (resp) => {
+        if (chrome.runtime.lastError) {
+          console.warn('[LiveCRM BG] Realtime: CS não respondeu:', chrome.runtime.lastError.message);
+          clearTimeout(tid);
+          dispatchTimeouts.delete(id);
+          dispatchedSends.delete(id); // libera retry imediato
+        } else {
+          console.log('[LiveCRM BG] Realtime: INJECT_SEND entregue ao CS, resp:', JSON.stringify(resp));
+        }
+      });
     })
     .subscribe();
 }
@@ -206,52 +215,123 @@ function fiberExtractPhone() {
     return null;
   }
 
-  // Varre TODAS as chaves de um objeto de props procurando JID (1 nível de profundidade)
+  // Varre props até 3 níveis, com fast-path para chaves conhecidas do WA Web
   function scanProps(props) {
-    if (!props || typeof props !== 'object') return null;
-    for (const [, v] of Object.entries(props)) {
-      const r = extractJid(v);
-      if (r) return r;
-      if (v && typeof v === 'object' && !Array.isArray(v)) {
-        for (const [, v2] of Object.entries(v)) {
-          const r2 = extractJid(v2);
-          if (r2) return r2;
+    if (!props || typeof props !== 'object' || Array.isArray(props)) return null;
+    try {
+      // Fast-path: chaves conhecidas de modelos de chat
+      for (const key of ['chat', 'chatId', 'id', 'jid', 'phone', 'contact', 'model',
+                          'conversationId', 'remoteJid', 'chatModel']) {
+        if (!(key in props)) continue;
+        const v = props[key];
+        const r = extractJid(v);
+        if (r) return r;
+      }
+      // Varredura genérica (3 níveis)
+      const entries = Object.entries(props);
+      if (entries.length > 120) return null;
+      for (const [, v] of entries) {
+        if (typeof v === 'function' || v instanceof Element) continue;
+        const r = extractJid(v);
+        if (r) return r;
+        if (v && typeof v === 'object' && !Array.isArray(v)) {
+          let sub; try { sub = Object.entries(v); } catch { continue; }
+          if (sub.length > 60) continue;
+          for (const [, v2] of sub) {
+            if (typeof v2 === 'function') continue;
+            const r2 = extractJid(v2);
+            if (r2) return r2;
+            if (v2 && typeof v2 === 'object' && !Array.isArray(v2)) {
+              let sub2; try { sub2 = Object.entries(v2); } catch { continue; }
+              if (sub2.length > 30) continue;
+              for (const [, v3] of sub2) {
+                const r3 = extractJid(v3);
+                if (r3) return r3;
+              }
+            }
+          }
         }
       }
-    }
+    } catch {}
     return null;
   }
 
   function searchFiber(startEl) {
-    // Tenta __reactProps primeiro (React 18 — props diretamente no elemento DOM)
-    const propsKey = Object.keys(startEl).find(k => k.startsWith('__reactProps'));
-    if (propsKey) {
-      const r = scanProps(startEl[propsKey]);
-      if (r) return r;
-    }
+    let fk;
+    try { fk = Object.keys(startEl).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactProps')); }
+    catch { return null; }
+    if (!fk) return null;
 
-    const fiberKey = Object.keys(startEl).find(k => k.startsWith('__reactFiber'));
-    if (!fiberKey) return null;
+    if (fk.startsWith('__reactProps')) return scanProps(startEl[fk]);
 
-    let f = startEl[fiberKey];
-    for (let i = 0; i < 150 && f; i++) {
-      // memoizedProps
-      const r1 = scanProps(f.memoizedProps);
-      if (r1) return r1;
-      // pendingProps
-      const r2 = scanProps(f.pendingProps);
-      if (r2) return r2;
-      // stateNode (componentes de classe guardam state/props aqui)
-      if (f.stateNode && typeof f.stateNode === 'object' && !(f.stateNode instanceof Element)) {
-        const r3 = scanProps(f.stateNode.props || f.stateNode);
-        if (r3) return r3;
-      }
-      f = f.return;
+    let f;
+    try { f = startEl[fk]; } catch { return null; }
+
+    for (let i = 0; i < 200 && f; i++) {
+      try {
+        const r1 = scanProps(f.memoizedProps) || scanProps(f.pendingProps);
+        if (r1) return r1;
+
+        // memoizedState: lista de hooks (useState, useContext, useReducer)
+        let ms = f.memoizedState;
+        for (let h = 0; h < 30 && ms; h++, ms = ms?.next) {
+          const mv = ms.memoizedState;
+          if (!mv) continue;
+          const r2 = extractJid(mv);
+          if (r2) return r2;
+          if (typeof mv === 'object' && !(mv instanceof Element)) {
+            const r3 = scanProps(mv);
+            if (r3) return r3;
+            try {
+              const chat = (typeof mv.getActive === 'function' ? mv.getActive() : null)
+                || mv.active || mv.activeChat;
+              if (chat) {
+                const r4 = extractJid(chat.id?._serialized || chat.id || chat.jid);
+                if (r4) return r4;
+              }
+            } catch {}
+          }
+        }
+
+        if (f.stateNode && typeof f.stateNode === 'object' && !(f.stateNode instanceof Element)) {
+          const r5 = scanProps(f.stateNode.props || f.stateNode);
+          if (r5) return r5;
+        }
+      } catch {}
+      try { f = f.return; } catch { break; }
     }
     return null;
   }
 
-  // 1. Tenta múltiplos seletores de partida via fiber
+  // 1. Tenta header da conversa ativa — maior chance de ter o JID no WA Web 2026
+  const headerEl = document.querySelector(
+    '[data-testid="conversation-header"], #main header, [data-testid="conversation-panel-body"] header'
+  );
+  if (headerEl) {
+    const r = searchFiber(headerEl);
+    if (r) return r;
+  }
+
+  // 1b. Tenta #main diretamente com limite de profundidade menor (50 nós)
+  const mainEl = document.getElementById('main');
+  if (mainEl) {
+    const fkMain = Object.keys(mainEl).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactProps'));
+    if (fkMain) {
+      if (fkMain.startsWith('__reactProps')) {
+        const r = scanProps(mainEl[fkMain]);
+        if (r) return r;
+      } else {
+        let f = mainEl[fkMain];
+        for (let i = 0; i < 50 && f; i++) {
+          const r1 = scanProps(f.memoizedProps) || scanProps(f.pendingProps);
+          if (r1) return r1;
+          f = f.return;
+        }
+      }
+    }
+  }
+
+  // 1c. Tenta múltiplos seletores de sidebar via fiber
   const selectors = [
     '[aria-selected="true"]',
     '[data-testid="cell-frame-container"][aria-selected="true"]',
@@ -296,6 +376,28 @@ function fiberExtractPhone() {
       } catch { /* módulo não encontrado, continua */ }
     }
   } catch { /* window.require não disponível */ }
+
+  // 3. Tenta webpack module cache — WA Web 2026 usa MobX stores acessíveis via __webpack_module_cache__
+  try {
+    const cache = window.__webpack_module_cache__;
+    if (cache) {
+      for (const mod of Object.values(cache)) {
+        const e = mod?.exports;
+        if (!e || typeof e !== 'object') continue;
+        for (const v of Object.values(e)) {
+          if (!v || typeof v !== 'object' || Array.isArray(v)) continue;
+          // Padrão: store com active/getActive retornando objeto com JID
+          const chat = (typeof v.getActive === 'function' ? v.getActive() : null)
+            || v.active
+            || (typeof v.get === 'function' && v.size > 0 ? null : null); // evita iterar Maps grandes
+          if (!chat || typeof chat !== 'object') continue;
+          const r = extractJid(chat.id?._serialized || chat.id?.user || chat.jid
+            || chat.chatId?._serialized || chat.chatId);
+          if (r) return r;
+        }
+      }
+    }
+  } catch { /* webpack cache inacessível */ }
 
   // 3. Diagnóstico — aparece no console da aba do WA Web (MAIN world)
   const el = document.querySelector('[aria-selected="true"]');
@@ -363,22 +465,48 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   } else if (msg.type === 'SEND_CONFIRMED') {
     clearTimeout(dispatchTimeouts.get(msg.sendId));
     dispatchTimeouts.delete(msg.sendId);
-    dispatchedSends.delete(msg.sendId);
+    // Mantém no dispatchedSends para prevenir re-despacho em heartbeat antes do DB atualizar
     sb?.from('whatsapp_pending_sends')
       .update({ status: 'sent', sent_at: new Date().toISOString() })
       .eq('id', msg.sendId)
-      .then(() => {});
+      .then(({ error }) => {
+        if (error) console.error('[LiveCRM BG] SEND_CONFIRMED DB update failed:', error.message, 'sendId:', msg.sendId);
+        else console.log('[LiveCRM BG] send', msg.sendId, 'marcado como sent');
+      });
   } else if (msg.type === 'SEND_FAILED') {
     clearTimeout(dispatchTimeouts.get(msg.sendId));
     dispatchTimeouts.delete(msg.sendId);
-    dispatchedSends.delete(msg.sendId);
+    dispatchedSends.delete(msg.sendId); // libera retry em caso de falha
     sb?.from('whatsapp_pending_sends')
       .update({ status: 'failed', error: msg.error })
       .eq('id', msg.sendId)
-      .then(() => {});
+      .then(({ error }) => {
+        if (error) console.error('[LiveCRM BG] SEND_FAILED DB update failed:', error.message);
+      });
   } else if (msg.type === 'HEARTBEAT') {
     if (sb && instanceId) processPendingSends().catch(console.error);
     else if (!sb) init().catch(console.error);
+  } else if (msg.type === 'GET_CLIENT_DATA') {
+    handleGetClientData(msg.phone).then(sendResponse).catch(e => sendResponse({ error: e.message }));
+    return true;
+  } else if (msg.type === 'CREATE_CRM_CONTACT') {
+    handleCreateCrmContact(msg.phone).then(sendResponse).catch(e => sendResponse({ error: e.message }));
+    return true;
+  } else if (msg.type === 'GET_PIPELINES') {
+    handleGetPipelines().then(sendResponse).catch(e => sendResponse({ error: e.message }));
+    return true;
+  } else if (msg.type === 'CREATE_TICKET') {
+    handleCreateTicket(msg.phone, msg.name, msg.pipelineId).then(sendResponse).catch(e => sendResponse({ error: e.message }));
+    return true;
+  } else if (msg.type === 'SAVE_NOTE') {
+    handleSaveNote(msg.ticketId, msg.clientId, msg.text).then(sendResponse).catch(e => sendResponse({ error: e.message }));
+    return true;
+  } else if (msg.type === 'SAVE_CONVERSATION') {
+    handleSaveConversation(msg.ticketId, msg.clientId, msg.messages).then(sendResponse).catch(e => sendResponse({ error: e.message }));
+    return true;
+  } else if (msg.type === 'SAVE_HISTORY_MESSAGES') {
+    handleSaveHistoryMessages(msg.ticketId, msg.clientId, msg.messages).then(sendResponse).catch(e => sendResponse({ error: e.message }));
+    return true;
   } else if (msg.type === 'GET_STATUS') {
     sendResponse({ connected: !!sb, instanceId });
     return true;
@@ -547,4 +675,231 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 });
 
+// Processa envios pendentes quando a aba do WA Web termina de carregar (F5 ou abertura)
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status === 'complete' && tab.url?.startsWith('https://web.whatsapp.com/')) {
+    if (sb && instanceId) {
+      // CS antigo foi destruído junto com a aba. Limpa dispatchedSends para
+      // que o novo CS receba os envios pendentes sem esperar o timeout de 45s.
+      for (const tid of dispatchTimeouts.values()) clearTimeout(tid);
+      dispatchTimeouts.clear();
+      dispatchedSends.clear();
+      console.log('[LiveCRM BG] WA Web recarregou — dispatchedSends limpo, processando pendentes em 6s');
+      setTimeout(() => processPendingSends().catch(console.error), 6000);
+    }
+  }
+});
+
 init().catch(console.error);
+
+// ── Handlers da Sidebar ───────────────────────────────────────────────────────
+
+function phoneVariants(phone) {
+  const digits = phone.replace(/\D/g, '');
+  const variants = new Set([digits, '+' + digits]);
+  if (digits.startsWith('55') && digits.length >= 12) {
+    variants.add(digits.slice(2));
+    if (digits.length === 13) {
+      variants.add('55' + digits[2] + digits[3] + digits.slice(5));
+      variants.add(digits[2] + digits[3] + digits.slice(5));
+    }
+  }
+  return [...variants];
+}
+
+async function handleGetClientData(phone) {
+  if (!sb) return { client: null, ticket: null };
+  const variants = phoneVariants(phone);
+  const orParts = variants.flatMap(v => [`phone.eq.${v}`, `whatsapp.eq.${v}`]).join(',');
+  const { data: client } = await sb
+    .from('clients').select('id, name, whatsapp, phone')
+    .or(orParts).limit(1).maybeSingle();
+  if (!client) return { client: null, ticket: null };
+
+  const { data: ticket } = await sb
+    .from('tickets')
+    .select('id, pipeline_stage, pipeline_id, pipelines(name)')
+    .eq('client_id', client.id)
+    .is('deleted_at', null)
+    .order('updated_at', { ascending: false })
+    .limit(1).maybeSingle();
+
+  let stageLabel = ticket?.pipeline_stage || null;
+  if (ticket?.pipeline_id && ticket?.pipeline_stage) {
+    const { data: stageRow } = await sb
+      .from('pipeline_stages').select('label')
+      .eq('pipeline_id', ticket.pipeline_id)
+      .eq('key', ticket.pipeline_stage).maybeSingle();
+    if (stageRow?.label) stageLabel = stageRow.label;
+  }
+
+  const ticketOut = ticket ? {
+    id: ticket.id,
+    pipeline_stage: ticket.pipeline_stage,
+    pipeline_id: ticket.pipeline_id,
+    pipeline_name: ticket.pipelines?.name || null,
+  } : null;
+  return { client, ticket: ticketOut, stageLabel };
+}
+
+async function handleCreateCrmContact(phone) {
+  if (!sb) throw new Error('Extensao nao autenticada');
+  const digits = phone.replace(/\D/g, '');
+  const phoneLocal = digits.startsWith('55') ? digits.slice(2) : digits;
+  const { data: existing } = await sb
+    .from('clients').select('id')
+    .or(`whatsapp.eq.${digits},phone.eq.${phoneLocal}`).maybeSingle();
+  if (existing) return { clientId: existing.id };
+  const { data: newClient, error } = await sb
+    .from('clients').insert({ name: phone, phone: phoneLocal, whatsapp: digits })
+    .select('id').single();
+  if (error) throw new Error(error.message);
+  return { clientId: newClient.id };
+}
+
+async function handleSaveNote(ticketId, clientId, text) {
+  if (!sb) throw new Error('Extensao nao autenticada');
+  if (ticketId) {
+    const { error } = await sb.from('ticket_comments')
+      .insert({ ticket_id: ticketId, content: '[WA] ' + text });
+    if (error) throw new Error(error.message);
+  } else {
+    const { error } = await sb.from('client_service_history')
+      .insert({ client_id: clientId, service_date: new Date().toISOString(), problem_reported: '[Nota WA] ' + text, service_status: 'nota' });
+    if (error) throw new Error(error.message);
+  }
+  return { ok: true };
+}
+
+// Salva mensagens selecionadas no histórico técnico (client_service_history)
+async function handleSaveHistoryMessages(ticketId, clientId, messages) {
+  if (!sb) throw new Error('Extensao nao autenticada');
+  if (!messages?.length) return { ok: true, saved: 0 };
+
+  const now = new Date();
+  const dateLabel = now.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+  const formatted = messages.map(m => (m.direction === 'outbound' ? '[Eu] ' : '[Cliente] ') + m.text).join('\n');
+  const content = `[Histórico WA — ${dateLabel}]\n${formatted}`;
+
+  const { error } = await sb.from('client_service_history').insert({
+    client_id: clientId,
+    service_date: now.toISOString(),
+    problem_reported: content,
+    service_status: 'historico_wa',
+    ...(ticketId ? { service_request_id: null } : {}),
+  });
+  if (error) throw new Error(error.message);
+  return { ok: true, saved: messages.length };
+}
+
+async function handleSaveConversation(ticketId, clientId, messages) {
+  if (!sb) throw new Error('Extensao nao autenticada');
+  if (!messages?.length) return { ok: true, saved: 0 };
+  const summary = messages.map(m => (m.direction === 'outbound' ? '[Eu] ' : '[Cliente] ') + m.text).join('\n');
+  const content = '[Conversa WA]\n' + summary;
+  if (ticketId) {
+    const { error } = await sb.from('ticket_comments').insert({ ticket_id: ticketId, content });
+    if (error) throw new Error(error.message);
+  } else {
+    const { error } = await sb.from('client_service_history')
+      .insert({ client_id: clientId, service_date: new Date().toISOString(), problem_reported: content, service_status: 'conversa_wa' });
+    if (error) throw new Error(error.message);
+  }
+  return { ok: true, saved: messages.length };
+}
+
+async function handleGetPipelines() {
+  if (!sb) return { pipelines: [] };
+  const { data } = await sb.from('pipelines').select('id, name, slug').order('name');
+  return { pipelines: data || [] };
+}
+
+async function handleCreateTicket(phone, name, pipelineId) {
+  if (!sb) throw new Error('Extensao nao autenticada');
+  const digits = phone.replace(/\D/g, '');
+  const phoneLocal = digits.startsWith('55') ? digits.slice(2) : digits;
+
+  // Responsável = user_id da instância WA ativa
+  let assignedTo = null;
+  if (instanceId) {
+    const { data: inst } = await sb
+      .from('pipeline_whatsapp_instances').select('user_id').eq('id', instanceId).maybeSingle();
+    assignedTo = inst?.user_id || null;
+  }
+
+  // Encontra ou cria cliente
+  const { data: existing } = await sb
+    .from('clients').select('id')
+    .or(`whatsapp.eq.${digits},phone.eq.${phoneLocal}`).maybeSingle();
+  let clientId;
+  if (existing) {
+    clientId = existing.id;
+    if (name && name !== phone) await sb.from('clients').update({ name }).eq('id', clientId);
+  } else {
+    const { data: newClient, error } = await sb
+      .from('clients').insert({ name: name || phone, phone: phoneLocal, whatsapp: digits })
+      .select('id').single();
+    if (error) throw new Error(error.message);
+    clientId = newClient.id;
+  }
+
+  // Busca primeira etapa do funil
+  const { data: firstStage } = await sb
+    .from('pipeline_stages').select('key, label')
+    .eq('pipeline_id', pipelineId)
+    .order('order', { ascending: true })
+    .limit(1).maybeSingle();
+
+  // Cria ticket
+  const insertPayload = {
+    client_id: clientId,
+    pipeline_id: pipelineId,
+    pipeline_stage: firstStage?.key || 'novo',
+    title: 'Contato via WhatsApp',
+    ticket_type: 'pos_venda',
+    status: 'aberto',
+  };
+  if (assignedTo) insertPayload.assigned_to = assignedTo;
+
+  const { error: ticketErr } = await sb.from('tickets').insert(insertPayload);
+  if (ticketErr) throw new Error(ticketErr.message);
+
+  // SELECT separado — RLS pode bloquear o returning do insert
+  const { data: created } = await sb
+    .from('tickets').select('id')
+    .eq('client_id', clientId).eq('pipeline_id', pipelineId)
+    .order('created_at', { ascending: false }).limit(1).maybeSingle();
+
+  return { clientId, ticketId: created?.id || null };
+}
+
+// ── Abertura de conversa WA Web a partir do CRM ──────────────────────────────
+// O CRM chama chrome.runtime.sendMessage(extId, { type:'OPEN_WA_CHAT', phone })
+// Este handler foca a aba do WA Web existente e navega até o chat do número.
+chrome.runtime.onMessageExternal.addListener((req, _sender, sendResponse) => {
+  if (req.type !== 'OPEN_WA_CHAT') return false;
+
+  const phone = String(req.phone || '').replace(/\D/g, '');
+  if (!phone) { sendResponse({ ok: false, reason: 'no phone' }); return true; }
+
+  chrome.tabs.query({ url: 'https://web.whatsapp.com/*' }, (tabs) => {
+    if (tabs.length > 0) {
+      const tab = tabs[0];
+      // Foca a janela e a aba do WA Web, depois navega para o chat
+      chrome.windows.update(tab.windowId, { focused: true }, () => {
+        chrome.tabs.update(tab.id, { active: true }, () => {
+          chrome.tabs.sendMessage(tab.id, { type: 'LIVECRM_OPEN_PHONE', phone }, () => {
+            void chrome.runtime.lastError; // ignora erro se CS ainda não carregou
+          });
+          sendResponse({ ok: true });
+        });
+      });
+    } else {
+      // WA Web não está aberto — abre em nova aba
+      chrome.tabs.create({ url: `https://web.whatsapp.com/send?phone=${phone}` });
+      sendResponse({ ok: true, opened: true });
+    }
+  });
+
+  return true; // indica que sendResponse é assíncrono
+});

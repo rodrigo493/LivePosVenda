@@ -56,7 +56,7 @@ const mainNav = [
   { title: "Meu Painel",     url: "/meu-painel",   icon: User,            moduleKey: null },
   { title: "CRM Pipeline",   url: "/crm",          icon: Kanban,          moduleKey: "crm_pipeline" },
   { title: "Motivos de Perda", url: "/motivos-perda", icon: TrendingDown, moduleKey: "motivos_perda" },
-  { title: "Chat WhatsApp",  url: "/chat",         icon: MessageSquare,   moduleKey: "chat_whatsapp" },
+  // { title: "Chat WhatsApp",  url: "/chat",         icon: MessageSquare,   moduleKey: "chat_whatsapp" },
   { title: "Clientes",       url: "/clientes",     icon: Users,           moduleKey: "clientes" },
   { title: "Equipamentos",   url: "/equipamentos", icon: Package,         moduleKey: "equipamentos" },
 ];
