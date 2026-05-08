@@ -1088,7 +1088,13 @@ function renderSidebarData(phone, { client, ticket, stageLabel }) {
               const resp = await fetch(am.audioSrc);
               const buf = await resp.arrayBuffer();
               const mimeType = resp.headers.get('content-type') || 'audio/ogg';
-              const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+              const bytes = new Uint8Array(buf);
+              const CHUNK = 8192;
+              let binary = '';
+              for (let i = 0; i < bytes.length; i += CHUNK) {
+                binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+              }
+              const base64 = btoa(binary);
               const upResp = await sendToBackground({ type: 'UPLOAD_AUDIO', clientId: client.id, base64, mimeType });
               audioLines.push(line + `[🎵 Áudio: ${upResp.url}]`);
             } catch (_) {
