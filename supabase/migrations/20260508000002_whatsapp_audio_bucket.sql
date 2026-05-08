@@ -6,11 +6,25 @@ VALUES ('whatsapp-audio', 'whatsapp-audio', true)
 ON CONFLICT (id) DO NOTHING;
 
 -- Policy: usuários autenticados podem fazer upload
-CREATE POLICY IF NOT EXISTS "authenticated upload whatsapp-audio"
-ON storage.objects FOR INSERT TO authenticated
-WITH CHECK (bucket_id = 'whatsapp-audio');
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'authenticated upload whatsapp-audio'
+  ) THEN
+    CREATE POLICY "authenticated upload whatsapp-audio"
+    ON storage.objects FOR INSERT TO authenticated
+    WITH CHECK (bucket_id = 'whatsapp-audio');
+  END IF;
+END $$;
 
 -- Policy: leitura pública (para renderizar URL no histórico do card)
-CREATE POLICY IF NOT EXISTS "public read whatsapp-audio"
-ON storage.objects FOR SELECT TO public
-USING (bucket_id = 'whatsapp-audio');
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'public read whatsapp-audio'
+  ) THEN
+    CREATE POLICY "public read whatsapp-audio"
+    ON storage.objects FOR SELECT TO public
+    USING (bucket_id = 'whatsapp-audio');
+  END IF;
+END $$;
