@@ -265,6 +265,22 @@ function useTicketMemoria(ticketId: string | undefined) {
   });
 }
 
+function useTicketProducts(ticketId: string | undefined) {
+  return useQuery({
+    queryKey: ["ticket-products", ticketId],
+    enabled: !!ticketId,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("ticket_products")
+        .select("id, name, unit_price, quantity, created_at")
+        .eq("ticket_id", ticketId!)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return data as { id: string; name: string; unit_price: number; quantity: number; created_at: string }[];
+    },
+  });
+}
+
 // ─── Utilities ─────────────────────────────────────────────────
 
 function daysSince(dateStr: string | null) {
@@ -462,6 +478,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
 
   // Client-level data
   const { data: clientProfile } = useClientProfile(enabledClientId);
+  const { data: ticketProducts } = useTicketProducts(open ? ticket?.id : undefined);
   const { data: clientEquipments } = useClientEquipments(enabledClientId);
   const { data: clientTickets } = useClientTickets(enabledClientId);
   const { data: clientQuotes } = useClientQuotes(enabledClientId);
@@ -1625,6 +1642,24 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
                         )}
                       </div>
                     </>
+                  )}
+
+                  {ticketProducts && ticketProducts.length > 0 && (
+                    <div className="mt-4 border-t pt-4">
+                      <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Produtos</div>
+                      <div className="space-y-1">
+                        {ticketProducts.map(p => (
+                          <div key={p.id} className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">{p.name} × {p.quantity}</span>
+                            <span className="font-medium">R$ {(p.unit_price * p.quantity).toFixed(2).replace('.', ',')}</span>
+                          </div>
+                        ))}
+                        <div className="flex justify-between text-sm font-bold border-t pt-1 mt-1">
+                          <span>Total</span>
+                          <span>R$ {ticketProducts.reduce((s, p) => s + p.unit_price * p.quantity, 0).toFixed(2).replace('.', ',')}</span>
+                        </div>
+                      </div>
+                    </div>
                   )}
 
                   <Separator />
