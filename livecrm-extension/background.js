@@ -2,6 +2,7 @@ importScripts('./lib/supabase-umd.js', './config.js');
 
 let sb = null;
 let instanceId = null;
+let currentUserId = null;  // user_id do JWT do usuário logado
 let rtChannel = null;
 const dispatchedSends = new Set();   // evita double-dispatch de pending sends
 const dispatchTimeouts = new Map(); // timeout de confirmação por sendId
@@ -46,26 +47,25 @@ async function init() {
   // Agendar refresh do token a cada 50 minutos (expira em 60min)
   chrome.alarms.create('token-refresh', { periodInMinutes: 50 });
 
+  // Decodifica JWT para obter user_id do usuário logado
+  try {
+    const payload = JSON.parse(atob(stored.session.access_token.split('.')[1]));
+    currentUserId = payload.sub || null;
+  } catch { currentUserId = null; }
+
   instanceId = stored.instanceId;
   if (!instanceId) {
-    // Decodifica JWT para obter user_id do usuário logado
-    let userId = null;
-    try {
-      const payload = JSON.parse(atob(stored.session.access_token.split('.')[1]));
-      userId = payload.sub;
-    } catch { /* token inválido */ }
-
     const query = sb.from('pipeline_whatsapp_instances').select('id').eq('active', true).limit(1);
-    const { data } = userId
-      ? await query.eq('user_id', userId).maybeSingle()
+    const { data } = currentUserId
+      ? await query.eq('user_id', currentUserId).maybeSingle()
       : await query.maybeSingle();
 
     if (data?.id) {
       instanceId = data.id;
       await setStored({ instanceId });
-      console.log('[LiveCRM BG] instance encontrada:', instanceId, 'para userId:', userId);
+      console.log('[LiveCRM BG] instance encontrada:', instanceId, 'para userId:', currentUserId);
     } else {
-      console.warn('[LiveCRM BG] nenhuma instância encontrada para userId:', userId);
+      console.warn('[LiveCRM BG] nenhuma instância encontrada para userId:', currentUserId);
     }
   } else {
     console.log('[LiveCRM BG] instance do storage:', instanceId);
@@ -849,13 +849,8 @@ async function handleCreateTicket(phone, name, pipelineId) {
   const digits = phone.replace(/\D/g, '');
   const phoneLocal = digits.startsWith('55') ? digits.slice(2) : digits;
 
-  // Responsável = user_id da instância WA ativa
-  let assignedTo = null;
-  if (instanceId) {
-    const { data: inst } = await sb
-      .from('pipeline_whatsapp_instances').select('user_id').eq('id', instanceId).maybeSingle();
-    assignedTo = inst?.user_id || null;
-  }
+  // Responsável = usuário logado na extensão (vínculo direto via JWT)
+  const assignedTo = currentUserId || null;
 
   // Encontra ou cria cliente
   const { data: existing } = await sb
