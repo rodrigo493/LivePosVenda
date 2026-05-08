@@ -3,7 +3,8 @@ importScripts('./lib/supabase-umd.js', './config.js');
 let sb = null;
 let instanceId = null;
 let rtChannel = null;
-const dispatchedSends = new Set(); // evita double-dispatch de pending sends
+const dispatchedSends = new Set();   // evita double-dispatch de pending sends
+const dispatchTimeouts = new Map(); // timeout de confirmação por sendId
 
 async function getStored(keys) {
   return new Promise(resolve => chrome.storage.local.get(keys, resolve));
@@ -93,6 +94,18 @@ async function processPendingSends() {
   for (const row of (pending ?? [])) {
     if (dispatchedSends.has(row.id)) continue;
     dispatchedSends.add(row.id);
+
+    // Timeout de segurança: CS pode morrer (F5 na aba) após responder {queued:true}
+    // sem nunca enviar SEND_CONFIRMED/SEND_FAILED. 45s libera para retry.
+    const tid = setTimeout(() => {
+      if (dispatchedSends.has(row.id)) {
+        console.warn('[LiveCRM BG] timeout 45s sem confirmação para send', row.id, '— liberando retry');
+        dispatchedSends.delete(row.id);
+        dispatchTimeouts.delete(row.id);
+      }
+    }, 45000);
+    dispatchTimeouts.set(row.id, tid);
+
     console.log('[LiveCRM BG] despachando pending send:', row.id, 'phone:', row.phone);
     try {
       const resp = await new Promise((resolve, reject) => {
@@ -109,6 +122,8 @@ async function processPendingSends() {
       console.log('[LiveCRM BG] INJECT_SEND entregue ao content script, resp:', JSON.stringify(resp));
     } catch (e) {
       console.warn('[LiveCRM BG] INJECT_SEND falhou (content script órfão?):', e.message);
+      clearTimeout(dispatchTimeouts.get(row.id));
+      dispatchTimeouts.delete(row.id);
       dispatchedSends.delete(row.id);
     }
   }
@@ -135,8 +150,21 @@ function subscribeRealtime() {
       const { id, phone, message } = payload.new;
       if (dispatchedSends.has(id)) return;
       dispatchedSends.add(id);
+
+      const tid = setTimeout(() => {
+        if (dispatchedSends.has(id)) {
+          console.warn('[LiveCRM BG] Realtime: timeout 45s sem confirmação para send', id, '— liberando retry');
+          dispatchedSends.delete(id);
+          dispatchTimeouts.delete(id);
+        }
+      }, 45000);
+      dispatchTimeouts.set(id, tid);
+
       const tab = await findWaTab();
       if (!tab) {
+        clearTimeout(tid);
+        dispatchTimeouts.delete(id);
+        dispatchedSends.delete(id);
         await sb.from('whatsapp_pending_sends')
           .update({ status: 'failed', error: 'WA Web não está aberto' })
           .eq('id', id);
@@ -333,11 +361,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     console.log('[LiveCRM BG] INBOUND_MESSAGE recebido, phone:', msg.data?.phone, 'sb:', !!sb);
     handleInbound(msg.data).catch(console.error);
   } else if (msg.type === 'SEND_CONFIRMED') {
+    clearTimeout(dispatchTimeouts.get(msg.sendId));
+    dispatchTimeouts.delete(msg.sendId);
+    dispatchedSends.delete(msg.sendId);
     sb?.from('whatsapp_pending_sends')
       .update({ status: 'sent', sent_at: new Date().toISOString() })
       .eq('id', msg.sendId)
       .then(() => {});
   } else if (msg.type === 'SEND_FAILED') {
+    clearTimeout(dispatchTimeouts.get(msg.sendId));
+    dispatchTimeouts.delete(msg.sendId);
+    dispatchedSends.delete(msg.sendId);
     sb?.from('whatsapp_pending_sends')
       .update({ status: 'failed', error: msg.error })
       .eq('id', msg.sendId)

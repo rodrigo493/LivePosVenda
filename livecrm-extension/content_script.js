@@ -371,6 +371,82 @@ function startObserver() {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// Fallback de navegação via botão "Nova conversa" — usado quando o sidebar search falha
+async function injectSendViaNewChat(phone, targetDigits, existingSearchBox) {
+  const trigger =
+    document.querySelector('[data-testid="new-chat-btn"]') ||
+    document.querySelector('[data-testid="search-action"]') ||
+    document.querySelector('[aria-label="Nova conversa"]') ||
+    document.querySelector('[aria-label="New chat"]') ||
+    document.querySelector('[aria-label="Pesquisar"]') ||
+    (() => {
+      for (const iconName of ['new-chat-outline', 'chat-new', 'chat-add', 'search', 'compose']) {
+        const span = document.querySelector(`span[data-icon="${iconName}"]`);
+        if (!span) continue;
+        let p = span.parentElement;
+        for (let i = 0; i < 5 && p; i++, p = p.parentElement) {
+          if (p.tagName === 'BUTTON' || p.getAttribute('role') === 'button' ||
+              p.getAttribute('tabindex') === '0') return p;
+        }
+      }
+      return null;
+    })();
+
+  if (!trigger) {
+    const header = document.querySelector('header');
+    console.warn('[LiveCRM CS] INJECT_SEND: nenhum trigger "Nova conversa" encontrado.',
+      '\n  Header HTML:', header?.innerHTML?.substring(0, 600) || '(sem header)');
+    throw new Error('Trigger "Nova conversa" não encontrado e sidebar search falhou');
+  }
+
+  console.log('[LiveCRM CS] INJECT_SEND: trigger encontrado:',
+    `[testid=${trigger.getAttribute('data-testid')}|aria=${trigger.getAttribute('aria-label')}]`);
+
+  trigger.click();
+  await sleep(600);
+
+  // Aguarda searchbox aparecer (pode ser o mesmo sidebar ou um painel novo)
+  const searchBox = existingSearchBox ||
+    await waitForEl(
+      '[role="searchbox"], div[contenteditable="true"][data-tab="3"], [data-testid="chat-list-search"]',
+      4000
+    );
+
+  if (!searchBox) {
+    const ceNow = [...document.querySelectorAll('[contenteditable="true"]')].map(e =>
+      `[tab=${e.getAttribute('data-tab')}|role=${e.getAttribute('role')}]`
+    ).join(' ');
+    throw new Error('Searchbox não apareceu após trigger. contenteditable: ' + ceNow);
+  }
+
+  insertTextReact(searchBox, phone);
+  await sleep(600);
+
+  let firstResult = null;
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    const pool = [
+      ...document.querySelectorAll('[data-testid="cell-frame-container"]'),
+      ...document.querySelectorAll('[role="listitem"]'),
+    ];
+    const matched = pool.find(el => el.textContent?.replace(/\D/g, '').includes(targetDigits));
+    if (matched) { firstResult = matched; break; }
+    if (pool.length > 0 && pool.length <= 3) { firstResult = pool[0]; break; }
+    await sleep(300);
+  }
+
+  if (!firstResult) throw new Error(`Contato não encontrado para telefone ${phone} via Nova conversa`);
+
+  console.log('[LiveCRM CS] INJECT_SEND (nova conversa): resultado:', firstResult.textContent?.replace(/\s+/g, ' ').substring(0, 40));
+  firstResult.click();
+  await sleep(1000);
+
+  searchBox.dispatchEvent(new KeyboardEvent('keydown', {
+    key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true,
+  }));
+  await sleep(300);
+}
+
 // Insere texto num contenteditable React usando execCommand('insertText') — dispara
 // eventos beforeinput+input nativos que o React 18 reconhece corretamente.
 // Fallback para textContent+InputEvent sintético se execCommand não funcionar.
@@ -408,107 +484,82 @@ async function injectSend({ sendId, phone, message }) {
     console.log('[LiveCRM CS] INJECT_SEND: currentPhone=', currentPhone, '| alreadyHere=', alreadyHere);
 
     if (!alreadyHere) {
-      // ── Tenta 1: contato visível na lista (sem precisar de busca) ─────────
+      // ── Tenta 1: contato visível na lista (click direto, sem busca) ────────
       const listItems = [...document.querySelectorAll('[data-testid="cell-frame-container"]')];
+      console.log('[LiveCRM CS] INJECT_SEND: lista visível =', listItems.length, 'itens');
       const inList = listItems.find(el => {
-        const id = el.getAttribute('data-id') ||
-          el.querySelector('[data-id]')?.getAttribute('data-id') || '';
-        return id.replace(/\D/g, '').includes(targetDigits);
+        const id = el.getAttribute('data-id') || el.querySelector('[data-id]')?.getAttribute('data-id') || '';
+        if (id.replace(/\D/g, '').includes(targetDigits)) return true;
+        // Fallback: número como texto visível (ex: exibição em listas sem data-id)
+        return el.textContent?.replace(/\D/g, '').includes(targetDigits);
       });
 
       if (inList) {
-        console.log('[LiveCRM CS] INJECT_SEND: contato na lista visível:', inList.textContent?.substring(0, 30));
+        console.log('[LiveCRM CS] INJECT_SEND: contato na lista visível, clicando');
         inList.click();
         await sleep(800);
       } else {
-        // ── Tenta 2: abre painel via botão "Nova conversa" / busca ────────────
-        // WA Web 2026 não tem search box persistente — precisa de trigger
-        const header = document.querySelector('header');
-        const btns = header ? [...header.querySelectorAll('[role="button"],[tabindex="0"],button')].slice(0, 10) : [];
-        const btnsLog = btns.map(b =>
-          `[testid=${b.getAttribute('data-testid')}|aria=${b.getAttribute('aria-label')}|icon=${b.querySelector('[data-icon]')?.getAttribute('data-icon')}]`
-        ).join(' ');
-        console.log('[LiveCRM CS] INJECT_SEND: botões no header:', btnsLog || '(header não encontrado)');
+        // ── Tenta 2: searchbox do sidebar — sempre presente no DOM do WA Web ───
+        // Em WA Web 2026 a caixa de busca (data-tab="3") persiste no sidebar sem precisar de trigger.
+        const sidebarSearch =
+          document.querySelector('div[contenteditable="true"][data-tab="3"]') ||
+          document.querySelector('[aria-label="Busca ou nova conversa"]') ||
+          document.querySelector('[aria-label="Pesquisar ou começar uma nova conversa"]') ||
+          document.querySelector('[aria-label="Search or start new chat"]') ||
+          document.querySelector('[data-testid="chat-list-search"]') ||
+          document.querySelector('[role="searchbox"]');
 
-        const trigger =
-          document.querySelector('[data-testid="new-chat-btn"]') ||
-          document.querySelector('[data-testid="search-action"]') ||
-          document.querySelector('[aria-label="Nova conversa"]') ||
-          document.querySelector('[aria-label="New chat"]') ||
-          document.querySelector('[aria-label="Pesquisar"]') ||
-          (() => {
-            for (const iconName of ['new-chat-outline', 'chat-new', 'chat-add', 'search']) {
-              const span = document.querySelector(`span[data-icon="${iconName}"]`);
-              if (!span) continue;
-              let p = span.parentElement;
-              for (let i = 0; i < 5 && p; i++, p = p.parentElement) {
-                if (p.tagName === 'BUTTON' || p.getAttribute('role') === 'button' ||
-                    p.getAttribute('tabindex') === '0') return p;
-              }
-            }
-            return null;
-          })();
+        console.log('[LiveCRM CS] INJECT_SEND: sidebarSearch?', !!sidebarSearch,
+          sidebarSearch ? `[tab=${sidebarSearch.getAttribute('data-tab')}|role=${sidebarSearch.getAttribute('role')}|aria=${(sidebarSearch.getAttribute('aria-label') || '').substring(0, 30)}]` : '');
 
-        console.log('[LiveCRM CS] INJECT_SEND: trigger?', !!trigger,
-          trigger ? `[testid=${trigger.getAttribute('data-testid')}|aria=${trigger.getAttribute('aria-label')}]` : '');
+        if (sidebarSearch) {
+          insertTextReact(sidebarSearch, phone);
+          await sleep(600);
+          console.log('[LiveCRM CS] INJECT_SEND: sidebarSearch texto atual:',
+            JSON.stringify(sidebarSearch.textContent?.trim()?.substring(0, 20)));
 
-        if (!trigger) {
-          const h = document.querySelector('header');
-          console.warn('[LiveCRM CS] INJECT_SEND: nenhum trigger encontrado. Header HTML:',
-            h?.innerHTML?.substring(0, 600) || '(sem header)');
-          throw new Error('Search trigger not found and contact not in visible list');
-        }
+          // Polling de resultado na lista filtrada (máx 5s)
+          let firstResult = null;
+          const deadline = Date.now() + 5000;
+          while (Date.now() < deadline) {
+            const pool = [
+              ...document.querySelectorAll('[data-testid="cell-frame-container"]'),
+              ...document.querySelectorAll('[role="listitem"]'),
+            ];
+            console.log('[LiveCRM CS] INJECT_SEND: pool filtrado=', pool.length,
+              pool[0] ? '| [0]=' + pool[0].textContent?.replace(/\s+/g, ' ').substring(0, 30) : '');
+            const matched = pool.find(el => el.textContent?.replace(/\D/g, '').includes(targetDigits));
+            if (matched) { firstResult = matched; break; }
+            if (pool.length > 0 && pool.length <= 3) { firstResult = pool[0]; break; }
+            await sleep(300);
+          }
 
-        trigger.click();
-        await sleep(500);
-
-        // Aguarda o searchbox aparecer no DOM após o clique
-        const searchBox = await waitForEl(
-          '[role="searchbox"], div[contenteditable="true"][data-tab="3"], [data-testid="chat-list-search"]',
-          4000
-        );
-
-        if (!searchBox) {
+          if (firstResult) {
+            console.log('[LiveCRM CS] INJECT_SEND: resultado encontrado, clicando');
+            firstResult.click();
+            await sleep(800);
+            // Limpa a busca para não deixar o sidebar filtrado
+            sidebarSearch.dispatchEvent(new KeyboardEvent('keydown', {
+              key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true,
+            }));
+            await sleep(200);
+          } else {
+            // ── Tenta 3: botão "Nova conversa" / trigger ─────────────────────
+            console.warn('[LiveCRM CS] INJECT_SEND: sidebar search sem resultado, tentando trigger');
+            await injectSendViaNewChat(phone, targetDigits, sidebarSearch);
+          }
+        } else {
+          // Sidebar search não encontrado — dump diagnóstico e tenta trigger
           const ceNow = [...document.querySelectorAll('[contenteditable="true"]')].map(e =>
-            `[tab=${e.getAttribute('data-tab')}|role=${e.getAttribute('role')}|testid=${e.getAttribute('data-testid')}]`
+            `[tab=${e.getAttribute('data-tab')}|role=${e.getAttribute('role')}|aria=${(e.getAttribute('aria-label') || '').substring(0, 20)}]`
           ).join(' ');
-          throw new Error('Search box não apareceu após trigger. contenteditable: ' + ceNow);
+          const header = document.querySelector('header');
+          const btns = header ? [...header.querySelectorAll('[role="button"],[tabindex="0"],button')].slice(0, 8) : [];
+          console.warn('[LiveCRM CS] INJECT_SEND: sidebar search não encontrado.',
+            '\n  contenteditable:', ceNow || '(nenhum)',
+            '\n  header buttons:', btns.map(b => `[testid=${b.getAttribute('data-testid')}|aria=${b.getAttribute('aria-label')}|icon=${b.querySelector('[data-icon]')?.getAttribute('data-icon')}]`).join(' ') || '(sem header)');
+          await injectSendViaNewChat(phone, targetDigits, null);
         }
-
-        console.log('[LiveCRM CS] INJECT_SEND: searchBox apareceu:',
-          `[tab=${searchBox.getAttribute('data-tab')}|role=${searchBox.getAttribute('role')}|testid=${searchBox.getAttribute('data-testid')}]`);
-
-        insertTextReact(searchBox, phone);
-        await sleep(300);
-        console.log('[LiveCRM CS] INJECT_SEND: searchBox 300ms depois:',
-          JSON.stringify(searchBox.textContent?.trim()?.substring(0, 20)));
-
-        // Aguarda resultado de busca (polling 300ms, max 5s)
-        let firstResult = null;
-        const deadline = Date.now() + 5000;
-        while (Date.now() < deadline) {
-          const pool = [
-            ...document.querySelectorAll('[data-testid="cell-frame-container"]'),
-            ...document.querySelectorAll('[tabindex="-1"][role="listitem"]'),
-          ];
-          console.log('[LiveCRM CS] INJECT_SEND: pool=', pool.length,
-            '| pool[0]:', pool[0]?.textContent?.replace(/\s+/g, ' ').substring(0, 30));
-          const matched = pool.find(el => el.textContent.replace(/\D/g, '').includes(targetDigits));
-          if (matched) { firstResult = matched; break; }
-          if (pool.length > 0 && pool.length <= 3) { firstResult = pool[0]; break; }
-          await sleep(300);
-        }
-
-        if (!firstResult) throw new Error(`Contato não encontrado para telefone ${phone}`);
-
-        console.log('[LiveCRM CS] INJECT_SEND: resultado:', firstResult.textContent?.replace(/\s+/g, ' ').substring(0, 40));
-        firstResult.click();
-        await sleep(1000);
-
-        searchBox.dispatchEvent(new KeyboardEvent('keydown', {
-          key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true,
-        }));
-        await sleep(300);
       }
     }
 
