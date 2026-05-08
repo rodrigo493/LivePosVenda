@@ -665,8 +665,17 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
 
   // Abre a conversa no WA Web: usa a extensão se disponível, senão URL direta
   function openWaChat() {
-    const rawPhone = (clientProfile?.whatsapp || clientProfile?.phone || "").replace(/\D/g, "");
-    if (!rawPhone) return;
+    const rawPhone = (
+      clientProfile?.whatsapp ||
+      clientProfile?.phone ||
+      (ticket as any)?.clients?.whatsapp ||
+      (ticket as any)?.clients?.phone ||
+      ""
+    ).replace(/\D/g, "");
+    if (!rawPhone) {
+      toast.error("Número de WhatsApp não cadastrado para este cliente");
+      return;
+    }
     const fallback = () => window.open(`https://web.whatsapp.com/send?phone=${rawPhone}`, "_blank");
     const extId = (window as any).__livecrm_ext_id as string | undefined;
     if (extId && typeof (globalThis as any).chrome?.runtime?.sendMessage === "function") {
