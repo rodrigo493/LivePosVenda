@@ -796,18 +796,21 @@ async function handleSaveNote(ticketId, clientId, text) {
 async function handleSaveHistoryMessages(ticketId, clientId, messages) {
   if (!sb) throw new Error('Extensao nao autenticada');
   if (!messages?.length) return { ok: true, saved: 0 };
-
   const now = new Date();
   const dateLabel = now.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
-  const formatted = messages.map(m => (m.direction === 'outbound' ? '[Eu] ' : '[Cliente] ') + m.text).join('\n');
-  const content = `[Histórico WA — ${dateLabel}]\n${formatted}`;
-
+  const rawMsg = messages.find(m => m._raw);
+  let content;
+  if (rawMsg) {
+    content = rawMsg.text;
+  } else {
+    const formatted = messages.map(m => (m.direction === 'outbound' ? '[Eu] ' : '[Cliente] ') + m.text).join('\n');
+    content = `[Histórico WA — ${dateLabel}]\n${formatted}`;
+  }
   const { error } = await sb.from('client_service_history').insert({
     client_id: clientId,
     service_date: now.toISOString(),
     problem_reported: content,
     service_status: 'historico_wa',
-    ...(ticketId ? { service_request_id: null } : {}),
   });
   if (error) throw new Error(error.message);
   return { ok: true, saved: messages.length };

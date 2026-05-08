@@ -744,9 +744,22 @@ function extractVisibleMessages() {
   const msgs = [];
   document.querySelectorAll('[data-id]').forEach(node => {
     const isOut = !!node.querySelector('[class*="message-out"]');
+
     const textEl = node.querySelector('[class*="selectable-text"]') || node.querySelector('span[dir]');
     const text = textEl?.textContent?.trim();
-    if (text) msgs.push({ direction: isOut ? 'outbound' : 'inbound', text });
+    if (text) {
+      msgs.push({ type: 'text', direction: isOut ? 'outbound' : 'inbound', text });
+      return;
+    }
+
+    const audioEl = node.querySelector('audio');
+    if (audioEl) {
+      const dur = audioEl.duration;
+      const durLabel = dur && isFinite(dur)
+        ? `${Math.floor(dur / 60)}:${String(Math.floor(dur % 60)).padStart(2, '0')}`
+        : '?:??';
+      msgs.push({ type: 'audio', direction: isOut ? 'outbound' : 'inbound', text: `🎵 Áudio [${durLabel}]`, audioSrc: audioEl.src, duration: dur });
+    }
   });
   return msgs.slice(-30);
 }
@@ -1064,7 +1077,44 @@ function renderSidebarData(phone, { client, ticket, stageLabel }) {
       if (!selected.length) { alert('Selecione ao menos uma mensagem.'); return; }
       okBtn.disabled = true; okBtn.textContent = 'Salvando...';
       try {
-        await sendToBackground({ type: 'SAVE_HISTORY_MESSAGES', clientId: client.id, ticketId: ticket?.id || null, messages: selected });
+        const textMsgs = selected.filter(m => m.type !== 'audio');
+        const audioMsgs = selected.filter(m => m.type === 'audio');
+
+        const audioLines = [];
+        for (const am of audioMsgs) {
+          const line = am.direction === 'outbound' ? '[Eu] ' : '[Cliente] ';
+          if (am.audioSrc && am.audioSrc.startsWith('blob:')) {
+            try {
+              const resp = await fetch(am.audioSrc);
+              const buf = await resp.arrayBuffer();
+              const mimeType = resp.headers.get('content-type') || 'audio/ogg';
+              const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+              const upResp = await sendToBackground({ type: 'UPLOAD_AUDIO', clientId: client.id, base64, mimeType });
+              audioLines.push(line + `[🎵 Áudio: ${upResp.url}]`);
+            } catch (_) {
+              audioLines.push(line + am.text + ' — indisponível');
+            }
+          } else {
+            audioLines.push(line + am.text + ' — indisponível');
+          }
+        }
+
+        if (textMsgs.length) {
+          await sendToBackground({ type: 'SAVE_HISTORY_MESSAGES', clientId: client.id, ticketId: ticket?.id || null, messages: textMsgs });
+        }
+
+        if (audioLines.length) {
+          const now = new Date();
+          const dateLabel = now.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+          const content = `[Histórico WA Áudio — ${dateLabel}]\n` + audioLines.join('\n');
+          await sendToBackground({
+            type: 'SAVE_HISTORY_MESSAGES',
+            clientId: client.id,
+            ticketId: ticket?.id || null,
+            messages: [{ direction: 'outbound', text: content, _raw: true }],
+          });
+        }
+
         msgSelArea.style.display = 'none';
         msgHistBtn.textContent = '✓ Histórico salvo!';
         setTimeout(() => { msgHistBtn.textContent = 'Salvar mensagens no histórico'; }, 2500);
