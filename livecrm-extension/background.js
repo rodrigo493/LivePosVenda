@@ -958,7 +958,7 @@ async function handleGetTicketProducts(ticketId) {
   if (!sb) throw new Error('Extensão não autenticada');
   const { data, error } = await sb
     .from('ticket_products')
-    .select('*')
+    .select('id, ticket_id, product_id, name, unit_price, quantity, created_at')
     .eq('ticket_id', ticketId)
     .order('created_at', { ascending: true });
   if (error) throw new Error(error.message);
@@ -967,6 +967,7 @@ async function handleGetTicketProducts(ticketId) {
 
 async function handleSaveTicketProduct(ticketId, productId, name, unitPrice, quantity) {
   if (!sb) throw new Error('Extensão não autenticada');
+  if (!ticketId || !name || unitPrice == null) throw new Error('Parâmetros inválidos');
   const { data, error } = await sb
     .from('ticket_products')
     .insert({ ticket_id: ticketId, product_id: productId || null, name, unit_price: unitPrice, quantity: quantity || 1 })
