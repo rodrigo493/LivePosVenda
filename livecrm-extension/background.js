@@ -507,6 +507,27 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   } else if (msg.type === 'SAVE_HISTORY_MESSAGES') {
     handleSaveHistoryMessages(msg.ticketId, msg.clientId, msg.messages).then(sendResponse).catch(e => sendResponse({ error: e.message }));
     return true;
+  } else if (msg.type === 'GET_PIPELINE_STAGES') {
+    handleGetPipelineStages(msg.pipelineId).then(sendResponse).catch(e => sendResponse({ error: e.message }));
+    return true;
+  } else if (msg.type === 'MOVE_STAGE') {
+    handleMoveStage(msg.ticketId, msg.pipelineId, msg.newStage, msg.previousStage).then(sendResponse).catch(e => sendResponse({ error: e.message }));
+    return true;
+  } else if (msg.type === 'UPLOAD_AUDIO') {
+    handleUploadAudio(msg.clientId, msg.base64, msg.mimeType).then(sendResponse).catch(e => sendResponse({ error: e.message }));
+    return true;
+  } else if (msg.type === 'GET_CATALOG_PRODUCTS') {
+    handleGetCatalogProducts().then(sendResponse).catch(e => sendResponse({ error: e.message }));
+    return true;
+  } else if (msg.type === 'GET_TICKET_PRODUCTS') {
+    handleGetTicketProducts(msg.ticketId).then(sendResponse).catch(e => sendResponse({ error: e.message }));
+    return true;
+  } else if (msg.type === 'SAVE_TICKET_PRODUCT') {
+    handleSaveTicketProduct(msg.ticketId, msg.productId, msg.name, msg.unitPrice, msg.quantity).then(sendResponse).catch(e => sendResponse({ error: e.message }));
+    return true;
+  } else if (msg.type === 'DELETE_TICKET_PRODUCT') {
+    handleDeleteTicketProduct(msg.productId).then(sendResponse).catch(e => sendResponse({ error: e.message }));
+    return true;
   } else if (msg.type === 'GET_STATUS') {
     sendResponse({ connected: !!sb, instanceId });
     return true;
@@ -871,6 +892,95 @@ async function handleCreateTicket(phone, name, pipelineId) {
     .order('created_at', { ascending: false }).limit(1).maybeSingle();
 
   return { clientId, ticketId: created?.id || null };
+}
+
+async function handleGetPipelineStages(pipelineId) {
+  if (!sb) throw new Error('Extensão não autenticada');
+  const { data, error } = await sb
+    .from('pipeline_stages')
+    .select('key, label')
+    .eq('pipeline_id', pipelineId)
+    .order('position', { ascending: true });
+  if (error) throw new Error(error.message);
+  return { stages: data || [] };
+}
+
+async function handleMoveStage(ticketId, pipelineId, newStage, previousStage) {
+  if (!sb) throw new Error('Extensão não autenticada');
+  const { error } = await sb
+    .from('tickets')
+    .update({ pipeline_stage: newStage })
+    .eq('id', ticketId);
+  if (error) throw new Error(error.message);
+  if (newStage !== previousStage) {
+    const { data: stageRow } = await sb
+      .from('pipeline_stages')
+      .select('id')
+      .eq('pipeline_id', pipelineId)
+      .eq('key', newStage)
+      .maybeSingle();
+    if (stageRow?.id) {
+      sb.functions.invoke('trigger-automations', {
+        body: { ticket_id: ticketId, stage_id: stageRow.id },
+      }).catch(e => console.warn('[LiveCRM BG] trigger-automations:', e));
+    }
+  }
+  return { ok: true };
+}
+
+async function handleUploadAudio(clientId, base64, mimeType) {
+  if (!sb) throw new Error('Extensão não autenticada');
+  const extMap = { 'audio/ogg': 'ogg', 'audio/webm': 'webm', 'audio/mp4': 'm4a', 'audio/mpeg': 'mp3' };
+  const ext = extMap[mimeType] || 'ogg';
+  const path = `${clientId}/${Date.now()}.${ext}`;
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const blob = new Blob([bytes], { type: mimeType || 'audio/ogg' });
+  const { error } = await sb.storage.from('whatsapp-audio').upload(path, blob, { contentType: mimeType || 'audio/ogg' });
+  if (error) throw new Error(error.message);
+  const { data: urlData } = sb.storage.from('whatsapp-audio').getPublicUrl(path);
+  return { ok: true, url: urlData.publicUrl };
+}
+
+async function handleGetCatalogProducts() {
+  if (!sb) throw new Error('Extensão não autenticada');
+  const { data, error } = await sb
+    .from('deal_catalog_products')
+    .select('id, name, base_price')
+    .eq('visible', true)
+    .order('name', { ascending: true });
+  if (error) throw new Error(error.message);
+  return { products: data || [] };
+}
+
+async function handleGetTicketProducts(ticketId) {
+  if (!sb) throw new Error('Extensão não autenticada');
+  const { data, error } = await sb
+    .from('ticket_products')
+    .select('*')
+    .eq('ticket_id', ticketId)
+    .order('created_at', { ascending: true });
+  if (error) throw new Error(error.message);
+  return { products: data || [] };
+}
+
+async function handleSaveTicketProduct(ticketId, productId, name, unitPrice, quantity) {
+  if (!sb) throw new Error('Extensão não autenticada');
+  const { data, error } = await sb
+    .from('ticket_products')
+    .insert({ ticket_id: ticketId, product_id: productId || null, name, unit_price: unitPrice, quantity: quantity || 1 })
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return { ok: true, product: data };
+}
+
+async function handleDeleteTicketProduct(productId) {
+  if (!sb) throw new Error('Extensão não autenticada');
+  const { error } = await sb.from('ticket_products').delete().eq('id', productId);
+  if (error) throw new Error(error.message);
+  return { ok: true };
 }
 
 // ── Abertura de conversa WA Web a partir do CRM ──────────────────────────────
