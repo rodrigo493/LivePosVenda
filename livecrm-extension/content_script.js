@@ -763,19 +763,29 @@ function sendToBackground(msg) {
   });
 }
 
+// Strings de status do WA Web que não são nomes de contato
+const WA_STATUS_PATTERNS = [
+  /^online$/i, /^offline$/i,
+  /^(última vez|last seen)/i,
+  /^(digitando|typing)/i,
+  /^(gravando|recording)/i,
+  /^clique/i, /^click/i,
+  /^\+\d/,          // "+55 11..." (números de grupo)
+];
+
 function getContactName() {
   const header = document.querySelector('header[data-testid="conversation-header"]');
   if (!header) return null;
-  // Tenta seletores específicos do título (não o subtítulo "clique para ver dados")
-  const el = header.querySelector('[data-testid="conversation-info-header-chat-title"] span[dir="auto"]') ||
-    header.querySelector('[data-testid="conversation-info-header-chat-title"] span') ||
+  // Usa o título específico do WA Web; fallbacks removidos pois pegam status
+  const titleEl = header.querySelector('[data-testid="conversation-info-header-chat-title"]');
+  const spans = titleEl ? Array.from(titleEl.querySelectorAll('span[dir="auto"]')) : [];
+  const el = spans[0] ||
     header.querySelector('span[title][class]') ||
     header.querySelector('._amig') ||
     header.querySelector('h1');
   const text = el?.textContent?.trim() || null;
-  // Rejeita textos que são claramente subtítulos do WA Web
   if (!text) return null;
-  if (text.toLowerCase().includes('clique') || text.toLowerCase().includes('click')) return null;
+  if (WA_STATUS_PATTERNS.some(p => p.test(text))) return null;
   return text;
 }
 
