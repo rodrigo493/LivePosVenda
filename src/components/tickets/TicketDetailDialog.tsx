@@ -667,13 +667,20 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
   function openWaChat() {
     const rawPhone = (clientProfile?.whatsapp || clientProfile?.phone || "").replace(/\D/g, "");
     if (!rawPhone) return;
+    const fallback = () => window.open(`https://web.whatsapp.com/send?phone=${rawPhone}`, "_blank");
     const extId = (window as any).__livecrm_ext_id as string | undefined;
     if (extId && typeof (globalThis as any).chrome?.runtime?.sendMessage === "function") {
-      (globalThis as any).chrome.runtime.sendMessage(extId, { type: "OPEN_WA_CHAT", phone: rawPhone }, () => {
-        void (globalThis as any).chrome?.runtime?.lastError; // ignora erro se extensão não instalada
+      // Timeout de 3s: se a extensão não responder, abre no navegador
+      let settled = false;
+      const timer = setTimeout(() => { if (!settled) { settled = true; fallback(); } }, 3000);
+      (globalThis as any).chrome.runtime.sendMessage(extId, { type: "OPEN_WA_CHAT", phone: rawPhone }, (resp: any) => {
+        settled = true;
+        clearTimeout(timer);
+        const err = (globalThis as any).chrome?.runtime?.lastError;
+        if (err || !resp?.ok) fallback();
       });
     } else {
-      window.open(`https://web.whatsapp.com/send?phone=${rawPhone}`, "_blank");
+      fallback();
     }
   }
 
