@@ -766,12 +766,17 @@ function sendToBackground(msg) {
 function getContactName() {
   const header = document.querySelector('header[data-testid="conversation-header"]');
   if (!header) return null;
-  const el = header.querySelector('[data-testid="conversation-info-header-chat-title"] span') ||
+  // Tenta seletores específicos do título (não o subtítulo "clique para ver dados")
+  const el = header.querySelector('[data-testid="conversation-info-header-chat-title"] span[dir="auto"]') ||
+    header.querySelector('[data-testid="conversation-info-header-chat-title"] span') ||
     header.querySelector('span[title][class]') ||
     header.querySelector('._amig') ||
-    header.querySelector('h1') ||
-    header.querySelector('span[dir="auto"]');
-  return el?.textContent?.trim() || null;
+    header.querySelector('h1');
+  const text = el?.textContent?.trim() || null;
+  // Rejeita textos que são claramente subtítulos do WA Web
+  if (!text) return null;
+  if (text.toLowerCase().includes('clique') || text.toLowerCase().includes('click')) return null;
+  return text;
 }
 
 function styledBtn(text, primary) {
