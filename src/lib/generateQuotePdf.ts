@@ -72,11 +72,11 @@ export function generateQuotePdf(data: QuotePdfData) {
   doc.setTextColor(80, 80, 80);
   doc.text(`Nº ${data.quoteNumber}`, pageWidth - 14, 17, { align: "right" });
   doc.text(`Data: ${data.date}`, pageWidth - 14, 23, { align: "right" });
-  if (data.validUntil) doc.text(`Validade: ${data.validUntil}`, pageWidth - 14, 28, { align: "right" });
+  if (data.validUntil) doc.text(`Validade: ${data.validUntil}`, pageWidth - 14, 29, { align: "right" });
   doc.setTextColor(0);
 
   // ── Divisor ───────────────────────────────────────────────────────────────
-  const dividerY = 5 + logoH + 11;
+  const dividerY = Math.max(5 + logoH + 18, 35);
   doc.setDrawColor(220, 220, 220);
   doc.setLineWidth(0.3);
   doc.line(14, dividerY, pageWidth - 14, dividerY);
@@ -208,11 +208,19 @@ export function generateQuotePdf(data: QuotePdfData) {
       doc.setFontSize(9);
       doc.setTextColor(0);
       let payLabel = PAYMENT_LABELS[method] ?? method;
-      if (method === "cartao_parcelado" && data.installmentValue) {
-        payLabel += ` — ${data.installmentValue} (+ juros da operadora)`;
-      }
       doc.text(`• ${payLabel}`, 18, afterTotalY);
       afterTotalY += 5;
+      if (method === "cartao_parcelado" && data.installmentValue) {
+        const opts = data.installmentValue.split("\n").filter(Boolean);
+        doc.setFontSize(8);
+        doc.setTextColor(60, 60, 60);
+        for (const opt of opts) {
+          doc.text(`   – ${opt}`, 22, afterTotalY);
+          afterTotalY += 4.5;
+        }
+        doc.setFontSize(9);
+        doc.setTextColor(0);
+      }
       if (method === "compra_programada" && data.paymentCompraProgramadaNotes) {
         doc.setFontSize(8);
         doc.setTextColor(80, 80, 80);

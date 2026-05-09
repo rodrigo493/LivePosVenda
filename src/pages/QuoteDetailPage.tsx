@@ -201,10 +201,10 @@ const QuoteDetailPage = () => {
     validUntil: currentValidUntil ? new Date(currentValidUntil + "T12:00:00").toLocaleDateString("pt-BR") : undefined,
     company: {
       name: "Live Care — Live Universe",
-      phone: myProfile?.phone || "(19) 3608-4008",
-      email: myProfile?.email || "posvenda@liveuni.com.br",
+      phone: (quote as any)?.creator?.phone || myProfile?.phone || "(19) 3608-4008",
+      email: (quote as any)?.creator?.email || myProfile?.email || "posvenda@liveuni.com.br",
     },
-    exportedBy: myProfile?.full_name || myProfile?.email || undefined,
+    exportedBy: (quote as any)?.creator?.full_name || myProfile?.full_name || myProfile?.email || undefined,
     client: {
       name: quote!.clients?.name || "",
       equipment: quote!.equipments?.equipment_models?.name,
@@ -707,17 +707,33 @@ const QuoteDetailPage = () => {
             {/* Opções retornadas pela planilha */}
             {calcOptions && (
               <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} className="bg-muted/40 rounded-xl border p-3">
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">
-                  Selecione o parcelamento:
-                </p>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                    Selecione uma ou mais condições:
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setCalcOptions(null)}
+                    className="text-[10px] text-primary hover:underline font-medium"
+                  >
+                    Pronto
+                  </button>
+                </div>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5">
                   {calcOptions.map((opt) => {
-                    const selected = currentInstallmentValue === opt;
+                    const parts = currentInstallmentValue ? currentInstallmentValue.split("\n").filter(Boolean) : [];
+                    const selected = parts.includes(opt);
                     return (
                       <button
                         key={opt}
                         type="button"
-                        onClick={() => { setInstallmentValue(opt); setCalcOptions(null); }}
+                        onClick={() => {
+                          if (selected) {
+                            setInstallmentValue(parts.filter(p => p !== opt).join("\n") || null);
+                          } else {
+                            setInstallmentValue([...parts, opt].join("\n"));
+                          }
+                        }}
                         className={[
                           "flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs text-left transition-all",
                           selected
@@ -734,18 +750,45 @@ const QuoteDetailPage = () => {
               </motion.div>
             )}
 
-            {/* Campo texto livre (editável / resultado selecionado) */}
-            <div className="flex items-center gap-3">
-              <label className="text-xs text-muted-foreground whitespace-nowrap">Condição escolhida:</label>
-              <Input
-                type="text"
-                disabled={!isEditable}
-                placeholder="Selecione acima ou digite manualmente"
-                value={currentInstallmentValue}
-                onChange={(e) => setInstallmentValue(e.target.value)}
-                className="h-8 text-sm font-mono flex-1 max-w-xs"
-              />
-            </div>
+            {/* Condições selecionadas */}
+            {currentInstallmentValue && (
+              <div className="flex flex-wrap gap-1.5">
+                {currentInstallmentValue.split("\n").filter(Boolean).map((opt) => (
+                  <span
+                    key={opt}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 border border-primary/20 text-xs font-mono text-primary"
+                  >
+                    {opt}
+                    {isEditable && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const parts = currentInstallmentValue.split("\n").filter(Boolean);
+                          setInstallmentValue(parts.filter(p => p !== opt).join("\n") || null);
+                        }}
+                        className="hover:text-destructive transition-colors"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Campo manual quando não há opções da planilha */}
+            {!calcOptions && !currentInstallmentValue && isEditable && (
+              <div className="flex items-center gap-3">
+                <label className="text-xs text-muted-foreground whitespace-nowrap">Ou digite manualmente:</label>
+                <Input
+                  type="text"
+                  placeholder="ex: 12x de R$ 1.200,00"
+                  value=""
+                  onChange={(e) => setInstallmentValue(e.target.value)}
+                  className="h-8 text-sm font-mono flex-1 max-w-xs"
+                />
+              </div>
+            )}
           </motion.div>
         )}
 

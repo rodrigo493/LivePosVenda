@@ -22,7 +22,7 @@ export function useQuote(id: string | undefined) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("quotes")
-        .select("*, clients(name), equipments(serial_number, model_id, equipment_models(name)), tickets(ticket_number, title), quote_items(*, products(name, code))")
+        .select("*, clients(name), equipments(serial_number, model_id, equipment_models(name)), tickets(ticket_number, title), quote_items(*, products(name, code)), creator:created_by(full_name, email, phone)")
         .eq("id", id!)
         .single();
       if (error) throw error;
