@@ -8,7 +8,9 @@
 
 **Tech Stack:** Deno + Supabase Edge Functions, PostgreSQL RLS, Chrome Extension MV3 (background service worker + content script), React + TanStack Query, Recharts (gráfico de evolução), Tailwind/shadcn.
 
-**Env vars necessárias no Supabase:** `OPENCLAW_URL` = `https://openclaw.liveuni.com.br`, `OPENCLAW_HOOKS_TOKEN` = token do campo `hooks.token` do `openclaw.json`, `OPENCLAW_WEBHOOK_SECRET` = string aleatória usada para validar callbacks.
+**Env vars necessárias no Supabase:** `OPENCLAW_URL` = `https://openclaw.liveuni.com.br`, `OPENCLAW_HOOKS_TOKEN` = token do campo `hooks.token` do `openclaw.json`, `OPENCLAW_WEBHOOK_SECRET` = string aleatória embutida na URL de callback (não header).
+
+> **Pesos canônicos (spec ganha):** tone 40%, commercial 35%, response_time 25%. Verificar que o system prompt do agente `agente-feedback-wa` no OpenClaw usa esses mesmos pesos antes do deploy. Se divergir, atualizar o agente via painel do OpenClaw.
 
 ---
 
@@ -179,8 +181,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANON_KEY     = Deno.env.get("SUPABASE_ANON_KEY")!;
-const OPENCLAW_URL = Deno.env.get("OPENCLAW_URL")!;
-const OPENCLAW_TOKEN = Deno.env.get("OPENCLAW_HOOKS_TOKEN")!;
+const OPENCLAW_URL      = Deno.env.get("OPENCLAW_URL")!;
+const OPENCLAW_TOKEN    = Deno.env.get("OPENCLAW_HOOKS_TOKEN")!;
+const WEBHOOK_SECRET    = Deno.env.get("OPENCLAW_WEBHOOK_SECRET") ?? "";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -268,7 +271,9 @@ Critérios:
 CONVERSA:
 ${thread}`;
 
-  const webhookUrl = `${SUPABASE_URL}/functions/v1/wa-feedback-webhook`;
+  const webhookUrl = WEBHOOK_SECRET
+    ? `${SUPABASE_URL}/functions/v1/wa-feedback-webhook?secret=${WEBHOOK_SECRET}`
+    : `${SUPABASE_URL}/functions/v1/wa-feedback-webhook`;
   const runName = `feedback-wa-${client_id.slice(0, 8)}-${Date.now()}`;
 
   // 4. Chamar OpenClaw
@@ -345,8 +350,8 @@ git commit -m "feat(edge): analyze-wa-conversation — dispara análise no OpenC
 // supabase/functions/wa-feedback-webhook/index.ts
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const SUPABASE_URL  = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_KEY   = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const SUPABASE_URL   = Deno.env.get("SUPABASE_URL")!;
+const SERVICE_KEY    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const WEBHOOK_SECRET = Deno.env.get("OPENCLAW_WEBHOOK_SECRET") ?? "";
 
 const sbAdmin = createClient(SUPABASE_URL, SERVICE_KEY);
@@ -367,16 +372,19 @@ function parseAgentOutput(raw: string) {
 Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
 
-  // Valida secret se configurado
+  // Valida secret embutido na URL — OpenClaw não garante enviar header próprio no callback
   if (WEBHOOK_SECRET) {
-    const secret = req.headers.get("X-Openclaw-Secret") ?? "";
-    if (secret !== WEBHOOK_SECRET) return json({ error: "Forbidden" }, 403);
+    const urlSecret = new URL(req.url).searchParams.get("secret") ?? "";
+    if (urlSecret !== WEBHOOK_SECRET) return json({ error: "Forbidden" }, 403);
   }
 
   const body = await req.json();
 
-  // OpenClaw envia o resultado em algum destes campos
-  const raw: string = body.output ?? body.text ?? body.message ?? body.result ?? "";
+  // Salvar body bruto imediatamente para debug (v1) — campo do OpenClaw não confirmado
+  const rawBody = JSON.stringify(body);
+
+  // OpenClaw envia o resultado em algum destes campos (schema não documentado publicamente)
+  const raw: string = body.output ?? body.text ?? body.message ?? body.content ?? body.result ?? "";
   const runId: string = body.runId ?? body.run_id ?? "";
 
   if (!runId) return json({ error: "runId ausente no payload" }, 400);
@@ -416,7 +424,8 @@ Deno.serve(async (req) => {
   if (!data) {
     await sbAdmin
       .from("wa_feedbacks")
-      .update({ status: "error", raw_response: raw })
+      // rawBody = body inteiro serializado; facilita debug quando o campo certo não foi identificado
+      .update({ status: "error", raw_response: rawBody })
       .eq("id", feedback.id);
     return json({ ok: true, warning: "parse falhou — raw_response salvo" });
   }
@@ -431,7 +440,7 @@ Deno.serve(async (req) => {
     alert_level, summary,
     recommendations: JSON.stringify(recommendations ?? []),
     status: "done",
-    raw_response: raw,
+    raw_response: rawBody, // body inteiro para debug na v1
   }).eq("id", feedback.id);
 
   // Disparar alertas se critical
@@ -525,8 +534,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const SUPABASE_URL    = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY     = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANON_KEY        = Deno.env.get("SUPABASE_ANON_KEY")!;
-const OPENCLAW_URL    = Deno.env.get("OPENCLAW_URL")!;
-const OPENCLAW_TOKEN  = Deno.env.get("OPENCLAW_HOOKS_TOKEN")!;
+const OPENCLAW_URL      = Deno.env.get("OPENCLAW_URL")!;
+const OPENCLAW_TOKEN    = Deno.env.get("OPENCLAW_HOOKS_TOKEN")!;
+const WEBHOOK_SECRET    = Deno.env.get("OPENCLAW_WEBHOOK_SECRET") ?? "";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -590,7 +600,9 @@ ${historyText}
 ÚLTIMA MENSAGEM DO LEAD:
 ${inbound_text}`;
 
-  const webhookUrl = `${SUPABASE_URL}/functions/v1/wa-feedback-webhook`;
+  const webhookUrl = WEBHOOK_SECRET
+    ? `${SUPABASE_URL}/functions/v1/wa-feedback-webhook?secret=${WEBHOOK_SECRET}`
+    : `${SUPABASE_URL}/functions/v1/wa-feedback-webhook`;
   const runName = `suggest-wa-${client_id.slice(0, 8)}-${Date.now()}`;
 
   const hookRes = await fetch(`${OPENCLAW_URL}/hooks/agent`, {
