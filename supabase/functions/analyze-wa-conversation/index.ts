@@ -140,7 +140,7 @@ ${thread}`;
     hookRes = await fetch(`${OPENCLAW_URL}/hooks/agent`, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${OPENCLAW_GATEWAY_TOKEN}`,
+        "Authorization": OPENCLAW_TOKEN,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
