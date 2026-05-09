@@ -4,8 +4,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANON_KEY     = Deno.env.get("SUPABASE_ANON_KEY")!;
-const OPENCLAW_URL = Deno.env.get("OPENCLAW_URL")!;
-const OPENCLAW_TOKEN = Deno.env.get("OPENCLAW_HOOKS_TOKEN")!;
+const OPENCLAW_URL      = Deno.env.get("OPENCLAW_URL")!;
+const OPENCLAW_TOKEN    = Deno.env.get("OPENCLAW_HOOKS_TOKEN")!;
+const WEBHOOK_SECRET    = Deno.env.get("OPENCLAW_WEBHOOK_SECRET") ?? "";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -93,7 +94,9 @@ Critérios:
 CONVERSA:
 ${thread}`;
 
-  const webhookUrl = `${SUPABASE_URL}/functions/v1/wa-feedback-webhook`;
+  const webhookUrl = WEBHOOK_SECRET
+    ? `${SUPABASE_URL}/functions/v1/wa-feedback-webhook?secret=${WEBHOOK_SECRET}`
+    : `${SUPABASE_URL}/functions/v1/wa-feedback-webhook`;
   const runName = `feedback-wa-${client_id.slice(0, 8)}-${Date.now()}`;
 
   // 4. Chamar OpenClaw

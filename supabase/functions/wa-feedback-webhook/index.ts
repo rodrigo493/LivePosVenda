@@ -23,16 +23,19 @@ function parseAgentOutput(raw: string) {
 Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
 
-  // Valida secret se configurado
+  // Valida secret embutido na URL — OpenClaw não envia header próprio no callback
   if (WEBHOOK_SECRET) {
-    const secret = req.headers.get("X-Openclaw-Secret") ?? "";
-    if (secret !== WEBHOOK_SECRET) return json({ error: "Forbidden" }, 403);
+    const urlSecret = new URL(req.url).searchParams.get("secret") ?? "";
+    if (urlSecret !== WEBHOOK_SECRET) return json({ error: "Forbidden" }, 403);
   }
 
   const body = await req.json();
 
-  // OpenClaw envia o resultado em algum destes campos
-  const raw: string = body.output ?? body.text ?? body.message ?? body.result ?? "";
+  // Salva body bruto para debug na v1 (campo do OpenClaw não documentado publicamente)
+  const rawBody = JSON.stringify(body);
+
+  // OpenClaw pode entregar o resultado em qualquer destes campos
+  const raw: string = body.output ?? body.text ?? body.message ?? body.content ?? body.result ?? "";
   const runId: string = body.runId ?? body.run_id ?? "";
 
   if (!runId) return json({ error: "runId ausente no payload" }, 400);
@@ -72,7 +75,7 @@ Deno.serve(async (req) => {
   if (!data) {
     await sbAdmin
       .from("wa_feedbacks")
-      .update({ status: "error", raw_response: raw })
+      .update({ status: "error", raw_response: rawBody })
       .eq("id", feedback.id);
     return json({ ok: true, warning: "parse falhou — raw_response salvo" });
   }
@@ -87,7 +90,7 @@ Deno.serve(async (req) => {
     alert_level, summary,
     recommendations: JSON.stringify(recommendations ?? []),
     status: "done",
-    raw_response: raw,
+    raw_response: rawBody,
   }).eq("id", feedback.id);
 
   // Disparar alertas se critical
