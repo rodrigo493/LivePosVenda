@@ -67,6 +67,7 @@ const QuoteDetailPage = () => {
   const [consultorId, setConsultorId] = useState<string | null | undefined>(undefined);
   const [editMode, setEditMode] = useState(false);
   const [installments, setInstallments] = useState<string>("");
+  const [installmentValue, setInstallmentValue] = useState<string | null>(null);
   const [paymentMethods, setPaymentMethods] = useState<string[] | null>(null);
   const [compraProgramadaNotes, setCompraProgramadaNotes] = useState<string | null>(null);
   const [financiamentoNotes, setFinanciamentoNotes] = useState<string | null>(null);
@@ -81,6 +82,7 @@ const QuoteDetailPage = () => {
     ((quote as any)?.payment_method ? [(quote as any).payment_method] : [])
   );
   const currentInstallments = installments !== "" ? installments : String((quote as any)?.installments ?? "");
+  const currentInstallmentValue = installmentValue ?? (quote as any)?.installment_value ?? "";
   const currentConsultorId = consultorId !== undefined ? consultorId : ((quote as any)?.created_by ?? null);
   const currentCompraProgramadaNotes = compraProgramadaNotes ?? (quote as any)?.payment_compra_programada_notes ?? "";
   const currentFinanciamentoNotes = financiamentoNotes ?? (quote as any)?.payment_financiamento_notes ?? "";
@@ -155,6 +157,7 @@ const QuoteDetailPage = () => {
       installments: parsedInstallments,
       payment_compra_programada_notes: currentCompraProgramadaNotes || null,
       payment_financiamento_notes: currentFinanciamentoNotes || null,
+      installment_value: currentPaymentMethods.includes("cartao_parcelado") ? (currentInstallmentValue || null) : null,
       created_by: currentConsultorId || null,
     } as any);
     toast.success("Detalhes salvos com sucesso");
@@ -198,6 +201,7 @@ const QuoteDetailPage = () => {
     installments: currentPaymentMethods.includes("cartao_parcelado") && currentInstallments
       ? parseInt(currentInstallments, 10) || null
       : null,
+    installmentValue: currentPaymentMethods.includes("cartao_parcelado") ? (currentInstallmentValue || null) : null,
   });
 
   const buildExcelPayload = (): ExportDocument => {
@@ -636,30 +640,31 @@ const QuoteDetailPage = () => {
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
-            className="mt-4 flex items-center gap-3"
+            className="mt-4 flex flex-wrap items-center gap-4"
           >
             <CreditCard className="h-4 w-4 text-muted-foreground shrink-0" />
-            <label className="text-xs text-muted-foreground whitespace-nowrap">Quantidade de parcelas:</label>
-            <Input
-              type="number"
-              min="2"
-              max="48"
-              step="1"
-              disabled={!isEditable}
-              placeholder="Ex: 12"
-              value={currentInstallments}
-              onChange={(e) => setInstallments(e.target.value)}
-              className="h-8 w-24 text-sm font-mono"
-            />
-            {currentInstallments && Number(currentInstallments) >= 2 && (
-              <span className="text-xs text-muted-foreground">
-                = {Number(currentInstallments)}x de{" "}
-                <span className="font-semibold font-mono text-foreground">
-                  R$ {(totals.charged / Number(currentInstallments)).toFixed(2)}
-                </span>
-                {" "}(sem juros base — juros da operadora à parte)
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-muted-foreground whitespace-nowrap">Qtd. de parcelas:</label>
+              <Input
+                type="text"
+                disabled={!isEditable}
+                placeholder="Ex: 12"
+                value={currentInstallments}
+                onChange={(e) => setInstallments(e.target.value)}
+                className="h-8 w-20 text-sm font-mono"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-muted-foreground whitespace-nowrap">Valor da parcela:</label>
+              <Input
+                type="text"
+                disabled={!isEditable}
+                placeholder="Ex: 1.250,00"
+                value={currentInstallmentValue}
+                onChange={(e) => setInstallmentValue(e.target.value)}
+                className="h-8 w-32 text-sm font-mono"
+              />
+            </div>
           </motion.div>
         )}
 

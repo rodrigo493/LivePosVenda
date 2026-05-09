@@ -38,6 +38,7 @@ interface QuotePdfData {
   paymentCompraProgramadaNotes?: string;
   paymentFinanciamentoNotes?: string;
   installments?: number | null;
+  installmentValue?: string | null;
   exportedBy?: string;
 }
 
@@ -207,8 +208,11 @@ export function generateQuotePdf(data: QuotePdfData) {
       doc.setFontSize(9);
       doc.setTextColor(0);
       let payLabel = PAYMENT_LABELS[method] ?? method;
-      if (method === "cartao_parcelado" && data.installments && data.installments >= 2) {
-        payLabel += ` — ${data.installments}x de R$ ${(data.totalCharged / data.installments).toFixed(2)} (+ juros da operadora)`;
+      if (method === "cartao_parcelado" && (data.installments || data.installmentValue)) {
+        const qty = data.installments ? `${data.installments}x` : "";
+        const val = data.installmentValue ? `R$ ${data.installmentValue}` : "";
+        const detail = [qty, val].filter(Boolean).join(" de ");
+        if (detail) payLabel += ` — ${detail} (+ juros da operadora)`;
       }
       doc.text(`• ${payLabel}`, 18, afterTotalY);
       afterTotalY += 5;
