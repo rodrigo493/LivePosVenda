@@ -263,6 +263,33 @@ function fiberExtractPhone() {
     return null;
   }
 
+  // Varre a subárvore fiber (filhos) — JID do contato está nos filhos, não nos ancestrais
+  function scanFiberDown(node, depth) {
+    if (!node || depth <= 0) return null;
+    try {
+      const r = scanProps(node.memoizedProps) || scanProps(node.pendingProps);
+      if (r) return r;
+      let ms = node.memoizedState;
+      for (let h = 0; h < 15 && ms; h++, ms = ms?.next) {
+        const mv = ms.memoizedState;
+        if (!mv) continue;
+        const r2 = extractJid(mv);
+        if (r2) return r2;
+        if (typeof mv === 'object' && !(mv instanceof Element)) {
+          const r3 = scanProps(mv);
+          if (r3) return r3;
+        }
+      }
+    } catch {}
+    let child = node.child;
+    while (child) {
+      const r = scanFiberDown(child, depth - 1);
+      if (r) return r;
+      try { child = child.sibling; } catch { break; }
+    }
+    return null;
+  }
+
   function searchFiber(startEl) {
     let fk;
     try { fk = Object.keys(startEl).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactProps')); }
@@ -273,6 +300,10 @@ function fiberExtractPhone() {
 
     let f;
     try { f = startEl[fk]; } catch { return null; }
+
+    // Primeiro desce nos filhos — JID do contato fica nos componentes filhos do item
+    const downResult = scanFiberDown(f, 20);
+    if (downResult) return downResult;
 
     for (let i = 0; i < 200 && f; i++) {
       try {
@@ -309,6 +340,10 @@ function fiberExtractPhone() {
     }
     return null;
   }
+
+  // -1. URL: /send?phone=XXXX (quando navegado via extension ou link direto)
+  const urlPhone = window.location.search.match(/[?&]phone=(\d{10,15})/)?.[1];
+  if (urlPhone && (!window.__livecrm_own_jid || urlPhone !== window.__livecrm_own_jid)) return urlPhone;
 
   // 0. data-id no item selecionado da sidebar — fonte direta do WA Web, sem fiber
   const sidebarSelectors = [

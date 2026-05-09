@@ -196,6 +196,34 @@
     return null;
   }
 
+  // Varre a subárvore de fiber (filhos) em busca de JID — o JID do contato
+  // está nos componentes filhos do item do sidebar, não nos ancestrais
+  function scanFiberDown(node, depth) {
+    if (!node || depth <= 0) return null;
+    try {
+      const r = scanPropsDeep(node.memoizedProps) || scanPropsDeep(node.pendingProps);
+      if (r) return r;
+      let ms = node.memoizedState;
+      for (let h = 0; h < 15 && ms; h++, ms = ms?.next) {
+        const mv = ms.memoizedState;
+        if (!mv) continue;
+        const r2 = extractJidDeep(mv);
+        if (r2) return r2;
+        if (typeof mv === 'object' && !(mv instanceof Element)) {
+          const r3 = scanPropsDeep(mv);
+          if (r3) return r3;
+        }
+      }
+    } catch {}
+    let child = node.child;
+    while (child) {
+      const r = scanFiberDown(child, depth - 1);
+      if (r) return r;
+      try { child = child.sibling; } catch { break; }
+    }
+    return null;
+  }
+
   // Sobe pelo fiber tree a partir de um elemento DOM, checando props + hooks state
   function fiberSearchForPhone(startEl) {
     let fk;
@@ -207,6 +235,10 @@
 
     let f;
     try { f = startEl[fk]; } catch { return null; }
+
+    // Primeiro desce nos filhos: o JID do contato está nos componentes filhos do item
+    const downResult = scanFiberDown(f, 20);
+    if (downResult) return downResult;
 
     for (let i = 0; i < 200 && f; i++) {
       try {
