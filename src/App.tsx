@@ -51,6 +51,8 @@ const NotFound = lazy(() => import("./pages/NotFound"));
 const WhatsAppMonitoringPage = lazy(() => import("./pages/WhatsAppMonitoringPage"));
 const AdminConversasPage = lazy(() => import("./pages/AdminConversasPage"));
 const MinhasConversasWAPage = lazy(() => import("./pages/MinhasConversasWAPage"));
+const MeuDesempenhoWAPage = lazy(() => import("./pages/MeuDesempenhoWAPage"));
+const AdminDesempenhoWAPage = lazy(() => import("./pages/AdminDesempenhoWAPage"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -148,6 +150,8 @@ function AppRoutes() {
             <Route path="/admin/whatsapp" element={<WhatsAppMonitoringPage />} />
             <Route path="/admin/conversas" element={<AdminConversasPage />} />
             <Route path="/minhas-conversas-wa" element={<MinhasConversasWAPage />} />
+            <Route path="/meu-desempenho-wa" element={<MeuDesempenhoWAPage />} />
+            <Route path="/admin/desempenho-wa" element={<AdminDesempenhoWAPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>

@@ -27,6 +27,7 @@ import {
   ShoppingBag,
   Link2,
   TrendingDown,
+  TrendingUp,
   Receipt,
 } from "lucide-react";
 import { NavLink } from "@/components/layout/NavLink";
@@ -71,6 +72,7 @@ const operationsNav = [
   { title: "Ordens de Serviço",     url: "/ordens-servico",     icon: ClipboardList,  moduleKey: "ordens_servico" },
   { title: "Manutenção Prev.",      url: "/manutencao",         icon: CalendarClock,  moduleKey: "manutencao" },
   { title: "Minhas Conversas WA",   url: "/minhas-conversas-wa", icon: MessageSquare,  moduleKey: "minhas_conversas_wa" },
+  { title: "Meu Desempenho WA",     url: "/meu-desempenho-wa",  icon: TrendingUp,     moduleKey: "meu_desempenho_wa" },
 ];
 
 const managementNav = [
@@ -93,6 +95,7 @@ const adminNav = [
   { title: "Permissões CRM",      url: "/crm-permissions",         icon: Shield,       moduleKey: null },
   { title: "Monitor WhatsApp",    url: "/admin/whatsapp",          icon: Radio,        moduleKey: null },
   { title: "Conversas WA",        url: "/admin/conversas",         icon: MessageSquare, moduleKey: null },
+  { title: "Desempenho WA",       url: "/admin/desempenho-wa",     icon: TrendingUp,   moduleKey: null },
   { title: "Integração RD Station", url: "/integracoes/rd-station", icon: Link2,      moduleKey: null },
 ];
 
