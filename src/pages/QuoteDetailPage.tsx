@@ -49,7 +49,7 @@ const QuoteDetailPage = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const fromTicketId = searchParams.get("from_ticket");
-  const { data: quote, isLoading } = useQuote(id);
+  const { data: quote, isLoading, error: quoteError } = useQuote(id);
   const updateQuote = useUpdateQuote();
   const addItem = useAddQuoteItem();
   const updateItem = useUpdateQuoteItem();
@@ -276,7 +276,12 @@ const QuoteDetailPage = () => {
   };
 
   if (isLoading) return <div className="p-8 text-center text-muted-foreground">Carregando...</div>;
-  if (!quote) return <div className="p-8 text-center text-muted-foreground">Orçamento não encontrado.</div>;
+  if (!quote) return (
+    <div className="p-8 text-center text-muted-foreground">
+      <p>Orçamento não encontrado.</p>
+      {quoteError && <p className="mt-2 text-xs text-destructive font-mono">{String(quoteError)}</p>}
+    </div>
+  );
 
   const modelName = quote.equipments?.equipment_models?.name || "";
   const equipModelId = (quote.equipments as any)?.model_id || undefined;
