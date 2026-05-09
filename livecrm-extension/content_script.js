@@ -1118,14 +1118,6 @@ function renderSidebarData(phone, { client, ticket, stageLabel }) {
   noteArea.appendChild(textarea); noteArea.appendChild(noteSaveBtn);
   body.appendChild(noteArea);
 
-  // ── Seção: Salvar mensagens no histórico técnico ─────────────────────────────
-  const msgHistBtn = styledBtn('Salvar mensagens no histórico', false);
-  body.appendChild(msgHistBtn);
-
-  const msgSelArea = document.createElement('div');
-  msgSelArea.style.display = 'none';
-  body.appendChild(msgSelArea);
-
   noteToggle.addEventListener('click', () => {
     noteArea.style.display = noteArea.style.display === 'none' ? 'block' : 'none';
   });
@@ -1141,115 +1133,6 @@ function renderSidebarData(phone, { client, ticket, stageLabel }) {
       setTimeout(() => { noteToggle.textContent = '+ Adicionar nota'; }, 2000);
     } catch (e) { alert('Erro ao salvar nota: ' + e.message); }
     finally { noteSaveBtn.disabled = false; noteSaveBtn.textContent = 'Salvar nota'; }
-  });
-
-  msgHistBtn.addEventListener('click', () => {
-    const visible = msgSelArea.style.display !== 'none';
-    if (visible) { msgSelArea.style.display = 'none'; msgHistBtn.textContent = 'Salvar mensagens no histórico'; return; }
-
-    const msgs = extractVisibleMessages();
-    msgSelArea.textContent = '';
-    msgSelArea.style.cssText = 'display:flex;flex-direction:column;gap:4px;margin-top:6px;';
-
-    if (!msgs.length) {
-      const empty = document.createElement('p');
-      empty.textContent = 'Nenhuma mensagem visível.';
-      Object.assign(empty.style, { color: '#6b7280', fontSize: '12px', margin: '0' });
-      msgSelArea.appendChild(empty);
-      return;
-    }
-
-    const checkboxes = [];
-    msgs.forEach((m, i) => {
-      const row = document.createElement('label');
-      Object.assign(row.style, {
-        display: 'flex', alignItems: 'flex-start', gap: '6px', cursor: 'pointer',
-        padding: '4px 6px', borderRadius: '4px', background: i % 2 === 0 ? '#f9fafb' : '#fff',
-        fontSize: '11px', lineHeight: '1.4',
-      });
-      const cb = document.createElement('input');
-      cb.type = 'checkbox'; cb.style.marginTop = '2px'; cb.style.flexShrink = '0';
-      const span = document.createElement('span');
-      span.textContent = (m.direction === 'outbound' ? '→ ' : '← ') + m.text.slice(0, 120);
-      Object.assign(span.style, { color: m.direction === 'outbound' ? '#065f46' : '#1f2937' });
-      row.appendChild(cb); row.appendChild(span);
-      msgSelArea.appendChild(row);
-      checkboxes.push({ cb, msg: m });
-    });
-
-    const actRow = document.createElement('div');
-    Object.assign(actRow.style, { display: 'flex', gap: '6px', marginTop: '6px' });
-    const selAllBtn = document.createElement('button');
-    selAllBtn.textContent = 'Todas';
-    Object.assign(selAllBtn.style, { fontSize: '11px', padding: '4px 8px', border: '1px solid #d1d5db', borderRadius: '4px', cursor: 'pointer', background: '#fff', fontFamily: 'inherit' });
-    selAllBtn.onclick = () => checkboxes.forEach(({ cb }) => { cb.checked = true; });
-    const cancelBtn = document.createElement('button');
-    cancelBtn.textContent = 'Cancelar';
-    Object.assign(cancelBtn.style, { fontSize: '11px', padding: '4px 8px', border: '1px solid #d1d5db', borderRadius: '4px', cursor: 'pointer', background: '#fff', fontFamily: 'inherit' });
-    cancelBtn.onclick = () => { msgSelArea.style.display = 'none'; msgHistBtn.textContent = 'Salvar mensagens no histórico'; };
-    const okBtn = styledBtn('✓ Salvar selecionadas', true);
-    okBtn.style.marginTop = '0'; okBtn.style.flex = '1';
-    okBtn.addEventListener('click', async () => {
-      const selected = checkboxes.filter(({ cb }) => cb.checked).map(({ msg }) => msg);
-      if (!selected.length) { alert('Selecione ao menos uma mensagem.'); return; }
-      okBtn.disabled = true; okBtn.textContent = 'Salvando...';
-      try {
-        const textMsgs = selected.filter(m => m.type !== 'audio');
-        const audioMsgs = selected.filter(m => m.type === 'audio');
-
-        const audioLines = [];
-        for (const am of audioMsgs) {
-          const line = am.direction === 'outbound' ? '[Eu] ' : '[Cliente] ';
-          if (am.audioSrc && am.audioSrc.startsWith('blob:')) {
-            try {
-              const resp = await fetch(am.audioSrc);
-              const buf = await resp.arrayBuffer();
-              const mimeType = resp.headers.get('content-type') || 'audio/ogg';
-              const bytes = new Uint8Array(buf);
-              const CHUNK = 8192;
-              let binary = '';
-              for (let i = 0; i < bytes.length; i += CHUNK) {
-                binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
-              }
-              const base64 = btoa(binary);
-              const upResp = await sendToBackground({ type: 'UPLOAD_AUDIO', clientId: client.id, base64, mimeType });
-              audioLines.push(line + `[🎵 Áudio: ${upResp.url}]`);
-            } catch (_) {
-              audioLines.push(line + am.text + ' — indisponível');
-            }
-          } else {
-            audioLines.push(line + am.text + ' — indisponível');
-          }
-        }
-
-        if (textMsgs.length) {
-          await sendToBackground({ type: 'SAVE_HISTORY_MESSAGES', clientId: client.id, ticketId: ticket?.id || null, messages: textMsgs });
-        }
-
-        if (audioLines.length) {
-          const now = new Date();
-          const dateLabel = now.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
-          const content = `[Histórico WA Áudio — ${dateLabel}]\n` + audioLines.join('\n');
-          await sendToBackground({
-            type: 'SAVE_HISTORY_MESSAGES',
-            clientId: client.id,
-            ticketId: ticket?.id || null,
-            messages: [{ direction: 'outbound', text: content, _raw: true }],
-          });
-        }
-
-        msgSelArea.style.display = 'none';
-        msgHistBtn.textContent = '✓ Histórico salvo!';
-        setTimeout(() => { msgHistBtn.textContent = 'Salvar mensagens no histórico'; }, 2500);
-      } catch (e) {
-        okBtn.disabled = false; okBtn.textContent = '✓ Salvar selecionadas';
-        alert('Erro: ' + e.message);
-      }
-    });
-    actRow.appendChild(selAllBtn); actRow.appendChild(cancelBtn); actRow.appendChild(okBtn);
-    msgSelArea.appendChild(actRow);
-    msgSelArea.style.display = 'flex';
-    msgHistBtn.textContent = '✕ Cancelar seleção';
   });
 
   // ── Produtos / Negociação ──────────────────────────────────────────────────
