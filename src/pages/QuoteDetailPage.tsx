@@ -19,7 +19,7 @@ import { ExportMenu } from "@/components/shared/ExportMenu";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { quoteStatusLabels as statusLabels, itemTypeLabels } from "@/constants/statusLabels";
 import { useAllUsers } from "@/hooks/useUserAccess";
 
@@ -75,6 +75,14 @@ const QuoteDetailPage = () => {
   const [compraProgramadaNotes, setCompraProgramadaNotes] = useState<string | null>(null);
   const [financiamentoNotes, setFinanciamentoNotes] = useState<string | null>(null);
   const { data: allUsers = [] } = useAllUsers();
+  const { data: waInstances = [] } = useQuery<any[]>({
+    queryKey: ["pipeline_whatsapp_instances_all"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("pipeline_whatsapp_instances").select("user_id, phone_number, instance_name").not("user_id", "is", null);
+      if (error) throw error;
+      return data;
+    },
+  });
 
   // Sync local state from quote
   const currentNotes = notes ?? quote?.notes ?? "";
@@ -199,12 +207,21 @@ const QuoteDetailPage = () => {
     quoteNumber: quote!.quote_number,
     date: new Date(quote!.created_at).toLocaleDateString("pt-BR"),
     validUntil: currentValidUntil ? new Date(currentValidUntil + "T12:00:00").toLocaleDateString("pt-BR") : undefined,
-    company: {
-      name: "Live Care — Live Universe",
-      phone: allUsers.find((u: any) => u.user_id === (quote as any)?.created_by)?.phone || myProfile?.phone || "(19) 3608-4008",
-      email: allUsers.find((u: any) => u.user_id === (quote as any)?.created_by)?.email || myProfile?.email || "posvenda@liveuni.com.br",
-    },
-    exportedBy: allUsers.find((u: any) => u.user_id === (quote as any)?.created_by)?.full_name || myProfile?.full_name || myProfile?.email || undefined,
+    company: (() => {
+      const createdBy = (quote as any)?.created_by;
+      const creator = allUsers.find((u: any) => u.user_id === createdBy);
+      const waInstance = waInstances.find((i: any) => i.user_id === createdBy);
+      return {
+        name: "Live Care — Live Universe",
+        phone: waInstance?.phone_number || creator?.phone || myProfile?.phone || "(19) 3608-4008",
+        email: creator?.email || myProfile?.email || "posvenda@liveuni.com.br",
+      };
+    })(),
+    exportedBy: (() => {
+      const createdBy = (quote as any)?.created_by;
+      const creator = allUsers.find((u: any) => u.user_id === createdBy);
+      return creator?.full_name || myProfile?.full_name || myProfile?.email || undefined;
+    })(),
     client: {
       name: quote!.clients?.name || "",
       equipment: quote!.equipments?.equipment_models?.name,
