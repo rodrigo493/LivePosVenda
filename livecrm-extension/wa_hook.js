@@ -159,6 +159,23 @@
 
   // Extrai telefone da conversa ativa via múltiplas estratégias
   function getActivePhoneFromFiber() {
+    // 0. DOM-first: data-id no item selecionado da sidebar — fonte direta do WA Web
+    const sidebarSels = [
+      '[data-testid="cell-frame-container"][aria-selected="true"]',
+      '[role="listitem"][aria-selected="true"]',
+      '[tabindex="-1"][aria-selected="true"]',
+      '[aria-selected="true"]',
+    ];
+    for (const sel of sidebarSels) {
+      for (const el of document.querySelectorAll(sel)) {
+        const raw = el.getAttribute('data-id') || '';
+        if (raw.includes('@c.us')) return raw.replace(/@c\.us.*/, '');
+        if (raw.includes('@s.whatsapp.net')) return raw.replace(/@s\.whatsapp\.net.*/, '');
+        const child = el.querySelector('[data-id*="@c.us"]');
+        if (child) return child.getAttribute('data-id').replace(/@c\.us.*/, '');
+      }
+    }
+
     // 1. Header da conversa — sinal mais confiável da conversa ativa
     const header = document.querySelector(
       '[data-testid="conversation-header"], #main header'
@@ -168,7 +185,7 @@
       if (r) return r;
     }
 
-    // 2. Item selecionado no sidebar
+    // 2. Item selecionado no sidebar (via fiber, fallback)
     const selected = document.querySelector('[aria-selected="true"]');
     if (selected) {
       const r = fiberSearchForPhone(selected);

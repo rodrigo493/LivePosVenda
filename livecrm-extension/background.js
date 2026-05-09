@@ -303,6 +303,27 @@ function fiberExtractPhone() {
     return null;
   }
 
+  // 0. DOM-first: data-livecrm-phone anotado pelo wa_hook.js (mais confiável)
+  const hookedPhone = document.getElementById('main')?.getAttribute('data-livecrm-phone');
+  if (hookedPhone) return hookedPhone;
+
+  // 0b. data-id no item selecionado da sidebar — fonte direta do WA Web, sem fiber
+  const sidebarSelectors = [
+    '[data-testid="cell-frame-container"][aria-selected="true"]',
+    '[role="listitem"][aria-selected="true"]',
+    '[tabindex="-1"][aria-selected="true"]',
+    '[aria-selected="true"]',
+  ];
+  for (const sel of sidebarSelectors) {
+    for (const el of document.querySelectorAll(sel)) {
+      const raw = el.getAttribute('data-id') || '';
+      if (raw.includes('@c.us')) return raw.replace(/@c\.us.*/, '');
+      if (raw.includes('@s.whatsapp.net')) return raw.replace(/@s\.whatsapp\.net.*/, '');
+      const child = el.querySelector('[data-id*="@c.us"]');
+      if (child) return child.getAttribute('data-id').replace(/@c\.us.*/, '');
+    }
+  }
+
   // 1. Tenta header da conversa ativa — maior chance de ter o JID no WA Web 2026
   const headerEl = document.querySelector(
     '[data-testid="conversation-header"], #main header, [data-testid="conversation-panel-body"] header'
@@ -1005,15 +1026,16 @@ async function handleUpdateClientName(clientId, name) {
 async function handleOpenWaTab(phone) {
   const cleaned = String(phone || '').replace(/\D/g, '');
   if (!cleaned) throw new Error('no phone');
+  const waUrl = `https://web.whatsapp.com/send?phone=${cleaned}`;
   const tabs = await chrome.tabs.query({ url: 'https://web.whatsapp.com/*' });
   if (tabs.length > 0) {
     const tab = tabs[0];
     await chrome.windows.update(tab.windowId, { focused: true });
-    await chrome.tabs.update(tab.id, { active: true });
-    chrome.tabs.sendMessage(tab.id, { type: 'LIVECRM_OPEN_PHONE', phone: cleaned }, () => void chrome.runtime.lastError);
+    // Navega diretamente para o contato — history.pushState não funciona no WA Web 2026
+    await chrome.tabs.update(tab.id, { active: true, url: waUrl });
     return { ok: true };
   } else {
-    await chrome.tabs.create({ url: `https://web.whatsapp.com/send?phone=${cleaned}` });
+    await chrome.tabs.create({ url: waUrl });
     return { ok: true, opened: true };
   }
 }
