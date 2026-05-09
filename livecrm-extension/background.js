@@ -985,20 +985,21 @@ async function handleGetCatalogProducts() {
 async function handleGetTicketProducts(ticketId) {
   if (!sb) throw new Error('Extensão não autenticada');
   const { data, error } = await sb
-    .from('ticket_products')
-    .select('id, ticket_id, product_id, name, unit_price, quantity, created_at')
+    .from('ticket_negotiation_items')
+    .select('id, ticket_id, product_id, product_name, unit_price, quantity, created_at')
     .eq('ticket_id', ticketId)
     .order('created_at', { ascending: true });
   if (error) throw new Error(error.message);
-  return { products: data || [] };
+  // normaliza product_name → name para compatibilidade com sidebar
+  return { products: (data || []).map(p => ({ ...p, name: p.product_name })) };
 }
 
 async function handleSaveTicketProduct(ticketId, productId, name, unitPrice, quantity) {
   if (!sb) throw new Error('Extensão não autenticada');
   if (!ticketId || !name || unitPrice == null) throw new Error('Parâmetros inválidos');
   const { data, error } = await sb
-    .from('ticket_products')
-    .insert({ ticket_id: ticketId, product_id: productId || null, name, unit_price: unitPrice, quantity: quantity || 1 })
+    .from('ticket_negotiation_items')
+    .insert({ ticket_id: ticketId, product_id: productId || null, product_name: name, unit_price: unitPrice, quantity: quantity || 1 })
     .select()
     .single();
   if (error) throw new Error(error.message);
@@ -1007,7 +1008,7 @@ async function handleSaveTicketProduct(ticketId, productId, name, unitPrice, qua
 
 async function handleDeleteTicketProduct(productId) {
   if (!sb) throw new Error('Extensão não autenticada');
-  const { error } = await sb.from('ticket_products').delete().eq('id', productId);
+  const { error } = await sb.from('ticket_negotiation_items').delete().eq('id', productId);
   if (error) throw new Error(error.message);
   return { ok: true };
 }

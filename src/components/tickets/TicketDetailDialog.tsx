@@ -271,12 +271,12 @@ function useTicketProducts(ticketId: string | undefined) {
     enabled: !!ticketId,
     queryFn: async () => {
       const { data, error } = await (supabase as any)
-        .from("ticket_products")
-        .select("id, name, unit_price, quantity, created_at")
+        .from("ticket_negotiation_items")
+        .select("id, product_name, unit_price, quantity, created_at")
         .eq("ticket_id", ticketId!)
         .order("created_at", { ascending: true });
       if (error) throw error;
-      return data as { id: string; name: string; unit_price: number; quantity: number; created_at: string }[];
+      return (data as any[]).map(p => ({ ...p, name: p.product_name })) as { id: string; name: string; unit_price: number; quantity: number; created_at: string }[];
     },
   });
 }
