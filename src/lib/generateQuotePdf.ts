@@ -58,7 +58,14 @@ export function generateQuotePdf(data: QuotePdfData) {
   doc.setFontSize(8);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(100, 100, 100);
-  doc.text(`Tel: ${phone}   |   E-mail: ${email}`, 14, 5 + logoH + 5);
+  let contactY = 5 + logoH + 4;
+  if (data.exportedBy) {
+    doc.setFont("helvetica", "bold");
+    doc.text(data.exportedBy, 14, contactY);
+    contactY += 4.5;
+    doc.setFont("helvetica", "normal");
+  }
+  doc.text(`Tel: ${phone}   |   E-mail: ${email}`, 14, contactY);
   doc.setTextColor(0);
 
   // ── Cabeçalho do documento (lado direito, ao lado da logo) ────────────────
