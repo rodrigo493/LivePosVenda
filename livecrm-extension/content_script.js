@@ -559,6 +559,31 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     window.postMessage({ type: 'LIVECRM_OPEN_PHONE', phone: msg.phone }, '*');
     sendResponse({ ok: true });
   }
+
+  if (msg.type === 'SUGGESTION_PENDING') {
+    if (msg.phone === sidebarCurrentPhone) {
+      currentSuggestionPhone = msg.phone;
+      currentSuggestionState = 'pending';
+      currentSuggestionText = '';
+      renderSuggestionPanel();
+    }
+  }
+
+  if (msg.type === 'SUGGESTION_READY') {
+    if (msg.phone === sidebarCurrentPhone) {
+      currentSuggestionState = 'done';
+      currentSuggestionText = msg.text ?? '';
+      renderSuggestionPanel();
+    }
+  }
+
+  if (msg.type === 'SUGGESTION_ERROR' || msg.type === 'SUGGESTION_TIMEOUT') {
+    if (msg.phone === sidebarCurrentPhone) {
+      currentSuggestionState = msg.type === 'SUGGESTION_ERROR' ? 'error' : 'timeout';
+      currentSuggestionText = '';
+      renderSuggestionPanel();
+    }
+  }
 });
 
 // ── Recebe mensagens do wa_hook.js (roda no MAIN world) ──────────────────────
@@ -893,10 +918,86 @@ function badge(text) {
   return el;
 }
 
+function renderSuggestionPanel() {
+  const existing = document.getElementById('livecrm-suggestion-panel');
+  if (existing) existing.remove();
+  if (currentSuggestionState === 'idle') return;
+
+  const body = document.getElementById('livecrm-panel-body');
+  if (!body) return;
+
+  const panel = document.createElement('div');
+  panel.id = 'livecrm-suggestion-panel';
+  Object.assign(panel.style, {
+    marginTop: '10px',
+    border: '1px solid #e5e7eb',
+    borderRadius: '8px',
+    overflow: 'hidden',
+  });
+
+  const header = document.createElement('div');
+  header.textContent = '💬 Sugestão de resposta';
+  Object.assign(header.style, {
+    fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.5px',
+    color: '#6b7280', padding: '6px 10px', background: '#f9fafb',
+    borderBottom: '1px solid #e5e7eb',
+  });
+  panel.appendChild(header);
+
+  const content = document.createElement('div');
+  Object.assign(content.style, { padding: '8px 10px' });
+
+  if (currentSuggestionState === 'pending') {
+    const spinner = document.createElement('div');
+    spinner.textContent = '⟳ Gerando sugestão...';
+    Object.assign(spinner.style, { fontSize: '12px', color: '#6b7280', fontStyle: 'italic' });
+    content.appendChild(spinner);
+  } else if (currentSuggestionState === 'done' && currentSuggestionText) {
+    const textEl = document.createElement('p');
+    textEl.textContent = currentSuggestionText;
+    Object.assign(textEl.style, {
+      fontSize: '12px', color: '#111827', margin: '0 0 8px',
+      lineHeight: '1.5', wordBreak: 'break-word',
+    });
+    content.appendChild(textEl);
+
+    const copyBtn = document.createElement('button');
+    copyBtn.textContent = '📋 Copiar';
+    Object.assign(copyBtn.style, {
+      background: '#065f46', color: '#fff', border: 'none', borderRadius: '6px',
+      padding: '5px 10px', fontSize: '12px', cursor: 'pointer', width: '100%',
+    });
+    copyBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(currentSuggestionText);
+        copyBtn.textContent = '✓ Copiado!';
+        setTimeout(() => { copyBtn.textContent = '📋 Copiar'; }, 2000);
+      } catch {
+        copyBtn.textContent = 'Erro ao copiar';
+      }
+    });
+    content.appendChild(copyBtn);
+  } else if (currentSuggestionState === 'timeout' || currentSuggestionState === 'error') {
+    const msg = document.createElement('div');
+    msg.textContent = 'Não foi possível gerar sugestão.';
+    Object.assign(msg.style, { fontSize: '12px', color: '#9ca3af', fontStyle: 'italic' });
+    content.appendChild(msg);
+  }
+
+  panel.appendChild(content);
+  body.appendChild(panel);
+}
+
 function renderSidebarData(phone, { client, ticket, stageLabel }) {
   const body = document.getElementById('livecrm-panel-body');
   if (!body) return;
   body.textContent = '';
+
+  // Reset sugestão quando muda de conversa
+  if (phone !== currentSuggestionPhone) {
+    currentSuggestionState = 'idle';
+    currentSuggestionText = '';
+  }
 
   const waName = getContactName();
   const validWaName = waName && !isStatusString(waName) && waName !== phone ? waName : null;
@@ -1327,6 +1428,9 @@ async function renderSidebarNotFound(phone) {
 }
 
 let sidebarCurrentPhone = null;
+let currentSuggestionPhone = null;
+let currentSuggestionState = 'idle'; // idle | pending | done | timeout | error
+let currentSuggestionText = '';
 
 async function refreshSidebar(phone) {
   if (!phone) { sidebarMsg('Abra uma conversa para ver dados do contato.'); return; }
