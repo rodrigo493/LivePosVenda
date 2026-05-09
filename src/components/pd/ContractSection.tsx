@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { FileText, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { CreditCard, FileText, Landmark, Plus, QrCode, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useSaveContractData, type ContractInstallment } from "@/hooks/useContractData";
 import {
@@ -14,6 +14,8 @@ import {
 } from "@/lib/generateContractPdf";
 import { fmtBRL, EBOOK_MAPPING, DIMENSIONS_MAPPING } from "@/lib/contractMappings";
 
+type PaymentMethod = "pix" | "transferencia" | "cartao";
+
 interface Props {
   pdId: string;
   contractNumber: string;
@@ -22,6 +24,8 @@ interface Props {
   total: number;
   initialBairro?: string | null;
   initialInstallments?: ContractInstallment[];
+  initialPaymentMethod?: PaymentMethod;
+  initialInstallmentsCount?: number;
   exportedBy?: string;
 }
 
@@ -124,6 +128,8 @@ export function ContractSection({
   total,
   initialBairro,
   initialInstallments,
+  initialPaymentMethod = "pix",
+  initialInstallmentsCount = 1,
   exportedBy,
 }: Props) {
   // ── comprador ──────────────────────────────────────────────────────────────
@@ -165,6 +171,30 @@ export function ContractSection({
     setEditableDims((prev) => [...prev, { name: "", weight: "", dims: "" }]);
   const removeDim = (i: number) =>
     setEditableDims((prev) => prev.filter((_, idx) => idx !== i));
+
+  // ── forma de pagamento / calculadora ──────────────────────────────────────
+  const [payMethod, setPayMethod] = useState<PaymentMethod>(initialPaymentMethod);
+  const [numParcelas, setNumParcelas] = useState(initialInstallmentsCount);
+
+  const applyPayment = () => {
+    const start = contractDate.trim() ? parseInstDate(contractDate) : new Date();
+    let newInsts: ContractInstallment[] = [];
+
+    if (payMethod === "cartao") {
+      const valorParcela = calcTotal / (numParcelas || 1);
+      newInsts = Array.from({ length: numParcelas }, (_, i) => {
+        const d = new Date(start);
+        d.setDate(d.getDate() + i * 30);
+        return { parcela: i + 1, data: fmtInstDate(d), valor: fmtBRL(valorParcela), forma: "Cartão" };
+      });
+    } else {
+      const forma = payMethod === "pix" ? "PIX" : "Transferência (TED/DOC)";
+      newInsts = [{ parcela: 1, data: fmtInstDate(start), valor: fmtBRL(calcTotal), forma }];
+    }
+
+    setInstallments(newInsts);
+    toast.success("Parcelas preenchidas em \"3. Condições de Pagamento\".");
+  };
 
   // ── obs / data ─────────────────────────────────────────────────────────────
   const [obs, setObs] = useState("EQUIPAMENTO PADRÃO LIVE");
@@ -412,6 +442,73 @@ export function ContractSection({
           className="text-sm min-h-[52px] resize-none"
           rows={2}
         />
+      </div>
+
+      {/* ── Forma de Pagamento / Calculadora ─────────────────────────── */}
+      <div className="space-y-3">
+        <SectionTitle>Forma de Pagamento</SectionTitle>
+
+        <div className="grid grid-cols-3 gap-2">
+          {(
+            [
+              { key: "pix",          label: "À vista — PIX",          sub: "Pagamento via PIX",              Icon: QrCode     },
+              { key: "transferencia",label: "Transferência bancária",  sub: "TED ou DOC para conta",          Icon: Landmark   },
+              { key: "cartao",       label: "Cartão — Parcelado",      sub: "Parcelamento com juros",         Icon: CreditCard },
+            ] as const
+          ).map(({ key, label, sub, Icon }) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setPayMethod(key)}
+              className={`flex items-start gap-2 rounded-lg border p-3 text-left text-xs transition-colors
+                ${payMethod === key
+                  ? "border-orange-400 bg-orange-50 dark:bg-orange-950/20 text-orange-600 dark:text-orange-400"
+                  : "border-border bg-background hover:bg-muted/40 text-foreground"}`}
+            >
+              <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${payMethod === key ? "text-orange-500" : "text-muted-foreground"}`} />
+              <span>
+                <span className="block font-semibold leading-tight">{label}</span>
+                <span className="block text-muted-foreground leading-tight mt-0.5">{sub}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {payMethod === "cartao" && (
+          <div className="flex items-center gap-3 text-sm">
+            <CreditCard className="h-4 w-4 text-muted-foreground shrink-0" />
+            <span className="text-muted-foreground">Quantidade de parcelas:</span>
+            <Input
+              type="number"
+              min={1}
+              max={48}
+              value={numParcelas}
+              onChange={(e) => setNumParcelas(Math.max(1, parseInt(e.target.value) || 1))}
+              className="h-8 w-16 text-center text-sm"
+            />
+            <span className="text-muted-foreground">
+              = {numParcelas}x de{" "}
+              <strong className="text-foreground font-mono">
+                {fmtBRL(calcTotal / (numParcelas || 1))}
+              </strong>{" "}
+              (sem juros base — juros da operadora à parte)
+            </span>
+          </div>
+        )}
+
+        {payMethod !== "cartao" && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            {payMethod === "pix" ? <QrCode className="h-4 w-4" /> : <Landmark className="h-4 w-4" />}
+            <span>
+              Pagamento único de <strong className="text-foreground font-mono">{fmtBRL(calcTotal)}</strong>{" "}
+              via {payMethod === "pix" ? "PIX" : "Transferência (TED/DOC)"}
+            </span>
+          </div>
+        )}
+
+        <Button type="button" size="sm" onClick={applyPayment} className="h-8 text-xs">
+          Aplicar ao contrato → preencher parcelas
+        </Button>
       </div>
 
       {/* ── Dimensões (editáveis) ─────────────────────────────────────── */}

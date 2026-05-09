@@ -1397,6 +1397,10 @@ const PDDetailPage = () => {
             total={linkedQuote?.total ?? 0}
             initialBairro={(sr as any).contract_bairro}
             initialInstallments={initialInstallments}
+            initialPaymentMethod={
+              ((linkedQuote as any)?.payment_method === "cartao" ? "cartao" : (linkedQuote as any)?.payment_method === "transferencia" ? "transferencia" : "pix") as "pix" | "transferencia" | "cartao"
+            }
+            initialInstallmentsCount={(linkedQuote as any)?.installments ?? 1}
             exportedBy={myProfile?.full_name || myProfile?.email || undefined}
           />
         );
