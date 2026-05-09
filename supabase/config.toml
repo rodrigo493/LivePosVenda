@@ -47,3 +47,6 @@ verify_jwt = false
 
 [functions.update-quote-installment]
 verify_jwt = false
+
+[functions.calculate-installment]
+verify_jwt = false

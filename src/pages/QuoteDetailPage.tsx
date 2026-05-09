@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useMyProfile } from "@/hooks/useMyProfile";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Trash2, FileText, Download, Eye, Plus, Save, Wrench, Package, Pencil, CreditCard, Banknote, QrCode, Truck, CalendarClock, Landmark, ExternalLink } from "lucide-react";
+import { ArrowLeft, Trash2, FileText, Download, Eye, Plus, Save, Wrench, Package, Pencil, CreditCard, Banknote, QrCode, Truck, CalendarClock, Landmark, ExternalLink, Calculator, Loader2, CheckCircle2 } from "lucide-react";
 import { ApprovalActionDialog } from "@/components/shared/ApprovalActionDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -68,6 +68,9 @@ const QuoteDetailPage = () => {
   const [editMode, setEditMode] = useState(false);
   const [installments, setInstallments] = useState<string>("");
   const [installmentValue, setInstallmentValue] = useState<string | null>(null);
+  const [cardBrand, setCardBrand] = useState<string | null>(null);
+  const [calcLoading, setCalcLoading] = useState(false);
+  const [calcOptions, setCalcOptions] = useState<string[] | null>(null);
   const [paymentMethods, setPaymentMethods] = useState<string[] | null>(null);
   const [compraProgramadaNotes, setCompraProgramadaNotes] = useState<string | null>(null);
   const [financiamentoNotes, setFinanciamentoNotes] = useState<string | null>(null);
@@ -83,9 +86,37 @@ const QuoteDetailPage = () => {
   );
   const currentInstallments = installments !== "" ? installments : String((quote as any)?.installments ?? "");
   const currentInstallmentValue = installmentValue ?? (quote as any)?.installment_value ?? "";
+  const currentCardBrand = cardBrand ?? (quote as any)?.card_brand ?? "";
   const currentConsultorId = consultorId !== undefined ? consultorId : ((quote as any)?.created_by ?? null);
   const currentCompraProgramadaNotes = compraProgramadaNotes ?? (quote as any)?.payment_compra_programada_notes ?? "";
   const currentFinanciamentoNotes = financiamentoNotes ?? (quote as any)?.payment_financiamento_notes ?? "";
+
+  const handleCalculateInstallment = async () => {
+    if (!currentCardBrand) { toast.error("Selecione a bandeira do cartão primeiro"); return; }
+    setCalcLoading(true);
+    setCalcOptions(null);
+    try {
+      const resp = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/calculate-installment`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", apikey: import.meta.env.VITE_SUPABASE_ANON_KEY },
+          body: JSON.stringify({
+            total: totals.charged,
+            brand: currentCardBrand,
+            secret: "livecare-sheets-2026",
+          }),
+        }
+      );
+      const json = await resp.json();
+      if (json.options?.length) setCalcOptions(json.options);
+      else toast.error(json.error || "Erro ao calcular parcelamento");
+    } catch {
+      toast.error("Erro ao conectar com a planilha");
+    } finally {
+      setCalcLoading(false);
+    }
+  };
 
   const togglePaymentMethod = (method: string) => {
     setPaymentMethods(prev => {
@@ -158,6 +189,7 @@ const QuoteDetailPage = () => {
       payment_compra_programada_notes: currentCompraProgramadaNotes || null,
       payment_financiamento_notes: currentFinanciamentoNotes || null,
       installment_value: currentPaymentMethods.includes("cartao_parcelado") ? (currentInstallmentValue || null) : null,
+      card_brand: currentPaymentMethods.includes("cartao_parcelado") ? (currentCardBrand || null) : null,
       created_by: currentConsultorId || null,
     } as any);
     toast.success("Detalhes salvos com sucesso");
@@ -640,29 +672,80 @@ const QuoteDetailPage = () => {
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
-            className="mt-4 flex flex-wrap items-center gap-3"
+            className="mt-4 space-y-3"
           >
-            <CreditCard className="h-4 w-4 text-muted-foreground shrink-0" />
-            <label className="text-xs text-muted-foreground whitespace-nowrap">Condições do parcelamento:</label>
-            <Input
-              type="text"
-              disabled={!isEditable}
-              placeholder="Ex: 12x de R$ 1.250,00"
-              value={currentInstallmentValue}
-              onChange={(e) => setInstallmentValue(e.target.value)}
-              className="h-8 w-56 text-sm font-mono"
-            />
-            <a
-              href={`https://docs.google.com/spreadsheets/d/10PHSgZPE8S2LZsYPClxZzUC4e9YDm80qv3ipxRyLkXU/edit#gid=2143685421`}
-              target="_blank"
-              rel="noopener noreferrer"
-              title={`Orçamento: ${quote?.quote_number} — abrir calculadora`}
-              className="inline-flex items-center gap-1.5 px-3 h-8 rounded-lg border border-dashed border-primary/50 text-xs text-primary hover:bg-primary/5 transition-colors whitespace-nowrap"
-            >
-              <ExternalLink className="h-3 w-3" />
-              Calcular no Sheets
-            </a>
-            <span className="text-[10px] text-muted-foreground">Nº orçamento: <strong>{quote?.quote_number}</strong></span>
+            {/* Bandeira + botão calcular */}
+            <div className="flex flex-wrap items-center gap-3">
+              <CreditCard className="h-4 w-4 text-muted-foreground shrink-0" />
+              <Select
+                value={currentCardBrand}
+                onValueChange={setCardBrand}
+                disabled={!isEditable}
+              >
+                <SelectTrigger className="h-8 w-44 text-xs">
+                  <SelectValue placeholder="Bandeira do cartão..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="visa_master">Visa / Mastercard</SelectItem>
+                  <SelectItem value="elo">Elo</SelectItem>
+                  <SelectItem value="hipercard">Hipercard / Demais</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1.5 text-xs"
+                disabled={!currentCardBrand || calcLoading}
+                onClick={handleCalculateInstallment}
+              >
+                {calcLoading
+                  ? <><Loader2 className="h-3 w-3 animate-spin" /> Calculando...</>
+                  : <><Calculator className="h-3 w-3" /> Calcular Parcelamento</>}
+              </Button>
+            </div>
+
+            {/* Opções retornadas pela planilha */}
+            {calcOptions && (
+              <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} className="bg-muted/40 rounded-xl border p-3">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">
+                  Selecione o parcelamento:
+                </p>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5">
+                  {calcOptions.map((opt) => {
+                    const selected = currentInstallmentValue === opt;
+                    return (
+                      <button
+                        key={opt}
+                        type="button"
+                        onClick={() => { setInstallmentValue(opt); setCalcOptions(null); }}
+                        className={[
+                          "flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs text-left transition-all",
+                          selected
+                            ? "border-primary bg-primary/5 text-primary font-medium"
+                            : "border-border bg-background hover:border-primary/50 hover:bg-primary/5",
+                        ].join(" ")}
+                      >
+                        {selected && <CheckCircle2 className="h-3 w-3 shrink-0" />}
+                        <span className="font-mono">{opt}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </motion.div>
+            )}
+
+            {/* Campo texto livre (editável / resultado selecionado) */}
+            <div className="flex items-center gap-3">
+              <label className="text-xs text-muted-foreground whitespace-nowrap">Condição escolhida:</label>
+              <Input
+                type="text"
+                disabled={!isEditable}
+                placeholder="Selecione acima ou digite manualmente"
+                value={currentInstallmentValue}
+                onChange={(e) => setInstallmentValue(e.target.value)}
+                className="h-8 text-sm font-mono flex-1 max-w-xs"
+              />
+            </div>
           </motion.div>
         )}
 
