@@ -448,7 +448,7 @@ export function generateContractPdf(data: ContractPdfData) {
   doc.text(data.client.razaoSocial || data.client.name, midPage + midPage / 2, y, { align: "center" });
   y += 5;
   doc.setFont("helvetica", "normal");
-  doc.text("CNPJ: 48.033.353.0001-14", midPage / 2, y, { align: "center" });
+  doc.text("CNPJ: 48.033.353/0001-14", midPage / 2, y, { align: "center" });
   doc.text(`CPF/CNPJ: ${data.client.cpfCnpj}`, midPage + midPage / 2, y, { align: "center" });
 
   // ── Rodapé (mesma do orçamento) ───────────────────────────────────────────
