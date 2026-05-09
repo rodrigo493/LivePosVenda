@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useMyProfile } from "@/hooks/useMyProfile";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Trash2, FileText, Download, Eye, Plus, Save, Wrench, Package, Pencil, CreditCard, Banknote, QrCode, Truck } from "lucide-react";
+import { ArrowLeft, Trash2, FileText, Download, Eye, Plus, Save, Wrench, Package, Pencil, CreditCard, Banknote, QrCode, Truck, CalendarClock, Landmark } from "lucide-react";
 import { ApprovalActionDialog } from "@/components/shared/ApprovalActionDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +26,14 @@ import { useAllUsers } from "@/hooks/useUserAccess";
 const partTypes = [
   { value: "peca_cobrada", label: "Peça (Cobrada)" },
   { value: "peca_garantia", label: "Peça (Garantia)" },
+];
+
+const PAYMENT_OPTIONS = [
+  { value: "pix",              label: "À vista — PIX",              icon: QrCode,        desc: "Pagamento instantâneo via PIX" },
+  { value: "transferencia",    label: "Transferência bancária",      icon: Banknote,      desc: "TED ou DOC para conta da empresa" },
+  { value: "cartao_parcelado", label: "Cartão — Parcelado c/ juros", icon: CreditCard,    desc: "Parcelamento com juros da operadora" },
+  { value: "compra_programada",label: "Compra Programada",           icon: CalendarClock, desc: "Agendamento com condições especiais" },
+  { value: "financiamento",    label: "Financiamento bancário",      icon: Landmark,      desc: "Mediante análise de crédito" },
 ];
 
 const serviceTypes = [
@@ -58,16 +66,31 @@ const QuoteDetailPage = () => {
   const [newFrete, setNewFrete] = useState({ carrier: "Correios SEDEX", custom: "", value: "" });
   const [consultorId, setConsultorId] = useState<string | null | undefined>(undefined);
   const [editMode, setEditMode] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<string | null>(null);
   const [installments, setInstallments] = useState<string>("");
+  const [paymentMethods, setPaymentMethods] = useState<string[] | null>(null);
+  const [compraProgramadaNotes, setCompraProgramadaNotes] = useState<string | null>(null);
+  const [financiamentoNotes, setFinanciamentoNotes] = useState<string | null>(null);
   const { data: allUsers = [] } = useAllUsers();
 
   // Sync local state from quote
   const currentNotes = notes ?? quote?.notes ?? "";
-  const currentValidUntil = validUntil ?? quote?.valid_until ?? "";
-  const currentPaymentMethod = paymentMethod ?? (quote as any)?.payment_method ?? null;
+  const defaultValidUntil = (() => { const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString().split("T")[0]; })();
+  const currentValidUntil = validUntil ?? quote?.valid_until ?? defaultValidUntil;
+  const currentPaymentMethods: string[] = paymentMethods ?? (
+    (quote as any)?.payment_methods?.length > 0 ? (quote as any).payment_methods :
+    ((quote as any)?.payment_method ? [(quote as any).payment_method] : [])
+  );
   const currentInstallments = installments !== "" ? installments : String((quote as any)?.installments ?? "");
   const currentConsultorId = consultorId !== undefined ? consultorId : ((quote as any)?.created_by ?? null);
+  const currentCompraProgramadaNotes = compraProgramadaNotes ?? (quote as any)?.payment_compra_programada_notes ?? "";
+  const currentFinanciamentoNotes = financiamentoNotes ?? (quote as any)?.payment_financiamento_notes ?? "";
+
+  const togglePaymentMethod = (method: string) => {
+    setPaymentMethods(prev => {
+      const cur = prev ?? currentPaymentMethods;
+      return cur.includes(method) ? cur.filter(m => m !== method) : [...cur, method];
+    });
+  };
 
   const totals = useMemo(() => {
     if (!quote?.quote_items) return { subtotalPecas: 0, subtotalServicos: 0, warranty: 0, warrantyValue: 0, charged: 0, internalCost: 0, margin: 0, frete: 0, desconto: 0 };
@@ -120,15 +143,18 @@ const QuoteDetailPage = () => {
   };
 
   const handleSaveDetails = async () => {
-    const parsedInstallments = currentPaymentMethod === "cartao_parcelado" && currentInstallments
+    const parsedInstallments = currentPaymentMethods.includes("cartao_parcelado") && currentInstallments
       ? parseInt(currentInstallments, 10) || null
       : null;
     await updateQuote.mutateAsync({
       id: id!,
       notes: currentNotes,
       valid_until: currentValidUntil || null,
-      payment_method: currentPaymentMethod || null,
+      payment_method: currentPaymentMethods[0] || null,
+      payment_methods: currentPaymentMethods,
       installments: parsedInstallments,
+      payment_compra_programada_notes: currentCompraProgramadaNotes || null,
+      payment_financiamento_notes: currentFinanciamentoNotes || null,
       created_by: currentConsultorId || null,
     } as any);
     toast.success("Detalhes salvos com sucesso");
@@ -165,8 +191,11 @@ const QuoteDetailPage = () => {
     warrantyTotal: totals.warrantyValue,
     notes: currentNotes || undefined,
     docType: "quote" as const,
-    paymentMethod: currentPaymentMethod,
-    installments: currentPaymentMethod === "cartao_parcelado" && currentInstallments
+    paymentMethod: currentPaymentMethods[0] || null,
+    paymentMethods: currentPaymentMethods,
+    paymentCompraProgramadaNotes: currentCompraProgramadaNotes || undefined,
+    paymentFinanciamentoNotes: currentFinanciamentoNotes || undefined,
+    installments: currentPaymentMethods.includes("cartao_parcelado") && currentInstallments
       ? parseInt(currentInstallments, 10) || null
       : null,
   });
@@ -570,22 +599,18 @@ const QuoteDetailPage = () => {
       {/* Payment method */}
       <div className="bg-card rounded-xl border p-4 mb-4">
         <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-3 block">
-          Forma de Pagamento
+          Formas de Pagamento <span className="normal-case font-normal">(selecione uma ou mais)</span>
         </label>
         <div className="flex flex-wrap gap-2">
-          {[
-            { value: "pix",            label: "À vista — PIX",            icon: QrCode,     desc: "Pagamento instantâneo via PIX" },
-            { value: "transferencia",  label: "Transferência bancária",    icon: Banknote,   desc: "TED ou DOC para conta da empresa" },
-            { value: "cartao_parcelado", label: "Cartão — Parcelado c/ juros", icon: CreditCard, desc: "Parcelamento com juros da operadora" },
-          ].map(({ value, label, icon: Icon, desc }) => {
-            const selected = currentPaymentMethod === value;
+          {PAYMENT_OPTIONS.map(({ value, label, icon: Icon, desc }) => {
+            const selected = currentPaymentMethods.includes(value);
             return (
               <button
                 key={value}
                 type="button"
                 disabled={!isEditable}
                 onClick={() => {
-                  setPaymentMethod(value === currentPaymentMethod ? null : value);
+                  togglePaymentMethod(value);
                   if (value !== "cartao_parcelado") setInstallments("");
                 }}
                 className={[
@@ -606,8 +631,8 @@ const QuoteDetailPage = () => {
           })}
         </div>
 
-        {/* Parcelas */}
-        {currentPaymentMethod === "cartao_parcelado" && (
+        {/* Parcelas — cartao_parcelado */}
+        {currentPaymentMethods.includes("cartao_parcelado") && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
@@ -635,6 +660,38 @@ const QuoteDetailPage = () => {
                 {" "}(sem juros base — juros da operadora à parte)
               </span>
             )}
+          </motion.div>
+        )}
+
+        {/* Observações — compra_programada */}
+        {currentPaymentMethods.includes("compra_programada") && (
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="mt-4">
+            <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">
+              Condições da Compra Programada
+            </label>
+            <Textarea
+              value={currentCompraProgramadaNotes}
+              onChange={(e) => setCompraProgramadaNotes(e.target.value)}
+              placeholder="Descreva as condições: valor de entrada, parcelas mensais, prazo de entrega, cronograma de pagamento..."
+              rows={3}
+              disabled={!isEditable}
+            />
+          </motion.div>
+        )}
+
+        {/* Observações — financiamento */}
+        {currentPaymentMethods.includes("financiamento") && (
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="mt-4">
+            <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">
+              Informações do Financiamento Bancário
+            </label>
+            <Textarea
+              value={currentFinanciamentoNotes}
+              onChange={(e) => setFinanciamentoNotes(e.target.value)}
+              placeholder="Banco parceiro, prazo de análise, documentação necessária, taxa de juros estimada..."
+              rows={3}
+              disabled={!isEditable}
+            />
           </motion.div>
         )}
       </div>

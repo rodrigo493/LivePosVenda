@@ -18,7 +18,7 @@ import ReactMarkdown from "react-markdown";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { WhatsAppChat } from "@/components/whatsapp/WhatsAppChat";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -499,6 +499,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
   const updateNegItem = useUpdateNegotiationItem();
   const removeNegItem = useRemoveNegotiationItem();
   const [negSearch, setNegSearch] = useState("");
+  const [showNegDialog, setShowNegDialog] = useState(false);
   const isAdmin = hasRole("admin");
 
   const aprovarMemoria = useMutation({
@@ -882,8 +883,10 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
 
   const createQuote = useMutation({
     mutationFn: async () => {
+      const vd = new Date(); vd.setDate(vd.getDate() + 7);
       const { data, error } = await supabase.from("quotes").insert({
         client_id: clientId!, equipment_id: equipmentId || null, ticket_id: ticketId || null, created_by: user?.id,
+        valid_until: vd.toISOString().split("T")[0],
       }).select().single();
       if (error) throw error;
       return data;
@@ -891,6 +894,40 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["client-quotes"] });
       toast.success(`Orçamento ${data.quote_number} criado`);
+      onOpenChange(false);
+      setTimeout(() => navigate(`/orcamentos/${data.id}?from_ticket=${ticketId}`), 150);
+    },
+    onError: () => toast.error("Erro ao criar orçamento"),
+  });
+
+  const createQuoteWithNegItems = useMutation({
+    mutationFn: async () => {
+      const vd = new Date(); vd.setDate(vd.getDate() + 7);
+      const { data: quote, error: qErr } = await supabase.from("quotes").insert({
+        client_id: clientId!, equipment_id: equipmentId || null, ticket_id: ticketId || null, created_by: user?.id,
+        valid_until: vd.toISOString().split("T")[0],
+      }).select().single();
+      if (qErr) throw qErr;
+      if (negotiationItems.length > 0) {
+        const items = negotiationItems.map(item => ({
+          quote_id: quote.id,
+          description: item.product_name,
+          item_type: "peca_cobrada",
+          quantity: item.quantity,
+          unit_cost: item.unit_price,
+          unit_price: item.unit_price,
+        }));
+        const { error: iErr } = await supabase.from("quote_items").insert(items);
+        if (iErr) throw iErr;
+        const subtotal = negotiationItems.reduce((s, i) => s + i.unit_price * i.quantity, 0);
+        await supabase.from("quotes").update({ subtotal, total: subtotal }).eq("id", quote.id);
+      }
+      return quote;
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["client-quotes"] });
+      toast.success(`Orçamento ${data.quote_number} criado com ${negotiationItems.length} produto${negotiationItems.length > 1 ? "s" : ""}`);
+      setShowNegDialog(false);
       onOpenChange(false);
       setTimeout(() => navigate(`/orcamentos/${data.id}?from_ticket=${ticketId}`), 150);
     },
@@ -2075,7 +2112,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
 
                 {/* ── Tab: Client Quotes ─────────────────── */}
                 <TabsContent value="client-quotes" className="mt-0 space-y-3">
-                  <SectionHeader label="Orçamentos" clientName={ticket.clients?.name} count={clientQuotes?.length || 0} onNew={() => createQuote.mutate()} loading={createQuote.isPending} />
+                  <SectionHeader label="Orçamentos" clientName={ticket.clients?.name} count={clientQuotes?.length || 0} onNew={() => setShowNegDialog(true)} loading={createQuote.isPending || createQuoteWithNegItems.isPending} />
                   {clientQuotes?.length === 0 && <EmptyState label="Nenhum orçamento registrado." />}
                   {clientQuotes?.map((q: any) => (
                     <div key={q.id} className="border rounded-lg p-4 hover:bg-muted/30 transition-colors">
@@ -3110,6 +3147,71 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
       onOpenChange={(o) => !o && setApprovalQuote(null)}
       quote={approvalQuote}
     />
+
+    {/* Diálogo: Usar produtos de negociação no orçamento? */}
+    <Dialog open={showNegDialog} onOpenChange={setShowNegDialog}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Deseja usar os produtos de negociação?</DialogTitle>
+          <DialogDescription>
+            {negotiationItems.length > 0
+              ? `${negotiationItems.length} produto${negotiationItems.length !== 1 ? "s" : ""} da aba "Produtos Negociação" podem ser incluídos automaticamente neste orçamento.`
+              : "Nenhum produto de negociação cadastrado neste chamado. O orçamento será criado em branco."}
+          </DialogDescription>
+        </DialogHeader>
+        {negotiationItems.length > 0 && (
+          <div className="border rounded-lg overflow-hidden my-2">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/50">
+                  <th className="text-left px-3 py-2 text-xs font-medium">Produto</th>
+                  <th className="text-center px-3 py-2 text-xs font-medium">Qtd</th>
+                  <th className="text-right px-3 py-2 text-xs font-medium">Valor Unit.</th>
+                  <th className="text-right px-3 py-2 text-xs font-medium">Subtotal</th>
+                </tr>
+              </thead>
+              <tbody>
+                {negotiationItems.map((item) => (
+                  <tr key={item.id} className="border-b last:border-0">
+                    <td className="px-3 py-2 text-sm">{item.product_name}</td>
+                    <td className="px-3 py-2 text-center tabular-nums">{item.quantity}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{fmtCurrency(item.unit_price)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{fmtCurrency(item.unit_price * item.quantity)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t bg-muted/30">
+                  <td colSpan={3} className="px-3 py-2 text-sm font-semibold text-right">Total</td>
+                  <td className="px-3 py-2 text-right font-bold tabular-nums text-primary">
+                    {fmtCurrency(negotiationItems.reduce((s, i) => s + i.unit_price * i.quantity, 0))}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+        <DialogFooter className="gap-2 flex-col sm:flex-row">
+          <Button
+            variant="outline"
+            className="flex-1"
+            onClick={() => { setShowNegDialog(false); createQuote.mutate(); }}
+            disabled={createQuote.isPending || createQuoteWithNegItems.isPending}
+          >
+            {negotiationItems.length > 0 ? "Não, abrir em branco" : "Criar Orçamento"}
+          </Button>
+          {negotiationItems.length > 0 && (
+            <Button
+              className="flex-1"
+              onClick={() => createQuoteWithNegItems.mutate()}
+              disabled={createQuoteWithNegItems.isPending || createQuote.isPending}
+            >
+              {createQuoteWithNegItems.isPending ? "Criando..." : "Sim, importar produtos"}
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
     {/* Blocking modal: ticket encerrado sem Problema → Solução */}
     <Dialog open={showBlockingModal} onOpenChange={setShowBlockingModal}>

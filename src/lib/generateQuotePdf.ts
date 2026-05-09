@@ -34,6 +34,9 @@ interface QuotePdfData {
   notes?: string;
   docType?: DocumentType;
   paymentMethod?: string | null;
+  paymentMethods?: string[];
+  paymentCompraProgramadaNotes?: string;
+  paymentFinanciamentoNotes?: string;
   installments?: number | null;
   exportedBy?: string;
 }
@@ -181,24 +184,49 @@ export function generateQuotePdf(data: QuotePdfData) {
     pix: "À vista — PIX",
     transferencia: "Transferência bancária (TED/DOC)",
     cartao_parcelado: "Parcelamento no cartão com juros",
+    compra_programada: "Compra Programada",
+    financiamento: "Financiamento bancário — mediante análise de crédito",
   };
+  const methods = (data.paymentMethods && data.paymentMethods.length > 0)
+    ? data.paymentMethods
+    : (data.paymentMethod ? [data.paymentMethod] : []);
   let afterTotalY = totalY + 14;
-  if (data.paymentMethod) {
+  if (methods.length > 0) {
     doc.setFontSize(9);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(0);
-    doc.text("Forma de pagamento:", 14, afterTotalY);
-    doc.setFont("helvetica", "normal");
-    let payLabel = PAYMENT_LABELS[data.paymentMethod] ?? data.paymentMethod;
-    if (
-      data.paymentMethod === "cartao_parcelado" &&
-      data.installments &&
-      data.installments >= 2
-    ) {
-      payLabel += ` — ${data.installments}x de R$ ${(data.totalCharged / data.installments).toFixed(2)} (+ juros da operadora)`;
+    doc.text(methods.length === 1 ? "Forma de pagamento:" : "Formas de pagamento:", 14, afterTotalY);
+    afterTotalY += 6;
+    for (const method of methods) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(0);
+      let payLabel = PAYMENT_LABELS[method] ?? method;
+      if (method === "cartao_parcelado" && data.installments && data.installments >= 2) {
+        payLabel += ` — ${data.installments}x de R$ ${(data.totalCharged / data.installments).toFixed(2)} (+ juros da operadora)`;
+      }
+      doc.text(`• ${payLabel}`, 18, afterTotalY);
+      afterTotalY += 5;
+      if (method === "compra_programada" && data.paymentCompraProgramadaNotes) {
+        doc.setFontSize(8);
+        doc.setTextColor(80, 80, 80);
+        const lines = doc.splitTextToSize(data.paymentCompraProgramadaNotes, pageWidth - 32);
+        doc.text(lines, 22, afterTotalY);
+        afterTotalY += lines.length * 4.5 + 2;
+        doc.setFontSize(9);
+        doc.setTextColor(0);
+      }
+      if (method === "financiamento" && data.paymentFinanciamentoNotes) {
+        doc.setFontSize(8);
+        doc.setTextColor(80, 80, 80);
+        const lines = doc.splitTextToSize(data.paymentFinanciamentoNotes, pageWidth - 32);
+        doc.text(lines, 22, afterTotalY);
+        afterTotalY += lines.length * 4.5 + 2;
+        doc.setFontSize(9);
+        doc.setTextColor(0);
+      }
     }
-    doc.text(payLabel, 58, afterTotalY);
-    afterTotalY += 10;
+    afterTotalY += 4;
   }
 
   // ── Observações ───────────────────────────────────────────────────────────
