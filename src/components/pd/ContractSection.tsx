@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { FileText, Plus, Trash2 } from "lucide-react";
+import { FileText, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useSaveContractData, type ContractInstallment } from "@/hooks/useContractData";
 import { generateContractPdf, type ContractPdfData, type ContractItem } from "@/lib/generateContractPdf";
@@ -23,7 +23,6 @@ interface Props {
 // ── helpers ────────────────────────────────────────────────────────────────────
 
 function parseBRL(s: string): number {
-  // "R$ 1.234,56" → 1234.56
   return parseFloat(s.replace(/[^0-9,]/g, "").replace(",", ".")) || 0;
 }
 
@@ -33,6 +32,41 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
       {children}
     </p>
   );
+}
+
+/** Formata Date → "DD.MM.YYYY" */
+function fmtInstDate(d: Date): string {
+  return [
+    String(d.getDate()).padStart(2, "0"),
+    String(d.getMonth() + 1).padStart(2, "0"),
+    d.getFullYear(),
+  ].join(".");
+}
+
+/** Interpreta "DD/MM/YYYY" ou "DD.MM.YYYY" → Date (ou hoje se inválido) */
+function parseInstDate(s: string): Date {
+  const parts = s.trim().split(/[\/\.]/);
+  if (parts.length === 3) {
+    const [dd, mm, yyyy] = parts.map(Number);
+    const d = new Date(yyyy, mm - 1, dd);
+    if (!isNaN(d.getTime())) return d;
+  }
+  return new Date();
+}
+
+/** Preenche datas vazias ou sobrescreve todas (overwrite=true):
+ *  1ª parcela = startDate, demais = +30 dias cada */
+function applyDates(
+  insts: ContractInstallment[],
+  startDate: Date,
+  overwrite = false
+): ContractInstallment[] {
+  return insts.map((inst, i) => {
+    if (!overwrite && inst.data.trim()) return inst;
+    const d = new Date(startDate);
+    d.setDate(d.getDate() + i * 30);
+    return { ...inst, data: fmtInstDate(d) };
+  });
 }
 
 // ── component ──────────────────────────────────────────────────────────────────
@@ -78,16 +112,21 @@ export function ContractSection({
   const [obs, setObs] = useState("EQUIPAMENTO PADRÃO LIVE");
   const [contractDate, setContractDate] = useState("");
 
-  // ── parcelas ───────────────────────────────────────────────────────────────
-  const [installments, setInstallments] = useState<ContractInstallment[]>(
-    initialInstallments ?? []
+  // ── parcelas (auto-preenche datas ao montar) ───────────────────────────────
+  const [installments, setInstallments] = useState<ContractInstallment[]>(() =>
+    applyDates(initialInstallments ?? [], new Date(), false)
   );
 
   const addInstallment = () =>
-    setInstallments((prev) => [
-      ...prev,
-      { parcela: prev.length + 1, data: "", valor: "", forma: "" },
-    ]);
+    setInstallments((prev) => {
+      const lastDate = prev.length > 0 ? parseInstDate(prev[prev.length - 1].data) : new Date();
+      const nextDate = new Date(lastDate);
+      nextDate.setDate(nextDate.getDate() + 30);
+      return [
+        ...prev,
+        { parcela: prev.length + 1, data: fmtInstDate(nextDate), valor: "", forma: "" },
+      ];
+    });
 
   const removeInstallment = (index: number) =>
     setInstallments((prev) =>
@@ -102,6 +141,12 @@ export function ContractSection({
     setInstallments((prev) =>
       prev.map((inst, i) => (i === index ? { ...inst, [field]: value } : inst))
     );
+
+  /** Recalcula todas as datas a partir da data do contrato (ou hoje) */
+  const recalcDates = () => {
+    const start = contractDate.trim() ? parseInstDate(contractDate) : new Date();
+    setInstallments((prev) => applyDates(prev, start, true));
+  };
 
   // ── dimensões derivadas ────────────────────────────────────────────────────
   const dimRows = (() => {
@@ -353,15 +398,27 @@ export function ContractSection({
 
       {/* ── Parcelas / Condições de Pagamento ────────────────────────── */}
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <SectionTitle>3. Condições de Pagamento (parcelas)</SectionTitle>
-          <Button type="button" variant="outline" size="sm" onClick={addInstallment} className="h-7 text-xs">
-            <Plus className="h-3 w-3 mr-1" /> Parcela
-          </Button>
+          <div className="flex gap-1.5">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={recalcDates}
+              className="h-7 text-xs"
+              title="Recalcula todas as datas: 1ª = data do contrato, demais +30 dias"
+            >
+              <RefreshCw className="h-3 w-3 mr-1" /> Datas
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={addInstallment} className="h-7 text-xs">
+              <Plus className="h-3 w-3 mr-1" /> Parcela
+            </Button>
+          </div>
         </div>
 
         {installments.length === 0 ? (
-          <p className="text-xs text-muted-foreground italic">Nenhuma parcela adicionada.</p>
+          <p className="text-xs text-muted-foreground italic">Nenhuma parcela — vincule um orçamento ao PD para auto-preencher.</p>
         ) : (
           <div className="space-y-1.5">
             <div className="grid grid-cols-[36px_1fr_1fr_1fr_32px] gap-2 px-1">
