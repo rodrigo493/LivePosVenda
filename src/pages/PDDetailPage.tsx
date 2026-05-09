@@ -29,6 +29,8 @@ import { useAllUsers } from "@/hooks/useUserAccess";
 import { serviceRequestStatusLabels as statusLabels, itemTypeLabels } from "@/constants/statusLabels";
 import { ExternalLink } from "lucide-react";
 import { formatCurrency as fmtCurrency } from "@/lib/formatters";
+import { ContractSection } from "@/components/pd/ContractSection";
+import type { ContractItem } from "@/lib/generateContractPdf";
 
 const partTypes = [
   { value: "peca_cobrada", label: "Peça (Cobrada)" },
@@ -58,7 +60,7 @@ const PDDetailPage = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("service_requests")
-        .select("*, tickets(ticket_number, title, client_id, equipment_id, clients(name), equipments(serial_number, model_id, equipment_models(name)))")
+        .select("*, tickets(ticket_number, title, client_id, equipment_id, clients(name, contact_person, document, email, phone, whatsapp, address, city, state, zip_code), equipments(serial_number, model_id, equipment_models(name)))")
         .eq("id", id!)
         .single();
       if (error) throw error;
@@ -428,6 +430,13 @@ const PDDetailPage = () => {
   const currentStatus = editStatus ?? sr.status;
   const requestNumber = (sr as any).request_number || "PD";
   const clientName = sr.tickets?.clients?.name || "—";
+  const contractItems: ContractItem[] = (linkedQuote?.quote_items ?? []).map((item: any) => ({
+    code: item.products?.code ?? "",
+    description: item.description ?? "",
+    quantity: item.quantity ?? 1,
+    unitPrice: item.unit_price ?? 0,
+    isBreinde: (item.description ?? "").toLowerCase().includes("brinde"),
+  }));
   const modelName = sr.tickets?.equipments?.equipment_models?.name || "—";
   const serialNumber = sr.tickets?.equipments?.serial_number || "";
   const equipModelId = (sr.tickets?.equipments as any)?.model_id || undefined;
@@ -1527,6 +1536,30 @@ const PDDetailPage = () => {
           </Button>
         </div>
       </motion.div>
+
+      {linkedQuote && (
+        <ContractSection
+          pdId={sr.id}
+          contractNumber={(sr as any).request_number ?? ""}
+          client={{
+            name: (sr.tickets?.clients as any)?.contact_person || sr.tickets?.clients?.name || "",
+            cpfCnpj: (sr.tickets?.clients as any)?.document || "",
+            razaoSocial: sr.tickets?.clients?.name || "",
+            email: (sr.tickets?.clients as any)?.email || "",
+            phone: (sr.tickets?.clients as any)?.phone || (sr.tickets?.clients as any)?.whatsapp || "",
+            address: (sr.tickets?.clients as any)?.address || "",
+            bairro: (sr as any).contract_bairro || "",
+            city: (sr.tickets?.clients as any)?.city || "",
+            state: (sr.tickets?.clients as any)?.state || "",
+            zipCode: (sr.tickets?.clients as any)?.zip_code || "",
+          }}
+          items={contractItems}
+          total={linkedQuote?.total ?? 0}
+          initialBairro={(sr as any).contract_bairro}
+          initialInstallments={(sr as any).contract_installments ?? []}
+          exportedBy={myProfile?.full_name || myProfile?.email || undefined}
+        />
+      )}
 
       <div className="flex flex-wrap gap-2 border-t pt-4">
         <Button size="sm" variant="outline" className="gap-1.5" onClick={() => {
