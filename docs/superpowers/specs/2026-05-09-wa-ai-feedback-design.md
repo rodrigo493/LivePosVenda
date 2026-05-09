@@ -247,6 +247,119 @@ adminNav:
 
 ---
 
+---
+
+## Feature 2 — Sugestões de Resposta no Sidebar da Extensão
+
+### Visão Geral
+
+Quando um lead envia uma mensagem no WA Web, a extensão dispara automaticamente uma chamada ao agente `agente-feedback-wa` solicitando uma sugestão de resposta. A sugestão aparece no sidebar em ~10–20s e o usuário copia com um clique.
+
+### Fluxo
+
+```
+mensagem inbound chega no WA Web
+        ↓
+wa_hook.js captura (LIVECRM_INBOUND) → content_script → background.js
+        ↓
+background.js chama Edge Function: suggest-wa-response
+  { phone, inbound_text, client_id, últimas 10 msgs como contexto }
+        ↓
+Edge Function insere wa_suggestions (status: "pending") + run_id
+        ↓
+POST openclaw.liveuni.com.br/hooks/agent
+  { agentId: "agente-feedback-wa", message: "<prompt>",
+    deliver: "webhook", to: wa-suggestion-webhook, thinking: "low" }
+        ↓ (~10–20s — OpenClaw processa)
+wa-suggestion-webhook recebe → atualiza wa_suggestions (status: "done")
+        ↓
+Sidebar faz polling a cada 5s → exibe sugestão + botão Copiar
+```
+
+### Tabela `wa_suggestions`
+
+```sql
+create table wa_suggestions (
+  id                 uuid primary key default gen_random_uuid(),
+  client_id          uuid references clients(id) on delete cascade,
+  user_id            uuid references auth.users(id),
+  instance_id        uuid references pipeline_whatsapp_instances(id),
+  inbound_message    text,
+  suggested_response text,
+  status             text default 'pending'
+                       check (status in ('pending','done','error')),
+  run_id             text,
+  created_at         timestamptz default now()
+);
+
+alter table wa_suggestions enable row level security;
+create policy "user_own" on wa_suggestions for select
+  using (user_id = auth.uid());
+-- INSERT/UPDATE via service_role → RLS bypassado
+```
+
+### Prompt enviado ao agente
+
+```
+Você é um assistente de vendas e atendimento da Live Equipamentos.
+Analise a conversa abaixo e sugira UMA resposta para a última mensagem
+recebida do lead/cliente. Seja direto, profissional e natural.
+Retorne APENAS o texto da resposta, sem explicações, sem aspas, sem prefixos.
+
+HISTÓRICO DA CONVERSA:
+<últimas 10 mensagens: "HH:mm [entrada|saída] texto">
+
+ÚLTIMA MENSAGEM DO LEAD:
+<texto da mensagem inbound>
+```
+
+### Edge Functions
+
+**`suggest-wa-response`**
+- Auth: token do usuário (chamada pelo background.js via fetch com JWT)
+- Input: `{ phone, inbound_text, client_id }`
+- Busca últimas 10 mensagens do cliente em `whatsapp_messages`
+- Monta prompt, chama openclaw, insere `wa_suggestions` com run_id
+- Retorna `{ ok: true, suggestion_id }`
+
+**`wa-suggestion-webhook`**
+- Sem auth de usuário — valida `X-Openclaw-Secret`
+- Extrai run_id + texto de resposta
+- Atualiza `wa_suggestions` onde `run_id = ?`, status: "done"
+- Sem alertas — feature de sugestão não gera notificações
+
+### UI — Sidebar da Extensão
+
+Nova seção abaixo das informações do contato:
+
+```
+┌─────────────────────────────────────┐
+│ 💬 Sugestão de resposta             │
+│ ─────────────────────────────────── │
+│ ⟳ Gerando sugestão...              │  ← status: pending (spinner)
+├─────────────────────────────────────┤
+│ "Olá! Podemos agendar uma visita    │  ← status: done
+│  técnica para sexta. Qual horário   │
+│  fica melhor para você?"            │
+│                      [📋 Copiar]   │
+└─────────────────────────────────────┘
+```
+
+- Aparece apenas quando há conversa ativa detectada pelo sidebar
+- Nova mensagem inbound substitui sugestão anterior
+- Não dispara para mensagens outbound
+- Polling a cada 5s enquanto status = "pending"
+- Botão "Copiar" usa `navigator.clipboard.writeText()`
+- Timeout visual após 60s sem resposta (exibe "Não foi possível gerar sugestão")
+
+### Migration adicional
+
+```
+20260509000033_wa_suggestions.sql
+```
+
+---
+
 ## Restrições e decisões
 
 - OpenClaw é **async puro** — não há modo síncrono no `/hooks/agent`
@@ -256,3 +369,7 @@ adminNav:
 - RLS: usuário vê só os próprios feedbacks; admin vê todos via policy separada
 - Threshold de alerta configurável — padrão 5.0 (escala 0–10)
 - Feedback de alerta notifica usuário + **todos** os admins simultaneamente
+- Agente `agente-feedback-wa` serve as duas features (feedback + sugestão) com prompts distintos
+- Sugestões não geram alertas — são auxiliares ao usuário, não métricas de qualidade
+- Polling de 5s no sidebar é suficiente dado latência esperada de 10–20s do agente
+- Timeout de 60s no sidebar para sugestão sem resposta — evita spinner eterno
