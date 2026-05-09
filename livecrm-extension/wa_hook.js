@@ -9,11 +9,29 @@
 
   // ── Utilitários JID ─────────────────────────────────────────────────────────
 
+  // JID próprio do usuário — detectado na inicialização para ser excluído das buscas
+  let _ownPhone = null;
+
+  function parsePhone(s) {
+    if (typeof s !== 'string') return null;
+    if (s.includes('@g.us')) return null;
+    if (s.includes('@c.us')) return s.replace(/@c\.us.*/, '');
+    if (s.includes('@s.whatsapp.net')) return s.replace(/@s\.whatsapp\.net.*/, '');
+    return null;
+  }
+
+  function jidFromString(s) {
+    const p = parsePhone(s);
+    if (!p || (_ownPhone && p === _ownPhone)) return null;
+    return p;
+  }
+
   function jidToPhone(jid) {
     if (!jid) return null;
     if (typeof jid === 'string') {
-      if (jid.includes('@g.us')) return null;
-      return jid.replace(/@c\.us.*/, '').replace(/@s\.whatsapp\.net.*/, '');
+      const p = parsePhone(jid);
+      if (!p || (_ownPhone && p === _ownPhone)) return null;
+      return p;
     }
     if (typeof jid === 'object') {
       if (jid.server === 'g.us') return null;
@@ -23,12 +41,29 @@
     return null;
   }
 
-  function jidFromString(s) {
-    if (typeof s !== 'string') return null;
-    if (s.includes('@g.us')) return null;
-    if (s.includes('@c.us')) return s.replace(/@c\.us.*/, '');
-    if (s.includes('@s.whatsapp.net')) return s.replace(/@s\.whatsapp\.net.*/, '');
-    return null;
+  // Detecta o JID próprio do usuário via webpack module cache
+  function detectOwnPhone() {
+    try {
+      const cache = window.__webpack_module_cache__;
+      if (!cache) return;
+      for (const mod of Object.values(cache)) {
+        const e = mod?.exports;
+        if (!e || typeof e !== 'object') continue;
+        for (const v of Object.values(e)) {
+          if (!v || typeof v !== 'object') continue;
+          const wid = v.wid?._serialized
+            || v.me?._serialized
+            || (v.wid?.server === 'c.us' ? v.wid._serialized : null);
+          const p = parsePhone(wid || '');
+          if (p) {
+            _ownPhone = p;
+            window.__livecrm_own_jid = p;
+            console.log('[LiveCRM Hook] JID próprio detectado:', p);
+            return;
+          }
+        }
+      }
+    } catch {}
   }
 
   function extractJidDeep(v) {
@@ -38,9 +73,9 @@
     if (typeof v !== 'object') return null;
     try {
       const candidates = [
-        v._serialized, v.jid, v.id,
+        v._serialized, v.jid,
         v.user && (v.server === 'c.us' || v.server === 's.whatsapp.net') ? v.user : null,
-        v.remote?._serialized, v.from?._serialized, v.to?._serialized,
+        v.remote?._serialized, v.to?._serialized,
         v.id?._serialized, v.id?.user,
         v.chatId?._serialized, v.chatId,
         v.remoteJid, v.conversationId,
@@ -58,8 +93,7 @@
     if (!props || typeof props !== 'object' || Array.isArray(props)) return null;
     try {
       // Fast-path: chaves conhecidas de modelos de chat do WA Web
-      for (const key of ['chat', 'chatId', 'id', 'jid', 'phone', 'contact', 'model',
-                          'conversationId', 'remoteJid', 'chatModel', 'chatData']) {
+      for (const key of ['chat', 'chatId', 'jid', 'remoteJid', 'conversationId', 'chatModel', 'chatData']) {
         if (!(key in props)) continue;
         const v = props[key];
         const r = extractJidDeep(v);
@@ -295,10 +329,12 @@
   }
 
   function startPhoneTracker() {
+    if (!_ownPhone) detectOwnPhone(); // garante JID próprio antes do primeiro scan
     updateActiveChatPhone(); // leitura inicial
 
     let debounceTimer = null;
     const scheduleUpdate = (delay = 250) => {
+      if (!_ownPhone) detectOwnPhone();
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(updateActiveChatPhone, delay);
     };

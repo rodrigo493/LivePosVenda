@@ -190,8 +190,16 @@ function fiberExtractPhone() {
 
   function jidFromString(s) {
     if (typeof s !== 'string') return null;
-    if (s.includes('@c.us')) return s.replace(/@c\.us.*/, '');
-    if (s.includes('@s.whatsapp.net')) return s.replace(/@s\.whatsapp\.net.*/, '');
+    if (s.includes('@c.us')) {
+      const p = s.replace(/@c\.us.*/, '');
+      if (window.__livecrm_own_jid && p === window.__livecrm_own_jid) return null;
+      return p;
+    }
+    if (s.includes('@s.whatsapp.net')) {
+      const p = s.replace(/@s\.whatsapp\.net.*/, '');
+      if (window.__livecrm_own_jid && p === window.__livecrm_own_jid) return null;
+      return p;
+    }
     return null;
   }
 
@@ -202,9 +210,9 @@ function fiberExtractPhone() {
     if (typeof v === 'object') {
       // Candidatos comuns em objetos JID do WA Web
       const candidates = [
-        v._serialized, v.jid, v.id,
+        v._serialized, v.jid,
         v.user && v.server === 'c.us' ? v.user : null,
-        v.remote?._serialized, v.from?._serialized, v.to?._serialized,
+        v.remote?._serialized, v.to?._serialized,
         v.id?._serialized, v.id?.user,
       ];
       for (const c of candidates) {
@@ -220,8 +228,7 @@ function fiberExtractPhone() {
     if (!props || typeof props !== 'object' || Array.isArray(props)) return null;
     try {
       // Fast-path: chaves conhecidas de modelos de chat
-      for (const key of ['chat', 'chatId', 'id', 'jid', 'phone', 'contact', 'model',
-                          'conversationId', 'remoteJid', 'chatModel']) {
+      for (const key of ['chat', 'chatId', 'jid', 'remoteJid', 'conversationId', 'chatModel']) {
         if (!(key in props)) continue;
         const v = props[key];
         const r = extractJid(v);
@@ -303,11 +310,7 @@ function fiberExtractPhone() {
     return null;
   }
 
-  // 0. DOM-first: data-livecrm-phone anotado pelo wa_hook.js (mais confiável)
-  const hookedPhone = document.getElementById('main')?.getAttribute('data-livecrm-phone');
-  if (hookedPhone) return hookedPhone;
-
-  // 0b. data-id no item selecionado da sidebar — fonte direta do WA Web, sem fiber
+  // 0. data-id no item selecionado da sidebar — fonte direta do WA Web, sem fiber
   const sidebarSelectors = [
     '[data-testid="cell-frame-container"][aria-selected="true"]',
     '[role="listitem"][aria-selected="true"]',
