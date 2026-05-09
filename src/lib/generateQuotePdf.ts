@@ -42,6 +42,9 @@ interface QuotePdfData {
   exportedBy?: string;
 }
 
+const fmt = (n: number) =>
+  n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 export function generateQuotePdf(data: QuotePdfData) {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -118,8 +121,8 @@ export function generateQuotePdf(data: QuotePdfData) {
     item.description,
     item.isWarranty ? "Garantia" : "",
     item.quantity.toString(),
-    item.isWarranty ? "—" : `R$ ${item.unitPrice.toFixed(2)}`,
-    item.isWarranty ? "Coberto" : `R$ ${item.total.toFixed(2)}`,
+    item.isWarranty ? "—" : `R$ ${fmt(item.unitPrice)}`,
+    item.isWarranty ? "Coberto" : `R$ ${fmt(item.total)}`,
   ]);
 
   const tableStartY = clientY + (data.client.equipment ? 14 : 8);
@@ -160,18 +163,18 @@ export function generateQuotePdf(data: QuotePdfData) {
     doc.setFont("helvetica", "normal");
     doc.text("Itens cobertos por garantia:", rightCol - 65, summaryY);
     doc.setTextColor(22, 163, 74);
-    doc.text(`R$ ${data.warrantyTotal.toFixed(2)}`, rightCol, summaryY, { align: "right" });
+    doc.text(`R$ ${fmt(data.warrantyTotal)}`, rightCol, summaryY, { align: "right" });
     doc.setTextColor(0);
   }
 
   const subY = summaryY + (data.warrantyTotal > 0 ? 7 : 0);
   doc.setFont("helvetica", "normal");
   doc.text("Subtotal:", rightCol - 65, subY);
-  doc.text(`R$ ${data.subtotal.toFixed(2)}`, rightCol, subY, { align: "right" });
+  doc.text(`R$ ${fmt(data.subtotal)}`, rightCol, subY, { align: "right" });
 
   if (data.freight > 0) {
     doc.text("Frete:", rightCol - 65, subY + 6);
-    doc.text(`R$ ${data.freight.toFixed(2)}`, rightCol, subY + 6, { align: "right" });
+    doc.text(`R$ ${fmt(data.freight)}`, rightCol, subY + 6, { align: "right" });
   } else {
     doc.setTextColor(150, 150, 150);
     doc.text("Frete:", rightCol - 65, subY + 6);
@@ -180,7 +183,7 @@ export function generateQuotePdf(data: QuotePdfData) {
   }
   if (data.discount > 0) {
     doc.text("Desconto:", rightCol - 65, subY + 12);
-    doc.text(`- R$ ${data.discount.toFixed(2)}`, rightCol, subY + 12, { align: "right" });
+    doc.text(`- R$ ${fmt(data.discount)}`, rightCol, subY + 12, { align: "right" });
   }
 
   const totalY = subY + 18;
@@ -190,7 +193,7 @@ export function generateQuotePdf(data: QuotePdfData) {
   doc.setFontSize(12);
   doc.setFont("helvetica", "bold");
   doc.text("TOTAL:", rightCol - 65, totalY + 4);
-  doc.text(`R$ ${data.totalCharged.toFixed(2)}`, rightCol, totalY + 4, { align: "right" });
+  doc.text(`R$ ${fmt(data.totalCharged)}`, rightCol, totalY + 4, { align: "right" });
 
   // ── Forma de pagamento ─────────────────────────────────────────────────────
   const PAYMENT_LABELS: Record<string, string> = {
