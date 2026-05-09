@@ -41,25 +41,86 @@
     return null;
   }
 
-  // Detecta o JID próprio do usuário via webpack module cache
+  // Detecta o JID próprio do usuário via múltiplas estratégias
   function detectOwnPhone() {
+    // Estratégia 1: window.require com módulos conhecidos
+    if (typeof window.require === 'function') {
+      for (const id of ['Store', 'WAWebStore', 'WAWebStores', 'WAWebConn', 'WAWebSession',
+                        'WAWebUserPrefs', 'WAWebUserPrefsMeUser', 'WAWebMe']) {
+        try {
+          const m = window.require(id);
+          if (!m) continue;
+          for (const val of [m, m.default, m.Conn, m.Me, m.me, m.user, m.User, m.wid, m.session]) {
+            if (!val || typeof val !== 'object') continue;
+            if (val.server === 'c.us' && typeof val.user === 'string') {
+              const p = val.user;
+              _ownPhone = p; window.__livecrm_own_jid = p;
+              console.log('[LiveCRM Hook] JID próprio via require(' + id + '):', p); return;
+            }
+            const p = parsePhone(val._serialized || val.wid?._serialized || val.me?._serialized || '');
+            if (p) { _ownPhone = p; window.__livecrm_own_jid = p; console.log('[LiveCRM Hook] JID próprio via require(' + id + '):', p); return; }
+          }
+        } catch {}
+      }
+    }
+
+    // Estratégia 2: webpack cache — padrão JID direto { server:'c.us', user:'PHONE' } ou aninhado
     try {
       const cache = window.__webpack_module_cache__;
       if (!cache) return;
       for (const mod of Object.values(cache)) {
         const e = mod?.exports;
         if (!e || typeof e !== 'object') continue;
-        for (const v of Object.values(e)) {
-          if (!v || typeof v !== 'object') continue;
-          const wid = v.wid?._serialized
-            || v.me?._serialized
-            || (v.wid?.server === 'c.us' ? v.wid._serialized : null);
-          const p = parsePhone(wid || '');
-          if (p) {
-            _ownPhone = p;
-            window.__livecrm_own_jid = p;
-            console.log('[LiveCRM Hook] JID próprio detectado:', p);
-            return;
+        for (const val of [e, e.default, e.me, e.Me, e.Conn, e.conn, e.user, e.User, e.wid, e.session, e.Session]) {
+          if (!val || typeof val !== 'object') continue;
+          // JID direto: { server: 'c.us', user: 'PHONE' }
+          if (val.server === 'c.us' && typeof val.user === 'string' && /^\d{10,15}$/.test(val.user)) {
+            _ownPhone = val.user; window.__livecrm_own_jid = val.user;
+            console.log('[LiveCRM Hook] JID próprio via cache (direto):', val.user); return;
+          }
+          // JID aninhado: { wid: { server: 'c.us', user: 'PHONE' } }
+          for (const k of ['wid', 'me', 'Me', 'id', 'meUser', 'myJid', 'currentUser']) {
+            const v2 = val[k];
+            if (!v2 || typeof v2 !== 'object') continue;
+            if (v2.server === 'c.us' && typeof v2.user === 'string' && /^\d{10,15}$/.test(v2.user)) {
+              _ownPhone = v2.user; window.__livecrm_own_jid = v2.user;
+              console.log('[LiveCRM Hook] JID próprio via cache.' + k + ':', v2.user); return;
+            }
+            const p = parsePhone(v2._serialized || '');
+            if (p) { _ownPhone = p; window.__livecrm_own_jid = p; console.log('[LiveCRM Hook] JID próprio via cache._serialized:', p); return; }
+          }
+        }
+      }
+    } catch {}
+
+    // Estratégia 3: fiber do elemento de perfil do usuário (#side header)
+    try {
+      const profileEl = document.querySelector(
+        '#side header img, #side [data-testid="default-user"], ' +
+        '[data-testid="menu-bar-user"], [aria-label*="foto"][aria-label*="perfil"]'
+      );
+      if (profileEl) {
+        const fk = Object.keys(profileEl).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactProps'));
+        if (fk) {
+          const propsToScan = [];
+          if (fk.startsWith('__reactProps')) {
+            propsToScan.push(profileEl[fk]);
+          } else {
+            let f = profileEl[fk];
+            for (let i = 0; i < 25 && f; i++) {
+              if (f.memoizedProps) propsToScan.push(f.memoizedProps);
+              try { f = f.return; } catch { break; }
+            }
+          }
+          for (const props of propsToScan) {
+            if (!props || typeof props !== 'object') continue;
+            for (const k of ['jid', 'wid', 'contact', 'selfJid', 'myJid', 'profileJid', 'user']) {
+              const v = props[k];
+              if (!v) continue;
+              const s = typeof v === 'string' ? v : (v._serialized || (v.server === 'c.us' ? v.user : '') || '');
+              const p = parsePhone(s);
+              if (p) { _ownPhone = p; window.__livecrm_own_jid = p; console.log('[LiveCRM Hook] JID próprio via profile fiber:', p); return; }
+            }
           }
         }
       }
@@ -332,6 +393,15 @@
     if (!_ownPhone) detectOwnPhone(); // garante JID próprio antes do primeiro scan
     updateActiveChatPhone(); // leitura inicial
 
+    // Retry detectOwnPhone a cada 2s por até 30s até capturar JID próprio
+    if (!_ownPhone) {
+      let retries = 0;
+      const retryInterval = setInterval(() => {
+        if (_ownPhone || ++retries > 15) { clearInterval(retryInterval); return; }
+        detectOwnPhone();
+      }, 2000);
+    }
+
     let debounceTimer = null;
     const scheduleUpdate = (delay = 250) => {
       if (!_ownPhone) detectOwnPhone();
@@ -380,11 +450,30 @@
 
   function notifyMsg(msg) {
     try {
+      // Captura JID próprio antes de qualquer filtro:
+      // inbound → msg.to = nosso JID; outbound → msg.from = nosso JID
+      if (!_ownPhone && msg) {
+        const ownRaw = msg.isSentByMe ? (msg.from || msg.author) : msg.to;
+        if (ownRaw) {
+          const raw = typeof ownRaw === 'string' ? ownRaw : ownRaw?._serialized;
+          const p = parsePhone(raw || '');
+          if (p) {
+            _ownPhone = p;
+            window.__livecrm_own_jid = p;
+            console.log('[LiveCRM Hook] JID próprio capturado via mensagem:', p);
+          }
+        }
+      }
+
       if (!msg || msg.isSentByMe || msg.type === 'revoked') return;
       const msgTs = msg.t || msg.timestamp;
       if (msgTs && msgTs < HOOK_START_TS - 30) return;
       const phone = jidToPhone(msg.from || msg.chatId);
       if (!phone) return;
+
+      // Mantém último telefone de contato para acesso imediato pelo sidebar
+      window.__livecrm_active_phone = phone;
+
       const msgId = msg.id?.id || msg.id?._serialized || (typeof msg.id === 'string' ? msg.id : null);
       if (!msgId || typeof msgId !== 'string') return;
       const text = msg.body || msg.caption || '';

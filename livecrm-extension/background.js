@@ -441,7 +441,13 @@ function fiberExtractPhone() {
     }
   } catch { /* webpack cache inacessível */ }
 
-  // 3. Diagnóstico — aparece no console da aba do WA Web (MAIN world)
+  // 4. Fallback: último telefone capturado pelo wa_hook via evento de mensagem
+  if (window.__livecrm_active_phone) {
+    const own = window.__livecrm_own_jid;
+    if (!own || window.__livecrm_active_phone !== own) return window.__livecrm_active_phone;
+  }
+
+  // 5. Diagnóstico — aparece no console da aba do WA Web (MAIN world)
   const el = document.querySelector('[aria-selected="true"]');
   if (!el) {
     console.warn('[LiveCRM Fiber] DIAG: nenhum [aria-selected=true] encontrado');
