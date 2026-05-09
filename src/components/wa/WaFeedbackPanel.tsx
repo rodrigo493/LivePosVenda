@@ -92,7 +92,19 @@ export function WaFeedbackPanel({ clientId, canAnalyze = true }: WaFeedbackPanel
       const { error } = await supabase.functions.invoke("analyze-wa-conversation", {
         body: { client_id: clientId },
       });
-      if (error) throw error;
+      if (error) {
+        // Extrai mensagem real do corpo da resposta (FunctionsHttpError.context é Response)
+        const ctx = (error as any)?.context;
+        if (ctx instanceof Response) {
+          try {
+            const body = await ctx.clone().json();
+            if (body?.error) throw new Error(body.error);
+          } catch (e) {
+            if (e instanceof Error && e !== error) throw e;
+          }
+        }
+        throw error;
+      }
     },
     onSuccess: () => {
       toast.success("Análise iniciada — resultado em ~20s");

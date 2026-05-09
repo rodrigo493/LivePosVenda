@@ -32,9 +32,15 @@ function formatThread(messages: { direction: string; message_text: string; creat
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
+  // Validação de env vars obrigatórias
+  if (!OPENCLAW_URL || !OPENCLAW_TOKEN) {
+    console.error("[analyze-wa] OPENCLAW_URL ou OPENCLAW_TOKEN não configurados");
+    return json({ error: "Configuração incompleta: OPENCLAW_URL ou OPENCLAW_TOKEN ausente" }, 500);
+  }
+  console.log("[analyze-wa] OPENCLAW_URL:", OPENCLAW_URL.slice(0, 30) + "...");
+
   // Extrai usuário quando disponível (JWT na sessão do browser).
   // Não rejeita se null — função usa service_role para todas as ops de banco.
-  // pg_cron e chamadas internas não precisam de JWT de usuário.
   const authHeader = req.headers.get("Authorization") ?? "";
   let userId: string | null = null;
   if (authHeader.startsWith("Bearer ")) {
@@ -45,7 +51,15 @@ Deno.serve(async (req) => {
     userId = user?.id ?? null;
   }
 
-  const { client_id, user_id } = await req.json();
+  let client_id: string, user_id: string | undefined;
+  try {
+    const body = await req.json();
+    client_id = body.client_id;
+    user_id = body.user_id;
+  } catch {
+    return json({ error: "Body JSON inválido" }, 400);
+  }
+  console.log("[analyze-wa] client_id:", client_id, "user_id:", user_id, "userId:", userId);
   if (!client_id) return json({ error: "client_id obrigatório" }, 400);
 
   // 1. Buscar settings
@@ -56,21 +70,34 @@ Deno.serve(async (req) => {
     .single();
   const agentId = settings?.agent_id ?? "agente-feedback-wa";
   const threshold = settings?.alert_threshold ?? 5.0;
+  console.log("[analyze-wa] agentId:", agentId, "threshold:", threshold);
 
   // 2. Buscar thread
-  const { data: messages } = await sbAdmin
+  const { data: messages, error: msgErr } = await sbAdmin
     .from("whatsapp_messages")
-    .select("direction, message_text, created_at, instance_id, pipeline_whatsapp_instances(user_id)")
+    .select("direction, message_text, created_at, instance_id")
     .eq("client_id", client_id)
     .order("created_at", { ascending: true })
     .limit(100);
 
+  console.log("[analyze-wa] messages count:", messages?.length ?? 0, "error:", msgErr?.message ?? null);
+  if (msgErr) return json({ error: `DB error: ${msgErr.message}` }, 500);
   if (!messages || messages.length === 0) {
     return json({ error: "Nenhuma mensagem encontrada para este cliente" }, 404);
   }
 
-  const instanceUserId = (messages[0] as any).pipeline_whatsapp_instances?.user_id ?? user_id ?? userId;
   const instanceId = (messages[0] as any).instance_id ?? null;
+
+  // Busca user_id da instância separadamente se tiver instance_id
+  let instanceUserId: string | null = user_id ?? userId ?? null;
+  if (instanceId) {
+    const { data: inst } = await sbAdmin
+      .from("pipeline_whatsapp_instances")
+      .select("user_id")
+      .eq("id", instanceId)
+      .maybeSingle();
+    instanceUserId = inst?.user_id ?? instanceUserId;
+  }
   const thread = formatThread(messages);
 
   // 3. Montar prompt
@@ -103,29 +130,39 @@ ${thread}`;
   const runName = `feedback-wa-${client_id.slice(0, 8)}-${Date.now()}`;
 
   // 4. Chamar OpenClaw
-  const hookRes = await fetch(`${OPENCLAW_URL}/hooks/agent`, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${OPENCLAW_TOKEN}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      message: prompt,
-      agentId,
-      deliver: "webhook",
-      to: webhookUrl,
-      thinking: "low",
-      timeoutSeconds: 120,
-      name: runName,
-    }),
-  });
+  console.log("[analyze-wa] chamando OpenClaw, agentId:", agentId, "to:", webhookUrl.slice(0, 50));
+  let hookRes: Response;
+  try {
+    hookRes = await fetch(`${OPENCLAW_URL}/hooks/agent`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${OPENCLAW_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        message: prompt,
+        agentId,
+        deliver: "webhook",
+        to: webhookUrl,
+        thinking: "low",
+        timeoutSeconds: 120,
+        name: runName,
+      }),
+    });
+  } catch (fetchErr) {
+    console.error("[analyze-wa] fetch OpenClaw falhou:", fetchErr);
+    return json({ error: `OpenClaw inacessível: ${String(fetchErr)}` }, 502);
+  }
 
   if (!hookRes.ok) {
     const err = await hookRes.text();
-    return json({ error: `OpenClaw error: ${err}` }, 502);
+    console.error("[analyze-wa] OpenClaw status:", hookRes.status, "body:", err);
+    return json({ error: `OpenClaw error ${hookRes.status}: ${err}` }, 502);
   }
 
-  const { runId } = await hookRes.json();
+  const hookBody = await hookRes.json();
+  console.log("[analyze-wa] OpenClaw response:", JSON.stringify(hookBody));
+  const { runId } = hookBody;
 
   // 5. Inserir wa_feedbacks pending
   await sbAdmin.from("wa_feedbacks").insert({
