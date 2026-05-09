@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Settings, Users, Bell, Database, Mail, Shield, DollarSign, FlaskConical, Save, Brain, UserPlus, Trash2, Pencil, KeyRound, Link, MessageSquare, ChevronDown, Target } from "lucide-react";
+import { Settings, Users, Bell, Database, Mail, Shield, DollarSign, FlaskConical, Save, Brain, UserPlus, Trash2, Pencil, KeyRound, Link, MessageSquare, ChevronDown, Target, Bot } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,7 @@ import { WhatsAppInstancesSettings } from "@/components/settings/WhatsAppInstanc
 import { LeadSourcesSettings } from "@/components/settings/LeadSourcesSettings";
 import { InstagramAccountSettings } from "@/components/settings/InstagramAccountSettings";
 import { ChannelIcon } from "@/components/ui/ChannelIcon";
+import { cn } from "@/lib/utils";
 
 function useSystemSettings() {
   return useQuery({
@@ -60,6 +61,158 @@ const statusSections = [
   { title: "Status de Assistência", items: ["Aberto", "Orçamento enviado", "Agendado", "Em andamento", "Resolvido", "Cancelado"] },
   { title: "Status de Ordens de Serviço", items: ["Aberta", "Agendada", "Em andamento", "Concluída", "Cancelada"] },
 ];
+
+const WA_ANALYSIS_SINGLETON_ID = "00000000-0000-0000-0000-000000000001";
+
+function WaIaSettingsTab() {
+  const qc = useQueryClient();
+
+  const { data: settings } = useQuery({
+    queryKey: ["wa-analysis-settings"],
+    queryFn: async () => {
+      const { data } = await (supabase as any)
+        .from("wa_analysis_settings")
+        .select("*")
+        .eq("id", WA_ANALYSIS_SINGLETON_ID)
+        .single();
+      return data as { id: string; trigger_type: string; schedule_cron: string | null; alert_threshold: number; agent_id: string | null; updated_at: string } | null;
+    },
+  });
+
+  const [triggerType, setTriggerType] = useState<"manual" | "scheduled">("manual");
+  const [scheduleHour, setScheduleHour] = useState("22");
+  const [threshold, setThreshold] = useState(5.0);
+
+  useEffect(() => {
+    if (!settings) return;
+    setTriggerType(settings.trigger_type as "manual" | "scheduled");
+    setThreshold(Number(settings.alert_threshold));
+    const parts = (settings.schedule_cron ?? "0 22 * * *").split(" ");
+    setScheduleHour(parts[1] ?? "22");
+  }, [settings]);
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const hourNum = Math.max(0, Math.min(23, parseInt(scheduleHour) || 22));
+      await (supabase as any).from("wa_analysis_settings").upsert({
+        id: WA_ANALYSIS_SINGLETON_ID,
+        trigger_type: triggerType,
+        schedule_cron: `0 ${hourNum} * * *`,
+        alert_threshold: threshold,
+        updated_at: new Date().toISOString(),
+      });
+    },
+    onSuccess: () => {
+      toast.success("Configurações salvas");
+      qc.invalidateQueries({ queryKey: ["wa-analysis-settings"] });
+    },
+    onError: () => toast.error("Erro ao salvar configurações"),
+  });
+
+  return (
+    <div className="space-y-6 max-w-md">
+      {/* Toggle manual/agendado */}
+      <div className="space-y-2">
+        <p className="text-sm font-medium">Tipo de análise</p>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setTriggerType("manual")}
+            className={cn(
+              "px-3 py-1.5 rounded-lg text-sm border transition-colors",
+              triggerType === "manual"
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-background border-border hover:bg-muted"
+            )}
+          >
+            Manual
+          </button>
+          <button
+            onClick={() => setTriggerType("scheduled")}
+            className={cn(
+              "px-3 py-1.5 rounded-lg text-sm border transition-colors",
+              triggerType === "scheduled"
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-background border-border hover:bg-muted"
+            )}
+          >
+            Agendado
+          </button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {triggerType === "manual"
+            ? "A análise é disparada manualmente pelo usuário."
+            : "A análise roda automaticamente no horário definido abaixo."}
+        </p>
+      </div>
+
+      {/* Campo de horário (só se agendado) */}
+      {triggerType === "scheduled" && (
+        <div className="space-y-2">
+          <p className="text-sm font-medium">Horário de análise diária</p>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min={0}
+              max={23}
+              value={scheduleHour}
+              onChange={(e) => setScheduleHour(e.target.value)}
+              className="w-20 border rounded-lg px-3 py-1.5 text-sm bg-background"
+              placeholder="22"
+            />
+            <span className="text-sm text-muted-foreground">:00 (horário local)</span>
+          </div>
+          <p className="text-xs text-muted-foreground font-mono">Cron: 0 {scheduleHour || "22"} * * *</p>
+        </div>
+      )}
+
+      {/* Threshold */}
+      <div className="space-y-3">
+        <p className="text-sm font-medium">
+          Threshold de alerta crítico:{" "}
+          <span className="text-primary font-bold">{threshold.toFixed(1)}</span>
+        </p>
+        <input
+          type="range"
+          min={0}
+          max={10}
+          step={0.5}
+          value={threshold}
+          onChange={(e) => setThreshold(Number(e.target.value))}
+          className="w-full"
+        />
+        <div className="flex justify-between text-xs text-muted-foreground">
+          <span>0 (nunca alerta)</span>
+          <span>10 (sempre alerta)</span>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Conversas com nota abaixo de{" "}
+          <span className="font-medium text-foreground">{threshold.toFixed(1)}</span>{" "}
+          disparam alerta crítico para o usuário e admins.
+        </p>
+      </div>
+
+      {/* Agent ID */}
+      <div className="space-y-2">
+        <p className="text-sm font-medium">Agente IA em uso</p>
+        <input
+          readOnly
+          value={settings?.agent_id ?? "agente-feedback-wa"}
+          className="w-full border rounded-lg px-3 py-1.5 text-sm bg-muted text-muted-foreground"
+        />
+        <p className="text-xs text-muted-foreground">Identificador do agente responsável pela análise de conversas.</p>
+      </div>
+
+      {/* Botão salvar */}
+      <button
+        onClick={() => save.mutate()}
+        disabled={save.isPending}
+        className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+      >
+        {save.isPending ? "Salvando..." : "Salvar configurações"}
+      </button>
+    </div>
+  );
+}
 
 const SettingsPage = () => {
   const { data: settings, isLoading } = useSystemSettings();
@@ -120,6 +273,7 @@ const SettingsPage = () => {
           {isAdmin && <TabsTrigger value="fontes" className="text-xs gap-1.5"><Target className="h-3.5 w-3.5" /> Fontes</TabsTrigger>}
           {isAdmin && <TabsTrigger value="instagram" className="text-xs gap-1.5"><ChannelIcon channel="instagram" size={14} /> Instagram</TabsTrigger>}
           {isAdmin && <TabsTrigger value="whatsapp" className="text-xs gap-1.5"><MessageSquare className="h-3.5 w-3.5" /> WhatsApp</TabsTrigger>}
+          {isAdmin && <TabsTrigger value="whatsapp-ia" className="text-xs gap-1.5"><Bot className="h-3.5 w-3.5" /> WhatsApp IA</TabsTrigger>}
           {isAdmin && <TabsTrigger value="usuarios" className="text-xs gap-1.5"><Users className="h-3.5 w-3.5" /> Usuários</TabsTrigger>}
         </TabsList>
 
@@ -297,6 +451,21 @@ const SettingsPage = () => {
           <TabsContent value="whatsapp">
             <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="bg-card rounded-xl border shadow-card p-6 overflow-x-auto">
               <WhatsAppInstancesSettings />
+            </motion.div>
+          </TabsContent>
+        )}
+
+        {/* WHATSAPP IA */}
+        {isAdmin && (
+          <TabsContent value="whatsapp-ia">
+            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="bg-card rounded-xl border shadow-card p-6">
+              <h3 className="font-display font-semibold text-sm mb-6 flex items-center gap-2">
+                <Bot className="h-4 w-4 text-primary" /> Análise IA de Conversas WhatsApp
+              </h3>
+              <p className="text-xs text-muted-foreground mb-6">
+                Configure como a IA analisa as conversas do WhatsApp, quando ela roda e quais thresholds disparam alertas críticos.
+              </p>
+              <WaIaSettingsTab />
             </motion.div>
           </TabsContent>
         )}
