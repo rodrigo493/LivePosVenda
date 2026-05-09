@@ -70,6 +70,7 @@ const operationsNav = [
   { title: "Orçamentos",            url: "/orcamentos",         icon: FileText,       moduleKey: "orcamentos" },
   { title: "Ordens de Serviço",     url: "/ordens-servico",     icon: ClipboardList,  moduleKey: "ordens_servico" },
   { title: "Manutenção Prev.",      url: "/manutencao",         icon: CalendarClock,  moduleKey: "manutencao" },
+  { title: "Minhas Conversas WA",   url: "/minhas-conversas-wa", icon: MessageSquare,  moduleKey: "minhas_conversas_wa" },
 ];
 
 const managementNav = [
