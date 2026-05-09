@@ -49,6 +49,7 @@ const MotivosPerdaPage = lazy(() => import("./pages/MotivosPerdaPage"));
 const ProfilePage = lazy(() => import("./pages/ProfilePage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const WhatsAppMonitoringPage = lazy(() => import("./pages/WhatsAppMonitoringPage"));
+const AdminConversasPage = lazy(() => import("./pages/AdminConversasPage"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -144,6 +145,7 @@ function AppRoutes() {
             <Route path="/integracoes/rd-station" element={<RdStationPage />} />
             <Route path="/motivos-perda" element={<MotivosPerdaPage />} />
             <Route path="/admin/whatsapp" element={<WhatsAppMonitoringPage />} />
+            <Route path="/admin/conversas" element={<AdminConversasPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>
