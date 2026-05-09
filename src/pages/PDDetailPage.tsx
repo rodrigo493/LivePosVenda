@@ -1382,6 +1382,7 @@ const PDDetailPage = () => {
               email: c.email || "",
               phone: c.phone || c.whatsapp || "",
               address: c.address || "",
+              addressNumber: c.address_number || "",
               bairro: (sr as any).contract_bairro || "",
               city: c.city || "",
               state: c.state || "",

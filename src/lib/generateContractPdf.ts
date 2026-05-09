@@ -22,17 +22,20 @@ export interface ContractPdfData {
   contractNumber: string;
   date: string; // "09/05/2026"
   client: {
-    name: string;         // contact_person (PJ) ou name (PF)
-    cpfCnpj: string;      // document
-    razaoSocial: string;  // name da empresa ou próprio nome
+    name: string;           // contact_person (PJ) ou name (PF)
+    cpfCnpj: string;        // document
+    razaoSocial: string;    // name da empresa ou próprio nome
     email: string;
     phone: string;
-    address: string;      // rua + número
+    address: string;        // rua
+    addressNumber: string;  // nº
     bairro: string;
     city: string;
     state: string;
     zipCode: string;
   };
+  contractDate?: string;    // data editável — padrão: hoje
+  obs?: string;             // observação livre na tabela de produtos
   items: ContractItem[];
   total: number;
   installments: ContractInstallment[];
@@ -237,8 +240,9 @@ export function generateContractPdf(data: ContractPdfData) {
   y += 6;
   doc.setTextColor(0);
 
+  const ruaStr = [data.client.address, data.client.addressNumber ? `nº ${data.client.addressNumber}` : ""].filter(Boolean).join(", ");
   const addrFields: [string, string][] = [
-    ["Rua:",     data.client.address],
+    ["Rua:",     ruaStr],
     ["Bairro:",  data.client.bairro],
     ["Cidade:",  data.client.city],
     ["Estado:",  data.client.state],
@@ -345,7 +349,7 @@ export function generateContractPdf(data: ContractPdfData) {
   doc.setFontSize(7.5);
   doc.setFont("helvetica", "italic");
   doc.setTextColor(80, 80, 80);
-  doc.text("OBS.: EQUIPAMENTO PADRÃO LIVE", margin, y);
+  doc.text(`OBS.: ${data.obs || "EQUIPAMENTO PADRÃO LIVE"}`, margin, y);
   y += 6;
 
   // ── Cláusulas 2.1 / 2.2 / 2.3 (sub-itens do Objeto) ─────────────────────
@@ -475,7 +479,8 @@ export function generateContractPdf(data: ContractPdfData) {
 
   doc.setFont("helvetica", "normal");
   doc.setTextColor(0);
-  doc.text(`São José do Rio Pardo, ${data.date}.`, pageWidth - margin, y, { align: "right" });
+  const sigDate = data.contractDate || data.date;
+  doc.text(`São José do Rio Pardo, ${sigDate}.`, pageWidth - margin, y, { align: "right" });
   y += 20;
 
   // Bloco de assinaturas

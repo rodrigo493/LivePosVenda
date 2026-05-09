@@ -2,10 +2,12 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { FileText, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useSaveContractData, type ContractInstallment } from "@/hooks/useContractData";
 import { generateContractPdf, type ContractPdfData } from "@/lib/generateContractPdf";
+import { fmtBRL } from "@/lib/contractMappings";
 
 interface Props {
   pdId: string;
@@ -29,17 +31,20 @@ export function ContractSection({
   exportedBy,
 }: Props) {
   const [comprador, setComprador] = useState({
-    name:       client.name,
-    cpfCnpj:   client.cpfCnpj,
-    razaoSocial: client.razaoSocial,
-    email:      client.email,
-    phone:      client.phone,
-    address:    client.address,
-    city:       client.city,
-    state:      client.state,
-    zipCode:    client.zipCode,
+    name:          client.name,
+    cpfCnpj:       client.cpfCnpj,
+    razaoSocial:   client.razaoSocial,
+    email:         client.email,
+    phone:         client.phone,
+    address:       client.address,
+    addressNumber: client.addressNumber,
+    city:          client.city,
+    state:         client.state,
+    zipCode:       client.zipCode,
   });
   const [bairro, setBairro] = useState(initialBairro ?? "");
+  const [contractDate, setContractDate] = useState("");
+  const [obs, setObs] = useState("EQUIPAMENTO PADRÃO LIVE");
   const [installments, setInstallments] = useState<ContractInstallment[]>(
     initialInstallments ?? []
   );
@@ -88,6 +93,8 @@ export function ContractSection({
       const pdfData: ContractPdfData = {
         contractNumber,
         date,
+        contractDate: contractDate.trim() || undefined,
+        obs: obs.trim() || undefined,
         client: { ...comprador, bairro },
         items,
         total,
@@ -146,9 +153,16 @@ export function ContractSection({
         </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="space-y-1 sm:col-span-2">
-            <Label className="text-xs">Rua / Logradouro</Label>
-            <Input value={comprador.address} onChange={setField("address")} placeholder="Rua, nº" className="h-8 text-sm" />
+          {/* Rua ocupa ~3/4 e Nº ocupa ~1/4 */}
+          <div className="space-y-1 flex gap-2 sm:col-span-2">
+            <div className="flex-1 space-y-1">
+              <Label className="text-xs">Rua / Logradouro</Label>
+              <Input value={comprador.address} onChange={setField("address")} placeholder="Rua, Av..." className="h-8 text-sm" />
+            </div>
+            <div className="w-24 space-y-1">
+              <Label className="text-xs">Nº</Label>
+              <Input value={comprador.addressNumber} onChange={setField("addressNumber")} placeholder="123" className="h-8 text-sm" />
+            </div>
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Bairro</Label>
@@ -167,6 +181,51 @@ export function ContractSection({
             <Input value={comprador.zipCode} onChange={setField("zipCode")} placeholder="00000-000" className="h-8 text-sm max-w-[140px]" />
           </div>
         </div>
+      </div>
+
+      {/* ── Itens do Contrato (preview) ───────────────────────────────── */}
+      {items.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Itens do Contrato
+          </p>
+          <div className="border rounded text-xs overflow-hidden">
+            <div className="grid grid-cols-[60px_1fr_50px_90px] gap-2 bg-muted/40 px-3 py-1.5 font-medium text-muted-foreground">
+              <span>Código</span>
+              <span>Descrição</span>
+              <span className="text-center">Qtd</span>
+              <span className="text-right">Valor</span>
+            </div>
+            {items.map((item, i) => (
+              <div key={i} className="grid grid-cols-[60px_1fr_50px_90px] gap-2 px-3 py-1.5 border-t">
+                <span className="font-mono text-muted-foreground">{item.code || "—"}</span>
+                <span>{item.description}</span>
+                <span className="text-center">{item.quantity}</span>
+                <span className="text-right">
+                  {item.isBreinde ? "BRINDE" : fmtBRL(item.unitPrice * item.quantity)}
+                </span>
+              </div>
+            ))}
+            <div className="grid grid-cols-[60px_1fr_50px_90px] gap-2 px-3 py-1.5 border-t bg-muted/20 font-semibold">
+              <span className="col-span-3 text-right text-muted-foreground">Total</span>
+              <span className="text-right">{fmtBRL(total)}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── OBS ──────────────────────────────────────────────────────── */}
+      <div className="space-y-1">
+        <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          OBS.
+        </Label>
+        <Textarea
+          value={obs}
+          onChange={(e) => setObs(e.target.value)}
+          placeholder="Observações do contrato"
+          className="text-sm min-h-[56px] resize-none"
+          rows={2}
+        />
       </div>
 
       {/* ── Parcelas ──────────────────────────────────────────────────── */}
@@ -202,6 +261,20 @@ export function ContractSection({
             ))}
           </div>
         )}
+      </div>
+
+      {/* ── Data de assinatura ───────────────────────────────────────── */}
+      <div className="space-y-1 max-w-[220px]">
+        <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Data do Contrato
+        </Label>
+        <Input
+          value={contractDate}
+          onChange={(e) => setContractDate(e.target.value)}
+          placeholder={`${new Date().toLocaleDateString("pt-BR")}`}
+          className="h-8 text-sm"
+        />
+        <p className="text-xs text-muted-foreground">Deixe em branco para usar a data de hoje</p>
       </div>
 
       {/* ── Botão gerar ───────────────────────────────────────────────── */}
