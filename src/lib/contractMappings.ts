@@ -116,3 +116,59 @@ export function extractCodeFromDescription(desc: string): string {
   if (/KIT\.V5\.118/.test(d)) return "KIT.V5.118";
   return "";
 }
+
+const PAYMENT_FORMA: Record<string, string> = {
+  pix:               "PIX",
+  transferencia:     "Transferência (TED/DOC)",
+  cartao_parcelado:  "Cartão parcelado",
+  compra_programada: "Compra Programada",
+  financiamento:     "Financiamento bancário",
+};
+
+export interface QuotePaymentData {
+  paymentMethods: string[];
+  installmentsCount: number;
+  total: number;
+  compraProgramadaNotes?: string | null;
+  financiamentoNotes?: string | null;
+}
+
+export interface ContractInstallmentInit {
+  parcela: number;
+  data: string;
+  valor: string;
+  forma: string;
+}
+
+export function quoteToContractInstallments(q: QuotePaymentData): ContractInstallmentInit[] {
+  const methods = q.paymentMethods.length > 0 ? q.paymentMethods : [];
+  if (methods.length === 0) return [];
+
+  const result: ContractInstallmentInit[] = [];
+  let num = 1;
+
+  for (const method of methods) {
+    if (method === "cartao_parcelado") {
+      const n = q.installmentsCount > 0 ? q.installmentsCount : 1;
+      const valorParcela = q.total / n;
+      for (let i = 0; i < n; i++) {
+        result.push({ parcela: num++, data: "", valor: fmtBRL(valorParcela), forma: "Cartão" });
+      }
+    } else if (method === "compra_programada" && q.compraProgramadaNotes) {
+      const lines = q.compraProgramadaNotes.split("\n").filter(Boolean);
+      if (lines.length > 1) {
+        for (const line of lines) {
+          result.push({ parcela: num++, data: "", valor: "", forma: line.trim() });
+        }
+      } else {
+        result.push({ parcela: num++, data: "", valor: fmtBRL(q.total), forma: q.compraProgramadaNotes.trim() });
+      }
+    } else if (method === "financiamento" && q.financiamentoNotes) {
+      result.push({ parcela: num++, data: "", valor: fmtBRL(q.total), forma: q.financiamentoNotes.trim() });
+    } else {
+      result.push({ parcela: num++, data: "", valor: fmtBRL(q.total), forma: PAYMENT_FORMA[method] ?? method });
+    }
+  }
+
+  return result;
+}

@@ -31,7 +31,7 @@ import { ExternalLink } from "lucide-react";
 import { formatCurrency as fmtCurrency } from "@/lib/formatters";
 import { ContractSection } from "@/components/pd/ContractSection";
 import type { ContractItem } from "@/lib/generateContractPdf";
-import { extractCodeFromDescription } from "@/lib/contractMappings";
+import { extractCodeFromDescription, quoteToContractInstallments } from "@/lib/contractMappings";
 
 const partTypes = [
   { value: "peca_cobrada", label: "Peça (Cobrada)" },
@@ -1559,7 +1559,17 @@ const PDDetailPage = () => {
           items={contractItems}
           total={linkedQuote?.total ?? 0}
           initialBairro={(sr as any).contract_bairro}
-          initialInstallments={(sr as any).contract_installments ?? []}
+          initialInstallments={
+            (sr as any).contract_installments?.length > 0
+              ? (sr as any).contract_installments
+              : quoteToContractInstallments({
+                  paymentMethods: (linkedQuote as any)?.payment_methods ?? [],
+                  installmentsCount: (linkedQuote as any)?.installments ?? 0,
+                  total: linkedQuote?.total ?? 0,
+                  compraProgramadaNotes: (linkedQuote as any)?.payment_compra_programada_notes,
+                  financiamentoNotes: (linkedQuote as any)?.payment_financiamento_notes,
+                })
+          }
           exportedBy={myProfile?.full_name || myProfile?.email || undefined}
         />
       )}
