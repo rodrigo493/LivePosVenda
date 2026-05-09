@@ -279,6 +279,7 @@ const QuoteDetailPage = () => {
   if (!quote) return (
     <div className="p-8 text-center text-muted-foreground">
       <p>Orçamento não encontrado.</p>
+      <p className="mt-2 text-xs font-mono opacity-60">id={String(id)} loading={String(isLoading)}</p>
       {quoteError && <p className="mt-2 text-xs text-destructive font-mono">{String(quoteError)}</p>}
     </div>
   );
