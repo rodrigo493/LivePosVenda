@@ -18,6 +18,20 @@ export interface ContractItem {
   isBreinde: boolean; // true = mostra "BRINDE" no lugar do preço
 }
 
+export interface ContractDimension {
+  name: string;
+  weight: string;
+  dims: string;
+}
+
+/** Linha já formatada para a tabela de produtos — substitui o cálculo 60/40 se informada */
+export interface ContractProductRow {
+  code: string;
+  description: string;
+  value: string;  // "R$ 1.234,56" ou "BRINDE"
+  qty: string;    // "1,00"
+}
+
 export interface ContractPdfData {
   contractNumber: string;
   date: string; // "09/05/2026"
@@ -39,6 +53,8 @@ export interface ContractPdfData {
   items: ContractItem[];
   total: number;
   installments: ContractInstallment[];
+  customDimensions?: ContractDimension[];   // substitui DIMENSIONS_MAPPING se informado
+  customProductRows?: ContractProductRow[]; // substitui o cálculo 60/40 se informado
   exportedBy?: string;
 }
 
@@ -290,33 +306,31 @@ export function generateContractPdf(data: ContractPdfData) {
   );
   y += 7;
 
-  // Build product rows: cada item do orçamento + e-book pareado
-  // Distribuição de valor: 60% equipamento / 40% e-book
+  // Build product rows — usa customProductRows se fornecido (valores editados pelo usuário)
+  // Caso contrário, calcula 60% equip / 40% e-book a partir de unitPrice
   const productRows: string[][] = [];
-  for (const item of data.items) {
-    const ebook = EBOOK_MAPPING[item.code.toUpperCase().trim()];
-    const hasEbook = ebook && !item.isBreinde;
-
-    const equipPrice = item.isBreinde
-      ? "BRINDE"
-      : hasEbook
-      ? fmtBRL(item.unitPrice * 0.6)
-      : fmtBRL(item.unitPrice);
-
-    productRows.push([
-      item.code,
-      item.description,
-      equipPrice,
-      item.quantity.toLocaleString("pt-BR", { minimumFractionDigits: 2 }),
-    ]);
-
-    if (hasEbook) {
+  if (data.customProductRows && data.customProductRows.length > 0) {
+    for (const row of data.customProductRows) {
+      productRows.push([row.code, row.description, row.value, row.qty]);
+    }
+  } else {
+    for (const item of data.items) {
+      const ebook = EBOOK_MAPPING[item.code.toUpperCase().trim()];
+      const hasEbook = ebook && !item.isBreinde;
+      const equipPrice = item.isBreinde
+        ? "BRINDE"
+        : hasEbook
+        ? fmtBRL(item.unitPrice * 0.6)
+        : fmtBRL(item.unitPrice);
       productRows.push([
-        ebook.code,
-        ebook.desc,
-        fmtBRL(item.unitPrice * 0.4),
-        "1,00",
+        item.code,
+        item.description,
+        equipPrice,
+        item.quantity.toLocaleString("pt-BR", { minimumFractionDigits: 2 }),
       ]);
+      if (hasEbook) {
+        productRows.push([ebook.code, ebook.desc, fmtBRL(item.unitPrice * 0.4), "1,00"]);
+      }
     }
   }
 
@@ -423,15 +437,21 @@ export function generateContractPdf(data: ContractPdfData) {
 
   y = addClauseGroup(doc, y, pageWidth, CLAUSES_PRECO);
 
-  // ── Tabela de dimensões (apenas aparelhos do contrato) ────────────────────
+  // ── Tabela de dimensões (customDimensions sobrescreve DIMENSIONS_MAPPING) ──
   const dimRows: string[][] = [];
-  const seenDimNames = new Set<string>();
-  for (const item of data.items) {
-    if (item.isBreinde) continue;
-    const dim = DIMENSIONS_MAPPING[item.code.toUpperCase().trim()];
-    if (dim && !seenDimNames.has(dim.name)) {
-      seenDimNames.add(dim.name);
-      dimRows.push([dim.name, dim.weight, dim.dims]);
+  if (data.customDimensions && data.customDimensions.length > 0) {
+    for (const d of data.customDimensions) {
+      dimRows.push([d.name, d.weight, d.dims]);
+    }
+  } else {
+    const seenDimNames = new Set<string>();
+    for (const item of data.items) {
+      if (item.isBreinde) continue;
+      const dim = DIMENSIONS_MAPPING[item.code.toUpperCase().trim()];
+      if (dim && !seenDimNames.has(dim.name)) {
+        seenDimNames.add(dim.name);
+        dimRows.push([dim.name, dim.weight, dim.dims]);
+      }
     }
   }
 

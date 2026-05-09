@@ -6,7 +6,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { FileText, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useSaveContractData, type ContractInstallment } from "@/hooks/useContractData";
-import { generateContractPdf, type ContractPdfData, type ContractItem } from "@/lib/generateContractPdf";
+import {
+  generateContractPdf,
+  type ContractPdfData,
+  type ContractDimension,
+  type ContractProductRow,
+} from "@/lib/generateContractPdf";
 import { fmtBRL, EBOOK_MAPPING, DIMENSIONS_MAPPING } from "@/lib/contractMappings";
 
 interface Props {
@@ -20,10 +25,24 @@ interface Props {
   exportedBy?: string;
 }
 
+// ── tipos internos ─────────────────────────────────────────────────────────────
+
+interface ItemRow {
+  code: string;
+  description: string;
+  equipValue: string; // valor que aparece na coluna "Valor Uni." do equipamento
+  qty: string;        // quantidade
+  hasEbook: boolean;
+  ebookCode: string;
+  ebookDesc: string;
+  ebookValue: string; // valor que aparece na coluna "Valor Uni." do e-book
+  isBreinde: boolean;
+}
+
 // ── helpers ────────────────────────────────────────────────────────────────────
 
 function parseBRL(s: string): number {
-  return parseFloat(s.replace(/[^0-9,]/g, "").replace(",", ".")) || 0;
+  return parseFloat(s.replace(/[R$\s.]/g, "").replace(",", ".")) || 0;
 }
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
@@ -34,7 +53,6 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Formata Date → "DD.MM.YYYY" */
 function fmtInstDate(d: Date): string {
   return [
     String(d.getDate()).padStart(2, "0"),
@@ -43,7 +61,6 @@ function fmtInstDate(d: Date): string {
   ].join(".");
 }
 
-/** Interpreta "DD/MM/YYYY" ou "DD.MM.YYYY" → Date (ou hoje se inválido) */
 function parseInstDate(s: string): Date {
   const parts = s.trim().split(/[\/\.]/);
   if (parts.length === 3) {
@@ -54,18 +71,46 @@ function parseInstDate(s: string): Date {
   return new Date();
 }
 
-/** Preenche datas vazias ou sobrescreve todas (overwrite=true):
- *  1ª parcela = startDate, demais = +30 dias cada */
-function applyDates(
-  insts: ContractInstallment[],
-  startDate: Date,
-  overwrite = false
-): ContractInstallment[] {
+function applyDates(insts: ContractInstallment[], startDate: Date, overwrite = false): ContractInstallment[] {
   return insts.map((inst, i) => {
     if (!overwrite && inst.data.trim()) return inst;
     const d = new Date(startDate);
     d.setDate(d.getDate() + i * 30);
     return { ...inst, data: fmtInstDate(d) };
+  });
+}
+
+function deriveDims(items: ContractPdfData["items"]): ContractDimension[] {
+  const seen = new Set<string>();
+  const rows: ContractDimension[] = [];
+  for (const item of items) {
+    if (item.isBreinde) continue;
+    const dim = DIMENSIONS_MAPPING[item.code.toUpperCase().trim()];
+    if (dim && !seen.has(dim.name)) {
+      seen.add(dim.name);
+      rows.push({ ...dim });
+    }
+  }
+  return rows;
+}
+
+function buildItemRows(items: ContractPdfData["items"]): ItemRow[] {
+  return items.map((item) => {
+    const ebook = EBOOK_MAPPING[item.code.toUpperCase().trim()];
+    const hasEbook = !!ebook && !item.isBreinde;
+    return {
+      code: item.code,
+      description: item.description,
+      equipValue: item.isBreinde
+        ? "BRINDE"
+        : fmtBRL(hasEbook ? item.unitPrice * 0.6 : item.unitPrice),
+      qty: String(item.quantity),
+      hasEbook,
+      ebookCode: ebook?.code ?? "",
+      ebookDesc: ebook?.desc ?? "",
+      ebookValue: hasEbook ? fmtBRL(item.unitPrice * 0.4) : "",
+      isBreinde: item.isBreinde,
+    };
   });
 }
 
@@ -95,90 +140,65 @@ export function ContractSection({
     zipCode:       client.zipCode,
   });
   const [bairro, setBairro] = useState(initialBairro ?? "");
+  const setField =
+    (f: keyof typeof comprador) =>
+    (e: React.ChangeEvent<HTMLInputElement>) =>
+      setComprador((prev) => ({ ...prev, [f]: e.target.value }));
 
-  // ── itens (preço editável) ─────────────────────────────────────────────────
-  const [editableItems, setEditableItems] = useState<ContractItem[]>(
-    items.map((it) => ({ ...it }))
-  );
+  // ── itens (duas linhas por produto, tudo editável) ─────────────────────────
+  const [itemRows, setItemRows] = useState<ItemRow[]>(() => buildItemRows(items));
 
-  const updateItemPrice = (index: number, raw: string) => {
-    const n = parseBRL(raw) || parseFloat(raw.replace(",", ".")) || 0;
-    setEditableItems((prev) =>
-      prev.map((it, i) => (i === index ? { ...it, unitPrice: n } : it))
-    );
-  };
+  const updateRow = (i: number, patch: Partial<ItemRow>) =>
+    setItemRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+
+  const calcTotal = itemRows.reduce((sum, r) => {
+    if (r.isBreinde) return sum;
+    const qty = parseInt(r.qty) || 1;
+    return sum + parseBRL(r.equipValue) * qty + parseBRL(r.ebookValue);
+  }, 0);
+
+  // ── dimensões (editáveis) ──────────────────────────────────────────────────
+  const [editableDims, setEditableDims] = useState<ContractDimension[]>(() => deriveDims(items));
+  const updateDim = (i: number, patch: Partial<ContractDimension>) =>
+    setEditableDims((prev) => prev.map((d, idx) => (idx === i ? { ...d, ...patch } : d)));
+  const addDim = () =>
+    setEditableDims((prev) => [...prev, { name: "", weight: "", dims: "" }]);
+  const removeDim = (i: number) =>
+    setEditableDims((prev) => prev.filter((_, idx) => idx !== i));
 
   // ── obs / data ─────────────────────────────────────────────────────────────
   const [obs, setObs] = useState("EQUIPAMENTO PADRÃO LIVE");
   const [contractDate, setContractDate] = useState("");
 
-  // ── parcelas (auto-preenche datas ao montar) ───────────────────────────────
+  // ── parcelas ───────────────────────────────────────────────────────────────
   const [installments, setInstallments] = useState<ContractInstallment[]>(() =>
     applyDates(initialInstallments ?? [], new Date(), false)
   );
-
   const addInstallment = () =>
     setInstallments((prev) => {
-      const lastDate = prev.length > 0 ? parseInstDate(prev[prev.length - 1].data) : new Date();
+      const lastDate =
+        prev.length > 0 ? parseInstDate(prev[prev.length - 1].data) : new Date();
       const nextDate = new Date(lastDate);
       nextDate.setDate(nextDate.getDate() + 30);
-      return [
-        ...prev,
-        { parcela: prev.length + 1, data: fmtInstDate(nextDate), valor: "", forma: "" },
-      ];
+      return [...prev, { parcela: prev.length + 1, data: fmtInstDate(nextDate), valor: "", forma: "" }];
     });
-
-  const removeInstallment = (index: number) =>
+  const removeInstallment = (i: number) =>
     setInstallments((prev) =>
-      prev.filter((_, i) => i !== index).map((inst, i) => ({ ...inst, parcela: i + 1 }))
+      prev.filter((_, idx) => idx !== i).map((inst, idx) => ({ ...inst, parcela: idx + 1 }))
     );
-
-  const updateInstallment = (
-    index: number,
-    field: keyof ContractInstallment,
-    value: string | number
-  ) =>
+  const updateInstallment = (i: number, field: keyof ContractInstallment, value: string | number) =>
     setInstallments((prev) =>
-      prev.map((inst, i) => (i === index ? { ...inst, [field]: value } : inst))
+      prev.map((inst, idx) => (idx === i ? { ...inst, [field]: value } : inst))
     );
-
-  /** Recalcula todas as datas a partir da data do contrato (ou hoje) */
   const recalcDates = () => {
     const start = contractDate.trim() ? parseInstDate(contractDate) : new Date();
     setInstallments((prev) => applyDates(prev, start, true));
   };
 
-  // ── dimensões derivadas ────────────────────────────────────────────────────
-  const dimRows = (() => {
-    const seen = new Set<string>();
-    const rows: { name: string; weight: string; dims: string }[] = [];
-    for (const item of editableItems) {
-      if (item.isBreinde) continue;
-      const dim = DIMENSIONS_MAPPING[item.code.toUpperCase().trim()];
-      if (dim && !seen.has(dim.name)) {
-        seen.add(dim.name);
-        rows.push(dim);
-      }
-    }
-    return rows;
-  })();
-
-  // ── total calculado ────────────────────────────────────────────────────────
-  const calcTotal = editableItems.reduce(
-    (sum, it) => sum + (it.isBreinde ? 0 : it.unitPrice * it.quantity),
-    0
-  );
-
-  // ── helpers UI ─────────────────────────────────────────────────────────────
+  // ── gerar PDF ─────────────────────────────────────────────────────────────
   const [generating, setGenerating] = useState(false);
   const saveContractData = useSaveContractData();
 
-  const setField =
-    (field: keyof typeof comprador) =>
-    (e: React.ChangeEvent<HTMLInputElement>) =>
-      setComprador((prev) => ({ ...prev, [field]: e.target.value }));
-
-  // ── gerar PDF ─────────────────────────────────────────────────────────────
   const handleGenerate = async () => {
     if (!bairro.trim()) {
       toast.error("Preencha o bairro antes de gerar o contrato.");
@@ -198,15 +218,36 @@ export function ContractSection({
         today.getMonth() + 1
       ).padStart(2, "0")}/${today.getFullYear()}`;
 
+      // Monta linhas exatamente como editadas pelo usuário
+      const customProductRows: ContractProductRow[] = [];
+      for (const r of itemRows) {
+        customProductRows.push({
+          code: r.code,
+          description: r.description,
+          value: r.equipValue,
+          qty: (parseInt(r.qty) || 1).toLocaleString("pt-BR", { minimumFractionDigits: 2 }),
+        });
+        if (r.hasEbook || r.ebookCode) {
+          customProductRows.push({
+            code: r.ebookCode,
+            description: r.ebookDesc,
+            value: r.ebookValue,
+            qty: "1,00",
+          });
+        }
+      }
+
       const pdfData: ContractPdfData = {
         contractNumber,
         date,
         contractDate: contractDate.trim() || undefined,
         obs: obs.trim() || undefined,
         client: { ...comprador, bairro },
-        items: editableItems,
+        items,
         total: calcTotal,
         installments,
+        customProductRows,
+        customDimensions: editableDims.filter((d) => d.name.trim()),
         exportedBy,
       };
 
@@ -231,7 +272,6 @@ export function ContractSection({
       {/* ── 1. Dados do Comprador ──────────────────────────────────────── */}
       <div className="space-y-3">
         <SectionTitle>1. Dados do Comprador</SectionTitle>
-
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1">
             <Label className="text-xs">Nome / Responsável</Label>
@@ -239,7 +279,7 @@ export function ContractSection({
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Razão Social</Label>
-            <Input value={comprador.razaoSocial} onChange={setField("razaoSocial")} placeholder="Nome da empresa ou próprio nome" className="h-8 text-sm" />
+            <Input value={comprador.razaoSocial} onChange={setField("razaoSocial")} placeholder="Nome da empresa" className="h-8 text-sm" />
           </div>
           <div className="space-y-1">
             <Label className="text-xs">CPF / CNPJ</Label>
@@ -256,7 +296,6 @@ export function ContractSection({
         </div>
 
         <SectionTitle>Endereço de Entrega</SectionTitle>
-
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="flex gap-2 sm:col-span-2">
             <div className="flex-1 space-y-1">
@@ -287,116 +326,130 @@ export function ContractSection({
         </div>
       </div>
 
-      {/* ── 2. Itens + E-books (60/40) ────────────────────────────────── */}
+      {/* ── 2. Itens — igual ao PDF, tudo editável ───────────────────── */}
       <div className="space-y-2">
-        <SectionTitle>2. Itens do Contrato (equipamento + e-book)</SectionTitle>
-        <p className="text-xs text-muted-foreground">
-          Edite o valor unitário. E-book = 40% do valor; Equipamento = 60%.
-        </p>
+        <SectionTitle>2. Itens do Contrato</SectionTitle>
 
         <div className="border rounded overflow-hidden text-xs">
-          {/* cabeçalho */}
-          <div className="grid grid-cols-[56px_1fr_52px_110px_90px_90px] gap-2 bg-muted/50 px-3 py-1.5 font-medium text-muted-foreground">
+          {/* cabeçalho igual ao contrato */}
+          <div className="grid grid-cols-[60px_1fr_100px_56px] gap-1 bg-muted/50 px-2 py-1.5 font-semibold text-muted-foreground">
             <span>Código</span>
             <span>Descrição</span>
-            <span className="text-center">Qtd</span>
-            <span className="text-right">Valor Unit.</span>
-            <span className="text-right">Equip. (60%)</span>
-            <span className="text-right">E-book (40%)</span>
+            <span className="text-right">Valor Uni.</span>
+            <span className="text-center">Quant.</span>
           </div>
 
-          {editableItems.map((item, i) => {
-            const codeKey = item.code.toUpperCase().trim();
-            const ebook = EBOOK_MAPPING[codeKey];
-            const hasEbook = !!ebook && !item.isBreinde;
-            const equipVal = item.isBreinde ? null : hasEbook ? item.unitPrice * 0.6 : item.unitPrice;
-            const ebookVal = hasEbook ? item.unitPrice * 0.4 : null;
-
-            return (
-              <div key={i} className="border-t">
-                {/* linha do equipamento */}
-                <div className="grid grid-cols-[56px_1fr_52px_110px_90px_90px] gap-2 px-3 py-2 items-center">
-                  <span className="font-mono text-muted-foreground truncate">{item.code || "—"}</span>
-                  <span className="truncate">{item.description}</span>
-                  <span className="text-center">{item.quantity}</span>
-                  <div>
-                    <Input
-                      value={item.unitPrice === 0 && !item.isBreinde ? "" : String(item.unitPrice)}
-                      onChange={(e) => updateItemPrice(i, e.target.value)}
-                      placeholder="0,00"
-                      className="h-7 text-xs text-right"
-                      disabled={item.isBreinde}
-                    />
-                  </div>
-                  <span className="text-right font-medium">
-                    {item.isBreinde ? <span className="text-blue-500 italic">BRINDE</span> : fmtBRL(equipVal!)}
-                  </span>
-                  <span className="text-right text-muted-foreground">
-                    {hasEbook ? fmtBRL(ebookVal!) : "—"}
-                  </span>
-                </div>
-                {/* linha do e-book */}
-                {hasEbook && (
-                  <div className="grid grid-cols-[56px_1fr_52px_110px_90px_90px] gap-2 px-3 py-1 items-center bg-muted/20 text-muted-foreground italic">
-                    <span className="font-mono text-[10px]">{ebook.code}</span>
-                    <span className="text-[10px]">{ebook.desc}</span>
-                    <span className="text-center text-[10px]">1</span>
-                    <span />
-                    <span />
-                    <span className="text-right text-[10px] font-medium not-italic text-foreground">{fmtBRL(ebookVal!)}</span>
-                  </div>
-                )}
+          {itemRows.map((row, i) => (
+            <div key={i} className="border-t">
+              {/* linha do equipamento — tudo editável */}
+              <div className="grid grid-cols-[60px_1fr_100px_56px] gap-1 px-2 py-1.5 items-center">
+                <Input
+                  value={row.code}
+                  onChange={(e) => updateRow(i, { code: e.target.value })}
+                  className="h-7 text-[11px] font-mono px-1"
+                />
+                <Input
+                  value={row.description}
+                  onChange={(e) => updateRow(i, { description: e.target.value })}
+                  className="h-7 text-[11px] px-1"
+                />
+                <Input
+                  value={row.equipValue}
+                  onChange={(e) => updateRow(i, { equipValue: e.target.value })}
+                  placeholder="R$ 0,00"
+                  className="h-7 text-[11px] text-right px-1"
+                  disabled={row.isBreinde}
+                />
+                <Input
+                  value={row.qty}
+                  onChange={(e) => updateRow(i, { qty: e.target.value })}
+                  placeholder="1"
+                  className="h-7 text-[11px] text-center px-1"
+                />
               </div>
-            );
-          })}
+
+              {/* linha do e-book — tudo editável */}
+              {row.hasEbook && (
+                <div className="grid grid-cols-[60px_1fr_100px_56px] gap-1 px-2 py-1 items-center bg-muted/15">
+                  <Input
+                    value={row.ebookCode}
+                    onChange={(e) => updateRow(i, { ebookCode: e.target.value })}
+                    className="h-7 text-[10px] font-mono px-1 text-muted-foreground"
+                  />
+                  <Input
+                    value={row.ebookDesc}
+                    onChange={(e) => updateRow(i, { ebookDesc: e.target.value })}
+                    className="h-7 text-[10px] px-1 text-muted-foreground italic"
+                  />
+                  <Input
+                    value={row.ebookValue}
+                    onChange={(e) => updateRow(i, { ebookValue: e.target.value })}
+                    placeholder="R$ 0,00"
+                    className="h-7 text-[10px] text-right px-1"
+                  />
+                  <span className="text-[10px] text-center text-muted-foreground">1,00</span>
+                </div>
+              )}
+            </div>
+          ))}
 
           {/* total */}
-          <div className="grid grid-cols-[56px_1fr_52px_110px_90px_90px] gap-2 px-3 py-2 border-t bg-muted/30 font-semibold">
-            <span className="col-span-4 text-right text-muted-foreground">Total</span>
-            <span className="col-span-2 text-right">{fmtBRL(calcTotal)}</span>
+          <div className="grid grid-cols-[60px_1fr_100px_56px] gap-1 px-2 py-2 border-t bg-muted/30 font-semibold">
+            <span className="col-span-2 text-right text-muted-foreground text-xs pr-2">Total</span>
+            <span className="text-right text-xs">{fmtBRL(calcTotal)}</span>
+            <span />
           </div>
         </div>
       </div>
 
       {/* ── OBS ──────────────────────────────────────────────────────── */}
       <div className="space-y-1">
-        <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          OBS.
-        </Label>
+        <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">OBS.</Label>
         <Textarea
           value={obs}
           onChange={(e) => setObs(e.target.value)}
           placeholder="Observações do contrato"
-          className="text-sm min-h-[56px] resize-none"
+          className="text-sm min-h-[52px] resize-none"
           rows={2}
         />
       </div>
 
-      {/* ── Dimensões dos equipamentos ────────────────────────────────── */}
-      {dimRows.length > 0 && (
-        <div className="space-y-2">
-          <SectionTitle>Dimensões (embaladas para transporte)</SectionTitle>
+      {/* ── Dimensões (editáveis) ─────────────────────────────────────── */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <SectionTitle>Dimensões dos Equipamentos (embalados)</SectionTitle>
+          <Button type="button" variant="outline" size="sm" onClick={addDim} className="h-7 text-xs">
+            <Plus className="h-3 w-3 mr-1" /> Linha
+          </Button>
+        </div>
+
+        {editableDims.length === 0 ? (
+          <p className="text-xs text-muted-foreground italic">
+            Nenhuma dimensão — verifique o código do produto ou adicione manualmente.
+          </p>
+        ) : (
           <div className="border rounded overflow-hidden text-xs">
-            <div className="grid grid-cols-[1fr_80px_100px] gap-2 bg-muted/50 px-3 py-1.5 font-medium text-muted-foreground">
+            <div className="grid grid-cols-[1fr_88px_108px_28px] gap-1 bg-muted/50 px-2 py-1.5 font-semibold text-muted-foreground">
               <span>Equipamento</span>
               <span className="text-center">Peso</span>
               <span className="text-center">C × L × A (m)</span>
+              <span />
             </div>
-            {dimRows.map((dim, i) => (
-              <div key={i} className="grid grid-cols-[1fr_80px_100px] gap-2 px-3 py-1.5 border-t">
-                <span>{dim.name}</span>
-                <span className="text-center">{dim.weight}</span>
-                <span className="text-center font-mono">{dim.dims}</span>
+            {editableDims.map((dim, i) => (
+              <div key={i} className="grid grid-cols-[1fr_88px_108px_28px] gap-1 px-2 py-1 border-t items-center">
+                <Input value={dim.name} onChange={(e) => updateDim(i, { name: e.target.value })} placeholder="Nome do equipamento" className="h-7 text-xs px-1" />
+                <Input value={dim.weight} onChange={(e) => updateDim(i, { weight: e.target.value })} placeholder="75,00 Kg" className="h-7 text-xs text-center px-1" />
+                <Input value={dim.dims} onChange={(e) => updateDim(i, { dims: e.target.value })} placeholder="1,10x0,80x1,21" className="h-7 text-xs text-center font-mono px-1" />
+                <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => removeDim(i)}>
+                  <Trash2 className="h-3 w-3 text-destructive" />
+                </Button>
               </div>
             ))}
           </div>
-          <p className="text-xs text-muted-foreground">
-            Dimensões automáticas baseadas no código do produto. Verifique antes de gerar.
-          </p>
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* ── Parcelas / Condições de Pagamento ────────────────────────── */}
+      {/* ── 3. Parcelas ───────────────────────────────────────────────── */}
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-2">
           <SectionTitle>3. Condições de Pagamento (parcelas)</SectionTitle>
@@ -407,7 +460,7 @@ export function ContractSection({
               size="sm"
               onClick={recalcDates}
               className="h-7 text-xs"
-              title="Recalcula todas as datas: 1ª = data do contrato, demais +30 dias"
+              title="Recalcula datas: 1ª = data do contrato, demais +30 dias"
             >
               <RefreshCw className="h-3 w-3 mr-1" /> Datas
             </Button>
@@ -418,10 +471,12 @@ export function ContractSection({
         </div>
 
         {installments.length === 0 ? (
-          <p className="text-xs text-muted-foreground italic">Nenhuma parcela — vincule um orçamento ao PD para auto-preencher.</p>
+          <p className="text-xs text-muted-foreground italic">
+            Nenhuma parcela — vincule um orçamento ao PD para auto-preencher.
+          </p>
         ) : (
           <div className="space-y-1.5">
-            <div className="grid grid-cols-[36px_1fr_1fr_1fr_32px] gap-2 px-1">
+            <div className="grid grid-cols-[32px_1fr_1fr_1fr_30px] gap-1 px-1">
               <span className="text-xs text-muted-foreground text-center">Nº</span>
               <span className="text-xs text-muted-foreground">Data</span>
               <span className="text-xs text-muted-foreground">Valor</span>
@@ -429,33 +484,12 @@ export function ContractSection({
               <span />
             </div>
             {installments.map((inst, i) => (
-              <div key={i} className="grid grid-cols-[36px_1fr_1fr_1fr_32px] gap-2 items-center">
-                <span className="text-sm text-center font-medium">{inst.parcela}</span>
-                <Input
-                  value={inst.data}
-                  onChange={(e) => updateInstallment(i, "data", e.target.value)}
-                  placeholder="24.10.2025"
-                  className="h-8 text-sm"
-                />
-                <Input
-                  value={inst.valor}
-                  onChange={(e) => updateInstallment(i, "valor", e.target.value)}
-                  placeholder="R$ 9.102,50"
-                  className="h-8 text-sm"
-                />
-                <Input
-                  value={inst.forma}
-                  onChange={(e) => updateInstallment(i, "forma", e.target.value)}
-                  placeholder="Bolepix"
-                  className="h-8 text-sm"
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => removeInstallment(i)}
-                >
+              <div key={i} className="grid grid-cols-[32px_1fr_1fr_1fr_30px] gap-1 items-center">
+                <span className="text-xs text-center font-semibold">{inst.parcela}</span>
+                <Input value={inst.data} onChange={(e) => updateInstallment(i, "data", e.target.value)} placeholder="24.10.2025" className="h-8 text-sm" />
+                <Input value={inst.valor} onChange={(e) => updateInstallment(i, "valor", e.target.value)} placeholder="R$ 9.102,50" className="h-8 text-sm" />
+                <Input value={inst.forma} onChange={(e) => updateInstallment(i, "forma", e.target.value)} placeholder="Bolepix" className="h-8 text-sm" />
+                <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => removeInstallment(i)}>
                   <Trash2 className="h-3 w-3 text-destructive" />
                 </Button>
               </div>

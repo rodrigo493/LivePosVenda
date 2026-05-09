@@ -1357,10 +1357,15 @@ const PDDetailPage = () => {
         const ticketClient = sr.tickets?.clients as any;
         const fallbackClient = quoteClient as any;
         const c = ticketClient || fallbackClient || {};
+        // O orçamento salva payment_method (singular: "pix"/"transferencia"/"cartao")
+        // quoteToContractInstallments espera array com chaves padronizadas
+        const rawMethod = (linkedQuote as any)?.payment_method ?? "";
+        const mappedMethods =
+          rawMethod === "cartao" ? ["cartao_parcelado"] : rawMethod ? [rawMethod] : [];
         const quoteInstallments = linkedQuote
           ? quoteToContractInstallments({
-              paymentMethods: (linkedQuote as any)?.payment_methods ?? [],
-              installmentsCount: (linkedQuote as any)?.installments ?? 0,
+              paymentMethods: mappedMethods,
+              installmentsCount: (linkedQuote as any)?.installments ?? 1,
               total: linkedQuote?.total ?? 0,
               compraProgramadaNotes: (linkedQuote as any)?.payment_compra_programada_notes,
               financiamentoNotes: (linkedQuote as any)?.payment_financiamento_notes,
