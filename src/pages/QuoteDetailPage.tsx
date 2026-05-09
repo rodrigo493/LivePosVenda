@@ -201,10 +201,10 @@ const QuoteDetailPage = () => {
     validUntil: currentValidUntil ? new Date(currentValidUntil + "T12:00:00").toLocaleDateString("pt-BR") : undefined,
     company: {
       name: "Live Care — Live Universe",
-      phone: (quote as any)?.creator?.phone || myProfile?.phone || "(19) 3608-4008",
-      email: (quote as any)?.creator?.email || myProfile?.email || "posvenda@liveuni.com.br",
+      phone: allUsers.find((u: any) => u.user_id === (quote as any)?.created_by)?.phone || myProfile?.phone || "(19) 3608-4008",
+      email: allUsers.find((u: any) => u.user_id === (quote as any)?.created_by)?.email || myProfile?.email || "posvenda@liveuni.com.br",
     },
-    exportedBy: (quote as any)?.creator?.full_name || myProfile?.full_name || myProfile?.email || undefined,
+    exportedBy: allUsers.find((u: any) => u.user_id === (quote as any)?.created_by)?.full_name || myProfile?.full_name || myProfile?.email || undefined,
     client: {
       name: quote!.clients?.name || "",
       equipment: quote!.equipments?.equipment_models?.name,
