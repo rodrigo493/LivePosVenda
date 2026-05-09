@@ -324,16 +324,47 @@ function fiberExtractPhone() {
     }
   }
 
-  // 1. Tenta header da conversa ativa — maior chance de ter o JID no WA Web 2026
+  // 1. Fiber do item selecionado na sidebar — props do contato são diretas aqui
+  // (antes do header que sobe até componentes App com JID do próprio usuário)
+  const sidebarFiberSels = [
+    '[aria-selected="true"]',
+    '[data-testid="cell-frame-container"][aria-selected="true"]',
+    '[role="listitem"][aria-selected="true"]',
+    '[tabindex="-1"][aria-selected="true"]',
+  ];
+  for (const sel of sidebarFiberSels) {
+    for (const el of document.querySelectorAll(sel)) {
+      const r = searchFiber(el);
+      if (r) return r;
+    }
+  }
+
+  // 2. Header — profundidade limitada a 25 nós (evita JID do usuário em componentes pai)
   const headerEl = document.querySelector(
     '[data-testid="conversation-header"], #main header, [data-testid="conversation-panel-body"] header'
   );
   if (headerEl) {
-    const r = searchFiber(headerEl);
-    if (r) return r;
+    let fkH;
+    try { fkH = Object.keys(headerEl).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactProps')); } catch {}
+    if (fkH) {
+      if (fkH.startsWith('__reactProps')) {
+        const r = scanProps(headerEl[fkH]);
+        if (r) return r;
+      } else {
+        let fH;
+        try { fH = headerEl[fkH]; } catch {}
+        for (let i = 0; i < 25 && fH; i++) {
+          try {
+            const r = scanProps(fH.memoizedProps) || scanProps(fH.pendingProps);
+            if (r) return r;
+            fH = fH.return;
+          } catch { break; }
+        }
+      }
+    }
   }
 
-  // 1b. Tenta #main diretamente com limite de profundidade menor (50 nós)
+  // 3. #main diretamente (30 nós)
   const mainEl = document.getElementById('main');
   if (mainEl) {
     const fkMain = Object.keys(mainEl).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactProps'));
@@ -343,27 +374,14 @@ function fiberExtractPhone() {
         if (r) return r;
       } else {
         let f = mainEl[fkMain];
-        for (let i = 0; i < 50 && f; i++) {
-          const r1 = scanProps(f.memoizedProps) || scanProps(f.pendingProps);
-          if (r1) return r1;
-          f = f.return;
+        for (let i = 0; i < 30 && f; i++) {
+          try {
+            const r1 = scanProps(f.memoizedProps) || scanProps(f.pendingProps);
+            if (r1) return r1;
+            f = f.return;
+          } catch { break; }
         }
       }
-    }
-  }
-
-  // 1c. Tenta múltiplos seletores de sidebar via fiber
-  const selectors = [
-    '[aria-selected="true"]',
-    '[data-testid="cell-frame-container"][aria-selected="true"]',
-    '[role="listitem"][aria-selected="true"]',
-    '[tabindex="-1"][aria-selected="true"]',
-  ];
-
-  for (const sel of selectors) {
-    for (const el of document.querySelectorAll(sel)) {
-      const r = searchFiber(el);
-      if (r) return r;
     }
   }
 

@@ -176,20 +176,37 @@
       }
     }
 
-    // 1. Header da conversa — sinal mais confiável da conversa ativa
-    const header = document.querySelector(
-      '[data-testid="conversation-header"], #main header'
-    );
-    if (header) {
-      const r = fiberSearchForPhone(header);
-      if (r) return r;
-    }
-
-    // 2. Item selecionado no sidebar (via fiber, fallback)
+    // 1. Fiber do item selecionado no sidebar — props diretas do contato
+    // (antes do header que sobe até componentes pai com JID do próprio usuário)
     const selected = document.querySelector('[aria-selected="true"]');
     if (selected) {
       const r = fiberSearchForPhone(selected);
       if (r) return r;
+    }
+
+    // 2. Header da conversa — profundidade limitada a 25 nós para evitar JID do usuário
+    const header = document.querySelector(
+      '[data-testid="conversation-header"], #main header'
+    );
+    if (header) {
+      let fk2;
+      try { fk2 = Object.keys(header).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactProps')); } catch {}
+      if (fk2) {
+        if (fk2.startsWith('__reactProps')) {
+          const r = scanPropsDeep(header[fk2]);
+          if (r) return r;
+        } else {
+          let f2;
+          try { f2 = header[fk2]; } catch {}
+          for (let i = 0; i < 25 && f2; i++) {
+            try {
+              const r = scanPropsDeep(f2.memoizedProps) || scanPropsDeep(f2.pendingProps);
+              if (r) return r;
+              f2 = f2.return;
+            } catch { break; }
+          }
+        }
+      }
     }
 
     // 3. Painel principal (#main)

@@ -784,6 +784,10 @@ const WA_STATUS_PATTERNS = [
   /^(gravando|recording)/i,
   /^clique/i, /^click/i,
   /^\+\d/,          // "+55 11..." (números de grupo)
+  /^conta comercial$/i,
+  /^business account$/i,
+  /^verified business$/i,
+  /^conta de negócios$/i,
 ];
 
 function getContactName() {
