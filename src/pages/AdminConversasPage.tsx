@@ -4,6 +4,7 @@ import { Navigate, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { WaFeedbackPanel } from "@/components/wa/WaFeedbackPanel";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   MessageSquare, Search, ArrowUpRight, ArrowDownLeft,
@@ -402,6 +403,11 @@ export default function AdminConversasPage() {
                   </AnimatePresence>
                 )}
               </div>
+
+              {/* Painel de Feedback WhatsApp */}
+              {selectedClientId && (
+                <WaFeedbackPanel clientId={selectedClientId} canAnalyze={true} />
+              )}
             </>
           )}
         </div>
