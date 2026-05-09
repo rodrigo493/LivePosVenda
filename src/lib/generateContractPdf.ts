@@ -255,22 +255,30 @@ export function generateContractPdf(data: ContractPdfData) {
   y += 7;
 
   // Build product rows: cada item do orçamento + e-book pareado
+  // Distribuição de valor: 60% equipamento / 40% e-book
   const productRows: string[][] = [];
   for (const item of data.items) {
-    const priceStr = item.isBreinde ? "BRINDE" : fmtBRL(item.unitPrice);
+    const ebook = EBOOK_MAPPING[item.code.toUpperCase().trim()];
+    const hasEbook = ebook && !item.isBreinde;
+
+    const equipPrice = item.isBreinde
+      ? "BRINDE"
+      : hasEbook
+      ? fmtBRL(item.unitPrice * 0.6)
+      : fmtBRL(item.unitPrice);
+
     productRows.push([
       item.code,
       item.description,
-      priceStr,
+      equipPrice,
       item.quantity.toLocaleString("pt-BR", { minimumFractionDigits: 2 }),
     ]);
 
-    const ebook = EBOOK_MAPPING[item.code.toUpperCase().trim()];
-    if (ebook && !item.isBreinde) {
+    if (hasEbook) {
       productRows.push([
         ebook.code,
         ebook.desc,
-        "R$ 0,00",
+        fmtBRL(item.unitPrice * 0.4),
         "1,00",
       ]);
     }
@@ -291,11 +299,6 @@ export function generateContractPdf(data: ContractPdfData) {
     didParseCell: (hookData) => {
       if (hookData.section === "body" && hookData.row.raw) {
         const raw = hookData.row.raw as string[];
-        // Linhas de e-book: código começa com "EB."
-        if (raw[0].startsWith("EB.")) {
-          hookData.cell.styles.textColor = [22, 163, 74];
-          hookData.cell.styles.fontStyle = "italic";
-        }
         // Brindes
         if (raw[2] === "BRINDE") {
           hookData.cell.styles.textColor = [100, 100, 200];
