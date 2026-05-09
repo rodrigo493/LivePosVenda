@@ -55,66 +55,98 @@ function addDivider(doc: jsPDF, y: number, pageWidth: number) {
   doc.line(14, y, pageWidth - 14, y);
 }
 
-function addClausesText(doc: jsPDF, startY: number, pageWidth: number): number {
+type Clause = { title: string; text: string };
+
+const CLAUSES_OBJETO: Clause[] = [
+  {
+    title: "2.1",
+    text: "Todos os produtos são equipamentos de mecanoterapia e seus eventuais acessórios destinados exclusivamente para a prática de atividades de fisioterapia e pilates e deverão ser utilizados exclusivamente sob orientação e supervisão de profissional habilitado nas áreas de fisioterapia e/ou educação física.",
+  },
+  {
+    title: "2.2",
+    text: "A utilização comercial dos equipamentos poderá, a qualquer tempo, estar sujeita às regulamentações profissionais das áreas de fisioterapia, educação física ou outras, as quais deverão ser observadas pelo Comprador.",
+  },
+  {
+    title: "2.3",
+    text: "O Comprador se responsabiliza pelos eventuais danos causados pela utilização dos aparelhos sem orientação e supervisão de profissional habilitado ou sem a observação das normas profissionais aplicáveis.",
+  },
+];
+
+const CLAUSES_PRECO: Clause[] = [
+  {
+    title: "4. Forma de pagamento:",
+    text: "Comprador poderá optar pelo pagamento através de cartão de crédito ou Bolepix.",
+  },
+  {
+    title: "4.1",
+    text: "Comprador poderá optar por financiar a aquisição dos equipamentos através de terceiros e, nesta hipótese, caso seja necessária a realização de pagamento diretamente do terceiro para a Vendedora, o Comprador deverá informar a Vendedora sobre a data e forma do pagamento a ser realizado.",
+  },
+  {
+    title: "4.2",
+    text: "Em caso de pagamento parcelado no cartão de crédito, os juros serão arcados pelo Comprador conforme tabela da operadora de cartão.",
+  },
+  {
+    title: "4.3",
+    text: "O Comprador está ciente de que o pagamento via Bolepix (boleto bancário com PIX integrado) poderá ter prazo de compensação de até 1 (um) dia útil.",
+  },
+  {
+    title: "4.4",
+    text: "Sobre os atrasos nos pagamentos incidirão multa de 2% (dois por cento) e juros moratórios de 1% a.m. (um por cento ao mês), sem prejuízo do ressarcimento de todas as despesas inerentes à cobrança administrativa ou judicial, inclusive honorários advocatícios.",
+  },
+  {
+    title: "5. Da Produção e Remessa dos Equipamentos:",
+    text: "Os equipamentos serão encaminhados para produção após a compensação do pagamento da primeira parcela e serão produzidos no prazo estimado conforme descrito no item 6. Os equipamentos serão enviados para o Comprador somente após a quitação total do pedido, independente da forma de pagamento escolhida.",
+  },
+  {
+    title: "5.1",
+    text: "As mercadorias serão disponibilizadas para coleta por transportadora eleita pelo Comprador, após quitação total do frete pelo Comprador.",
+  },
+  {
+    title: "6. Prazo de produção:",
+    text: "Prazo de produção de 60 dias. Durante este prazo, o equipamento deverá estar totalmente quitado para faturamento e disponibilização para coleta pela transportadora.",
+  },
+  {
+    title: "7. Da Propriedade dos Equipamentos:",
+    text: "A propriedade dos equipamentos é transferida ao Comprador somente após a quitação integral do valor contratado. Até lá, os bens pertencem à Vendedora.",
+  },
+  {
+    title: "8. Das Obrigações do Comprador:",
+    text: "O Comprador se obriga a: (a) efetuar os pagamentos nas datas acordadas; (b) fornecer endereço correto para entrega; (c) receber os equipamentos e assinar comprovante de entrega.",
+  },
+  {
+    title: "9. Da Rescisão:",
+    text: "O presente contrato poderá ser rescindido por qualquer das partes, por descumprimento das obrigações contratuais pela outra parte, após notificação por escrito com prazo mínimo de 05 (cinco) dias úteis para regularização.",
+  },
+  {
+    title: "9.1",
+    text: "O contrato poderá ser rescindido voluntariamente por qualquer uma das partes em qualquer período anterior à remessa das mercadorias mediante comunicação por escrito à parte contrária com incidência de multa de 10% (dez por cento) do valor total do contrato.",
+  },
+  {
+    title: "10. Da Garantia:",
+    text: "A Vendedora oferecerá garantia contratual: (a) 12 meses para estruturas do chassi; (b) 6 meses para rolamentos; (c) 3 meses para elásticos, rodinhas e peças plásticas.",
+  },
+  {
+    title: "11. Da Assistência Técnica:",
+    text: "A assistência técnica durante o período de garantia será prestada pela Vendedora mediante agendamento prévio. Defeitos causados por mau uso, acidentes ou modificações não autorizadas não são cobertos pela garantia.",
+  },
+  {
+    title: "12. Das Disposições Gerais:",
+    text: "Este contrato representa o acordo integral entre as partes, substituindo quaisquer entendimentos anteriores. Qualquer alteração deverá ser feita por escrito e assinada por ambas as partes.",
+  },
+  {
+    title: "13. Foro competente:",
+    text: "Fica eleito o foro da comarca de São José do Rio Pardo, SP, para dirimir quaisquer dúvidas relativas a este contrato.",
+  },
+];
+
+function addClauseGroup(doc: jsPDF, startY: number, pageWidth: number, clauses: Clause[]): number {
   const margin = 14;
   const textWidth = pageWidth - margin * 2;
   let y = startY;
 
-  const clauses = [
-    {
-      title: "2.1",
-      text: "Todos os produtos são equipamentos de mecanoterapia e seus eventuais acessórios destinados exclusivamente para a prática de atividades de fisioterapia e pilates e deverão ser utilizados exclusivamente sob orientação e supervisão de profissional habilitado nas áreas de fisioterapia e/ou educação física.",
-    },
-    {
-      title: "2.2",
-      text: "A utilização comercial dos equipamentos poderá, a qualquer tempo, estar sujeita às regulamentações profissionais das áreas de fisioterapia, educação física ou outras, as quais deverão ser observadas pelo Comprador.",
-    },
-    {
-      title: "2.3",
-      text: "O Comprador se responsabiliza pelos eventuais danos causados pela utilização dos aparelhos sem orientação e supervisão de profissional habilitado ou sem a observação das normas profissionais aplicáveis.",
-    },
-    {
-      title: "4. Forma de pagamento:",
-      text: "Comprador poderá optar pelo pagamento através de cartão de crédito ou Bolepix.",
-    },
-    {
-      title: "4.1",
-      text: "Comprador poderá optar por financiar a aquisição dos equipamentos através de terceiros e, nesta hipótese, caso seja necessária a realização de pagamento diretamente do terceiro para a Vendedora, o Comprador deverá informar a Vendedora sobre a data e forma do pagamento a ser realizado.",
-    },
-    {
-      title: "4.4",
-      text: "Sobre os atrasos nos pagamentos incidirão multa de 2% (dois por cento) e juros moratórios de 1% a.m. (um por cento ao mês), sem prejuízo do ressarcimento de todas as despesas inerentes à cobrança administrativa ou judicial, inclusive honorários advocatícios.",
-    },
-    {
-      title: "5. Da Produção e Remessa dos Equipamentos:",
-      text: "Os equipamentos serão encaminhados para produção após a compensação do pagamento da primeira parcela e serão produzidos no prazo estimado conforme descrito no item 6. Os equipamentos serão enviados para o Comprador somente após a quitação total do pedido, independente da forma de pagamento escolhida.",
-    },
-    {
-      title: "5.1",
-      text: "As mercadorias serão disponibilizadas para coleta por transportadora eleita pelo Comprador, após quitação total do frete pelo Comprador.",
-    },
-    {
-      title: "6. Prazo de produção:",
-      text: "Prazo de produção de 60 dias. Durante este prazo, o equipamento deverá estar totalmente quitado para faturamento e disponibilização para coleta pela transportadora.",
-    },
-    {
-      title: "9.1",
-      text: "O contrato poderá ser rescindido voluntariamente por qualquer uma das partes em qualquer período anterior à remessa das mercadorias mediante comunicação por escrito à parte contrária com incidência de multa de 10% (dez por cento) do valor total do contrato.",
-    },
-    {
-      title: "10. Da Garantia:",
-      text: "A Vendedora oferecerá garantia contratual: (a) 12 meses para estruturas do chassi; (b) 6 meses para rolamentos; (c) 3 meses para elásticos, rodinhas e peças plásticas.",
-    },
-    {
-      title: "13. Foro competente:",
-      text: "Fica eleito o foro da comarca de São José do Rio Pardo, SP, para dirimir quaisquer dúvidas relativas a este contrato.",
-    },
-  ];
-
   doc.setFontSize(8);
 
   for (const clause of clauses) {
-    // Check if we need a new page
     if (y > doc.internal.pageSize.getHeight() - 30) {
       doc.addPage();
       y = 20;
@@ -314,7 +346,10 @@ export function generateContractPdf(data: ContractPdfData) {
   doc.setFont("helvetica", "italic");
   doc.setTextColor(80, 80, 80);
   doc.text("OBS.: EQUIPAMENTO PADRÃO LIVE", margin, y);
-  y += 8;
+  y += 6;
+
+  // ── Cláusulas 2.1 / 2.2 / 2.3 (sub-itens do Objeto) ─────────────────────
+  y = addClauseGroup(doc, y, pageWidth, CLAUSES_OBJETO);
 
   // ── Seção 3: Preço ────────────────────────────────────────────────────────
   if (y > doc.internal.pageSize.getHeight() - 80) {
@@ -376,13 +411,13 @@ export function generateContractPdf(data: ContractPdfData) {
   );
   y += 10;
 
-  // ── Cláusulas contratuais ─────────────────────────────────────────────────
+  // ── Cláusulas 4 a 13 ─────────────────────────────────────────────────────
   if (y > doc.internal.pageSize.getHeight() - 60) {
     doc.addPage();
     y = 20;
   }
 
-  y = addClausesText(doc, y, pageWidth);
+  y = addClauseGroup(doc, y, pageWidth, CLAUSES_PRECO);
 
   // ── Tabela de dimensões (apenas aparelhos do contrato) ────────────────────
   const dimRows: string[][] = [];

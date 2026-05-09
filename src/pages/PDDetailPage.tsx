@@ -83,6 +83,22 @@ const PDDetailPage = () => {
     },
   });
 
+  const quoteClientId = (linkedQuote as any)?.client_id as string | undefined;
+  const hasTicketClient = !!sr?.tickets?.clients;
+  const { data: quoteClient } = useQuery({
+    queryKey: ["quote_client_for_contract", quoteClientId],
+    enabled: !!quoteClientId && !hasTicketClient,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("clients")
+        .select("name, contact_person, document, email, phone, whatsapp, address, city, state, zip_code")
+        .eq("id", quoteClientId!)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+  });
+
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -1540,39 +1556,48 @@ const PDDetailPage = () => {
         </div>
       </motion.div>
 
-      {linkedQuote && (
-        <ContractSection
-          pdId={sr.id}
-          contractNumber={(sr as any).request_number ?? ""}
-          client={{
-            name: (sr.tickets?.clients as any)?.contact_person || sr.tickets?.clients?.name || "",
-            cpfCnpj: (sr.tickets?.clients as any)?.document || "",
-            razaoSocial: sr.tickets?.clients?.name || "",
-            email: (sr.tickets?.clients as any)?.email || "",
-            phone: (sr.tickets?.clients as any)?.phone || (sr.tickets?.clients as any)?.whatsapp || "",
-            address: (sr.tickets?.clients as any)?.address || "",
-            bairro: (sr as any).contract_bairro || "",
-            city: (sr.tickets?.clients as any)?.city || "",
-            state: (sr.tickets?.clients as any)?.state || "",
-            zipCode: (sr.tickets?.clients as any)?.zip_code || "",
-          }}
-          items={contractItems}
-          total={linkedQuote?.total ?? 0}
-          initialBairro={(sr as any).contract_bairro}
-          initialInstallments={
-            (sr as any).contract_installments?.length > 0
-              ? (sr as any).contract_installments
-              : quoteToContractInstallments({
-                  paymentMethods: (linkedQuote as any)?.payment_methods ?? [],
-                  installmentsCount: (linkedQuote as any)?.installments ?? 0,
-                  total: linkedQuote?.total ?? 0,
-                  compraProgramadaNotes: (linkedQuote as any)?.payment_compra_programada_notes,
-                  financiamentoNotes: (linkedQuote as any)?.payment_financiamento_notes,
-                })
-          }
-          exportedBy={myProfile?.full_name || myProfile?.email || undefined}
-        />
-      )}
+      {(() => {
+        const ticketClient = sr.tickets?.clients as any;
+        const fallbackClient = quoteClient as any;
+        const c = ticketClient || fallbackClient || {};
+        const quoteInstallments = linkedQuote
+          ? quoteToContractInstallments({
+              paymentMethods: (linkedQuote as any)?.payment_methods ?? [],
+              installmentsCount: (linkedQuote as any)?.installments ?? 0,
+              total: linkedQuote?.total ?? 0,
+              compraProgramadaNotes: (linkedQuote as any)?.payment_compra_programada_notes,
+              financiamentoNotes: (linkedQuote as any)?.payment_financiamento_notes,
+            })
+          : [];
+        const savedInstallments: any[] = (sr as any).contract_installments ?? [];
+        const initialInstallments =
+          savedInstallments.length > 0 && savedInstallments.length >= quoteInstallments.length
+            ? savedInstallments
+            : quoteInstallments;
+        return (
+          <ContractSection
+            pdId={sr.id}
+            contractNumber={(sr as any).request_number ?? ""}
+            client={{
+              name: c.contact_person || c.name || "",
+              cpfCnpj: c.document || "",
+              razaoSocial: c.name || "",
+              email: c.email || "",
+              phone: c.phone || c.whatsapp || "",
+              address: c.address || "",
+              bairro: (sr as any).contract_bairro || "",
+              city: c.city || "",
+              state: c.state || "",
+              zipCode: c.zip_code || "",
+            }}
+            items={contractItems}
+            total={linkedQuote?.total ?? 0}
+            initialBairro={(sr as any).contract_bairro}
+            initialInstallments={initialInstallments}
+            exportedBy={myProfile?.full_name || myProfile?.email || undefined}
+          />
+        );
+      })()}
 
       <div className="flex flex-wrap gap-2 border-t pt-4">
         <Button size="sm" variant="outline" className="gap-1.5" onClick={() => {
