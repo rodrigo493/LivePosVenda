@@ -92,3 +92,27 @@ export function valorPorExtenso(valor: number): string {
 export function fmtBRL(n: number): string {
   return "R$ " + n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
+
+export function extractCodeFromDescription(desc: string): string {
+  const d = desc.trim().toUpperCase();
+  if (/^V12/.test(d)) return "V12";
+  if (/^V8/.test(d)) return "V8X";
+  if (/^V5/.test(d)) return d.includes("TORRE") ? "V5PT" : "V5X";
+  if (/^V4/.test(d)) return "V4";
+  if (/^V2 CROSS/.test(d)) return "V2 CROSS";
+  if (/^V2R/.test(d)) return "V2R";
+  if (/^V2/.test(d)) return "V2 CROSS";
+  if (/^V1/.test(d)) return "V1";
+  if (/^5XT/.test(d)) return "5XT";
+  if (/^SX[\s.]?360/.test(d)) return "SX.360";
+  if (/CX\.PL\.003/.test(d)) return "CX.PL.003";
+  if (/CX\.PL\.004/.test(d)) return "CX.PL.004";
+  if (/CX\.PL\.005/.test(d)) return "CX.PL.005";
+  if (/CX\.PL/.test(d)) return "CX.PL.001";
+  if (/KIT\.V5\.133/.test(d)) return "KIT.V5.133";
+  if (/KIT\.V5\.131/.test(d)) return "KIT.V5.131";
+  if (/KIT\.V5\.134/.test(d)) return "KIT.V5.134";
+  if (/KIT\.V5\.130/.test(d)) return "KIT.V5.130";
+  if (/KIT\.V5\.118/.test(d)) return "KIT.V5.118";
+  return "";
+}

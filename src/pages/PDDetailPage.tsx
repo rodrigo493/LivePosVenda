@@ -31,6 +31,7 @@ import { ExternalLink } from "lucide-react";
 import { formatCurrency as fmtCurrency } from "@/lib/formatters";
 import { ContractSection } from "@/components/pd/ContractSection";
 import type { ContractItem } from "@/lib/generateContractPdf";
+import { extractCodeFromDescription } from "@/lib/contractMappings";
 
 const partTypes = [
   { value: "peca_cobrada", label: "Peça (Cobrada)" },
@@ -430,13 +431,15 @@ const PDDetailPage = () => {
   const currentStatus = editStatus ?? sr.status;
   const requestNumber = (sr as any).request_number || "PD";
   const clientName = sr.tickets?.clients?.name || "—";
-  const contractItems: ContractItem[] = (linkedQuote?.quote_items ?? []).map((item: any) => ({
-    code: item.products?.code ?? "",
+  const contractItems: ContractItem[] = (linkedQuote?.quote_items ?? []).map((item: any) => {
+    const code = (item.products?.code || "").trim() || extractCodeFromDescription(item.description ?? "");
+    return {
+    code,
     description: item.description ?? "",
     quantity: item.quantity ?? 1,
     unitPrice: item.unit_price ?? 0,
     isBreinde: (item.description ?? "").toLowerCase().includes("brinde"),
-  }));
+  }; });
   const modelName = sr.tickets?.equipments?.equipment_models?.name || "—";
   const serialNumber = sr.tickets?.equipments?.serial_number || "";
   const equipModelId = (sr.tickets?.equipments as any)?.model_id || undefined;
