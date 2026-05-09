@@ -794,17 +794,23 @@ function sendToBackground(msg) {
 
 // Strings de status do WA Web que não são nomes de contato
 const WA_STATUS_PATTERNS = [
-  /^online$/i, /^offline$/i,
-  /^(última vez|last seen)/i,
-  /^(digitando|typing)/i,
-  /^(gravando|recording)/i,
-  /^clique/i, /^click/i,
+  /^\s*online\s*$/i, /^\s*offline\s*$/i,
+  /^\s*(última vez|last seen)/i,
+  /^\s*(digitando|typing)/i,
+  /^\s*(gravando|recording)/i,
+  /^\s*clique/i, /^\s*click/i,
   /^\+\d/,          // "+55 11..." (números de grupo)
-  /^conta comercial$/i,
-  /^business account$/i,
-  /^verified business$/i,
-  /^conta de negócios$/i,
+  /^\s*conta comercial\s*$/i,
+  /^\s*business account\s*$/i,
+  /^\s*verified business\s*$/i,
+  /^\s*conta de negócios\s*$/i,
 ];
+
+function isStatusString(s) {
+  if (!s) return true;
+  const clean = s.replace(/\s+/g, ' ').trim();
+  return WA_STATUS_PATTERNS.some(p => p.test(clean));
+}
 
 function getContactName() {
   const header = document.querySelector('header[data-testid="conversation-header"]');
@@ -817,8 +823,7 @@ function getContactName() {
     header.querySelector('._amig') ||
     header.querySelector('h1');
   const text = el?.textContent?.trim() || null;
-  if (!text) return null;
-  if (WA_STATUS_PATTERNS.some(p => p.test(text))) return null;
+  if (!text || isStatusString(text)) return null;
   return text;
 }
 
@@ -894,7 +899,9 @@ function renderSidebarData(phone, { client, ticket, stageLabel }) {
   body.textContent = '';
 
   const waName = getContactName();
-  const displayName = (waName && waName !== phone) ? waName : (client.name && client.name !== phone ? client.name : null);
+  const validWaName = waName && !isStatusString(waName) && waName !== phone ? waName : null;
+  const validDbName = client.name && !isStatusString(client.name) && client.name !== phone ? client.name : null;
+  const displayName = validWaName || validDbName;
 
   // Nome do contato com lápis para edição inline
   const nameWrap = document.createElement('div');
