@@ -545,6 +545,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   } else if (msg.type === 'INBOUND_MESSAGE') {
     console.log('[LiveCRM BG] INBOUND_MESSAGE recebido, phone:', msg.data?.phone, 'sb:', !!sb);
     handleInbound(msg.data).catch(console.error);
+  } else if (msg.type === 'OUTBOUND_MESSAGE') {
+    handleOutbound(msg.data).catch(console.error);
   } else if (msg.type === 'SEND_CONFIRMED') {
     clearTimeout(dispatchTimeouts.get(msg.sendId));
     dispatchTimeouts.delete(msg.sendId);
@@ -727,6 +729,67 @@ async function handleInbound({ phone, text, mediaUrl, mimetype, waMessageId }) {
     }
     console.error('[LiveCRM] insert inbound failed:', insertErr.message, '| phone:', phone);
   }
+}
+
+async function handleOutbound({ phone, text, waMessageId }) {
+  if (!sb || !instanceId || !waMessageId) return;
+
+  // Dedup por waMessageId
+  const { data: existing } = await sb
+    .from('whatsapp_messages')
+    .select('id')
+    .eq('manychat_message_id', waMessageId)
+    .maybeSingle();
+  if (existing) return;
+
+  const digits = phone.replace(/\D/g, '');
+  const variants = new Set([
+    digits, '+' + digits,
+    digits.startsWith('55') ? digits.slice(2) : digits,
+    digits.startsWith('55') ? '+' + digits : '+55' + digits,
+  ]);
+  if (digits.startsWith('55') && digits.length === 13) {
+    variants.add('55' + digits[2] + digits[3] + digits.slice(5));
+    variants.add(digits[2] + digits[3] + digits.slice(5));
+  }
+  const orParts = [...variants].flatMap(v => [`phone.eq.${v}`, `whatsapp.eq.${v}`]).join(',');
+  const { data: client } = await sb.from('clients').select('id').or(orParts).maybeSingle();
+  const clientId = client?.id || null;
+
+  // Se o CRM já salvou essa mensagem (outbound sem waMessageId, texto igual, últimos 90s),
+  // apenas atualiza o registro em vez de inserir um duplicado
+  const since = new Date(Date.now() - 90000).toISOString();
+  const { data: crmSaved } = await sb
+    .from('whatsapp_messages')
+    .select('id')
+    .eq('direction', 'outbound')
+    .eq('message_text', text)
+    .is('manychat_message_id', null)
+    .gte('created_at', since)
+    .eq('instance_id', instanceId)
+    .limit(1)
+    .maybeSingle();
+
+  if (crmSaved) {
+    await sb.from('whatsapp_messages')
+      .update({ manychat_message_id: waMessageId })
+      .eq('id', crmSaved.id);
+    console.log('[LiveCRM BG] outbound: vinculado waMessageId a registro CRM existente');
+    return;
+  }
+
+  // Mensagem enviada diretamente no WA Web — insere nova
+  const { error } = await sb.from('whatsapp_messages').insert({
+    client_id: clientId,
+    instance_id: instanceId,
+    direction: 'outbound',
+    message_text: text,
+    sender_phone: phone,
+    status: 'sent',
+    manychat_message_id: waMessageId,
+  });
+  if (error) console.error('[LiveCRM BG] outbound insert error:', error.message);
+  else console.log('[LiveCRM BG] outbound salvo:', waMessageId, 'phone:', phone);
 }
 
 async function refreshToken() {

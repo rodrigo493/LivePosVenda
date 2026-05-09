@@ -563,22 +563,38 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
 // ── Recebe mensagens do wa_hook.js (roda no MAIN world) ──────────────────────
 window.addEventListener('message', (event) => {
-  if (event.source !== window) return;
-  if (!event.data || event.data.type !== 'LIVECRM_INBOUND') return;
+  if (event.source !== window || !event.data) return;
 
-  const { phone, text, msgId } = event.data;
-  if (!phone || !msgId) return;
-  if (processedIds.has(msgId)) return;
-  processedIds.add(msgId);
+  if (event.data.type === 'LIVECRM_INBOUND') {
+    const { phone, text, msgId } = event.data;
+    if (!phone || !msgId) return;
+    if (processedIds.has(msgId)) return;
+    processedIds.add(msgId);
 
-  console.log('[LiveCRM CS] wa_hook: mensagem de', phone, 'texto:', (text || '').substring(0, 40));
-  try {
-    if (!chrome.runtime?.id) return; // context invalidado após reload da extensão
-    chrome.runtime.sendMessage({
-      type: 'INBOUND_MESSAGE',
-      data: { phone, text, waMessageId: msgId },
-    });
-  } catch { /* context invalidado — aba do WA Web precisa de F5 */ }
+    console.log('[LiveCRM CS] wa_hook: mensagem de', phone, 'texto:', (text || '').substring(0, 40));
+    try {
+      if (!chrome.runtime?.id) return;
+      chrome.runtime.sendMessage({
+        type: 'INBOUND_MESSAGE',
+        data: { phone, text, waMessageId: msgId },
+      });
+    } catch { /* context invalidado — aba do WA Web precisa de F5 */ }
+  } else if (event.data.type === 'LIVECRM_OUTBOUND') {
+    const { phone, text, msgId } = event.data;
+    if (!phone || !msgId) return;
+    const dedupKey = 'out_' + msgId;
+    if (processedIds.has(dedupKey)) return;
+    processedIds.add(dedupKey);
+
+    console.log('[LiveCRM CS] wa_hook: outbound para', phone, 'texto:', (text || '').substring(0, 40));
+    try {
+      if (!chrome.runtime?.id) return;
+      chrome.runtime.sendMessage({
+        type: 'OUTBOUND_MESSAGE',
+        data: { phone, text, waMessageId: msgId },
+      });
+    } catch { /* context invalidado */ }
+  }
 });
 
 // ── Heartbeat: acorda o SW a cada 10s para processar envios pendentes ────────

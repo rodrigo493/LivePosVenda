@@ -497,7 +497,26 @@
         }
       }
 
-      if (!msg || msg.isSentByMe || msg.type === 'revoked') return;
+      if (!msg || msg.type === 'revoked') return;
+      if (msg.isSentByMe) {
+        const outTs = msg.t || msg.timestamp;
+        if (outTs && outTs < HOOK_START_TS - 30) return;
+        const contactPhone = jidToPhone(msg.to || msg.chatId);
+        if (!contactPhone) return;
+        const outId = msg.id?.id || msg.id?._serialized || (typeof msg.id === 'string' ? msg.id : null);
+        if (!outId || typeof outId !== 'string') return;
+        let outText = msg.body || msg.caption || '';
+        if (!outText) {
+          const t = msg.type;
+          if (t === 'ptt' || t === 'audio') outText = '🎵 Áudio';
+          else if (t === 'image') outText = '📷 Imagem';
+          else if (t === 'video') outText = '🎥 Vídeo';
+          else if (t === 'document') outText = '📎 Arquivo';
+          else outText = `(${t || 'mensagem'})`;
+        }
+        window.postMessage({ type: 'LIVECRM_OUTBOUND', phone: contactPhone, text: outText, msgId: outId }, '*');
+        return;
+      }
       const msgTs = msg.t || msg.timestamp;
       if (msgTs && msgTs < HOOK_START_TS - 30) return;
       const phone = jidToPhone(msg.from || msg.chatId);
