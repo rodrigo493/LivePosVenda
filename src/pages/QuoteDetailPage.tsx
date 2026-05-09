@@ -640,31 +640,18 @@ const QuoteDetailPage = () => {
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
-            className="mt-4 flex flex-wrap items-center gap-4"
+            className="mt-4 flex items-center gap-3"
           >
             <CreditCard className="h-4 w-4 text-muted-foreground shrink-0" />
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-muted-foreground whitespace-nowrap">Qtd. de parcelas:</label>
-              <Input
-                type="text"
-                disabled={!isEditable}
-                placeholder="Ex: 12"
-                value={currentInstallments}
-                onChange={(e) => setInstallments(e.target.value)}
-                className="h-8 w-20 text-sm font-mono"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-muted-foreground whitespace-nowrap">Valor da parcela:</label>
-              <Input
-                type="text"
-                disabled={!isEditable}
-                placeholder="Ex: 1.250,00"
-                value={currentInstallmentValue}
-                onChange={(e) => setInstallmentValue(e.target.value)}
-                className="h-8 w-32 text-sm font-mono"
-              />
-            </div>
+            <label className="text-xs text-muted-foreground whitespace-nowrap">Condições do parcelamento:</label>
+            <Input
+              type="text"
+              disabled={!isEditable}
+              placeholder="Ex: 12x de R$ 1.250,00"
+              value={currentInstallmentValue}
+              onChange={(e) => setInstallmentValue(e.target.value)}
+              className="h-8 w-56 text-sm font-mono"
+            />
           </motion.div>
         )}
 
