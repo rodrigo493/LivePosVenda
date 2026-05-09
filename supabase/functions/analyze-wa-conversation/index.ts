@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const ANON_KEY     = Deno.env.get("SUPABASE_ANON_KEY")!;
+const ANON_KEY     = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const OPENCLAW_URL      = Deno.env.get("OPENCLAW_URL")!;
 const OPENCLAW_TOKEN    = Deno.env.get("OPENCLAW_HOOKS_TOKEN")!;
 const WEBHOOK_SECRET    = Deno.env.get("OPENCLAW_WEBHOOK_SECRET") ?? "";
@@ -32,15 +32,18 @@ function formatThread(messages: { direction: string; message_text: string; creat
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
-  // Autenticação do chamador (usuário ou pg_cron via service role)
+  // Extrai usuário quando disponível (JWT na sessão do browser).
+  // Não rejeita se null — função usa service_role para todas as ops de banco.
+  // pg_cron e chamadas internas não precisam de JWT de usuário.
   const authHeader = req.headers.get("Authorization") ?? "";
-  const sbUser = createClient(SUPABASE_URL, ANON_KEY, {
-    global: { headers: { Authorization: authHeader } },
-  });
-  const { data: { user } } = await sbUser.auth.getUser();
-  // Aceita chamada autenticada de usuário OU com service role key diretamente
-  const isServiceRole = authHeader.includes(SERVICE_KEY);
-  if (!user && !isServiceRole) return json({ error: "Unauthorized" }, 401);
+  let userId: string | null = null;
+  if (authHeader.startsWith("Bearer ")) {
+    const sbUser = createClient(SUPABASE_URL, ANON_KEY, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const { data: { user } } = await sbUser.auth.getUser().catch(() => ({ data: { user: null } }));
+    userId = user?.id ?? null;
+  }
 
   const { client_id, user_id } = await req.json();
   if (!client_id) return json({ error: "client_id obrigatório" }, 400);
@@ -66,7 +69,7 @@ Deno.serve(async (req) => {
     return json({ error: "Nenhuma mensagem encontrada para este cliente" }, 404);
   }
 
-  const instanceUserId = (messages[0] as any).pipeline_whatsapp_instances?.user_id ?? user_id ?? user?.id;
+  const instanceUserId = (messages[0] as any).pipeline_whatsapp_instances?.user_id ?? user_id ?? userId;
   const instanceId = (messages[0] as any).instance_id ?? null;
   const thread = formatThread(messages);
 

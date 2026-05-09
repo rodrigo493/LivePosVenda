@@ -98,7 +98,11 @@ export function WaFeedbackPanel({ clientId, canAnalyze = true }: WaFeedbackPanel
       toast.success("Análise iniciada — resultado em ~20s");
       qc.invalidateQueries({ queryKey: ["wa-feedback", clientId] });
     },
-    onError: () => toast.error("Erro ao iniciar análise"),
+    onError: (err: unknown) => {
+      const msg = (err as any)?.message || String(err);
+      console.error("[WaFeedbackPanel] analyze error:", err);
+      toast.error(`Erro ao iniciar análise: ${msg}`);
+    },
   });
 
   const showAnalyzeBtn = canAnalyze && (!feedback || feedback.status === "error");
