@@ -635,6 +635,90 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 });
 
+let lastSuggestionMsgId = null;
+let suggestionPollInterval = null;
+
+async function requestSuggestion(clientId, inboundText, phone, waMessageId) {
+  if (!sb) return;
+  // Pega o JWT da sessão armazenada
+  const stored = await new Promise((res) => chrome.storage.local.get(['session'], res));
+  const accessToken = stored.session?.access_token;
+  if (!accessToken) return;
+
+  // Notifica o sidebar que a sugestão está sendo gerada
+  const waTabs = await chrome.tabs.query({ url: 'https://web.whatsapp.com/*' });
+  for (const tab of waTabs) {
+    chrome.tabs.sendMessage(tab.id, { type: 'SUGGESTION_PENDING', phone }, () => {
+      if (chrome.runtime.lastError) { /* silenciar erro de content script não conectado */ }
+    });
+  }
+
+  let suggestionId = null;
+  try {
+    const resp = await fetch(`${SUPABASE_URL}/functions/v1/suggest-wa-response`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`,
+        'apikey': SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify({ client_id: clientId, inbound_text: inboundText }),
+    });
+    if (!resp.ok) { console.warn('[LiveCRM BG] suggest-wa-response error:', resp.status); return; }
+    const json = await resp.json();
+    suggestionId = json.suggestion_id;
+  } catch (e) {
+    console.warn('[LiveCRM BG] requestSuggestion fetch error:', e.message);
+    return;
+  }
+
+  if (!suggestionId) return;
+
+  // Polling a cada 5s por até 60s
+  const startTime = Date.now();
+  if (suggestionPollInterval) clearInterval(suggestionPollInterval);
+
+  suggestionPollInterval = setInterval(async () => {
+    if (Date.now() - startTime > 60_000) {
+      clearInterval(suggestionPollInterval);
+      suggestionPollInterval = null;
+      const tabs2 = await chrome.tabs.query({ url: 'https://web.whatsapp.com/*' });
+      for (const tab of tabs2) {
+        chrome.tabs.sendMessage(tab.id, { type: 'SUGGESTION_TIMEOUT', phone }, () => {
+          if (chrome.runtime.lastError) {}
+        });
+      }
+      return;
+    }
+
+    try {
+      const { data: suggestion } = await sb
+        .from('wa_suggestions')
+        .select('id, suggested_response, status')
+        .eq('id', suggestionId)
+        .maybeSingle();
+
+      if (!suggestion || suggestion.status === 'pending') return;
+
+      clearInterval(suggestionPollInterval);
+      suggestionPollInterval = null;
+
+      const tabs3 = await chrome.tabs.query({ url: 'https://web.whatsapp.com/*' });
+      for (const tab of tabs3) {
+        chrome.tabs.sendMessage(tab.id, {
+          type: suggestion.status === 'done' ? 'SUGGESTION_READY' : 'SUGGESTION_ERROR',
+          phone,
+          text: suggestion.suggested_response ?? '',
+        }, () => {
+          if (chrome.runtime.lastError) {}
+        });
+      }
+    } catch (e) {
+      console.warn('[LiveCRM BG] suggestionPoll error:', e.message);
+    }
+  }, 5_000);
+}
+
 async function handleInbound({ phone, text, mediaUrl, mimetype, waMessageId }) {
   if (!sb || !instanceId) {
     console.warn('[LiveCRM BG] handleInbound abortou: sb=', !!sb, 'instanceId=', !!instanceId);
@@ -728,6 +812,15 @@ async function handleInbound({ phone, text, mediaUrl, mimetype, waMessageId }) {
       return;
     }
     console.error('[LiveCRM] insert inbound failed:', insertErr.message, '| phone:', phone);
+  }
+
+  // Solicitar sugestão de resposta para mensagens inbound com texto
+  if (clientId && text && text.trim()) {
+    const msgKey = waMessageId || (phone + '_' + Date.now());
+    if (msgKey !== lastSuggestionMsgId) {
+      lastSuggestionMsgId = msgKey;
+      requestSuggestion(clientId, text, phone, waMessageId).catch(console.error);
+    }
   }
 }
 
