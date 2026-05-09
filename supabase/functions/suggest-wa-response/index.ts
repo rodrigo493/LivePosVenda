@@ -60,20 +60,21 @@ Deno.serve(async (req) => {
     return `${time} [${dir}] ${m.message_text}`;
   }).join("\n");
 
-  const prompt = `Você é um assistente de vendas e atendimento da Live Equipamentos, fabricante de equipamentos de Pilates com IA embarcada.
-Analise a conversa abaixo e sugira UMA resposta para a última mensagem recebida do lead/cliente.
-Seja direto, profissional e natural. Retorne APENAS o texto da resposta, sem explicações, sem aspas, sem prefixos.
-
-HISTÓRICO DA CONVERSA:
+  // O sistema prompt do agente-copiloto-vendas no OpenClaw já define tom, produtos e regras.
+  // Aqui enviamos apenas o contexto da conversa para manter a sessão leve.
+  const message = `HISTÓRICO (últimas mensagens):
 ${historyText}
 
-ÚLTIMA MENSAGEM DO LEAD:
+MENSAGEM DO LEAD:
 ${inbound_text}`;
 
   const webhookUrl = WEBHOOK_SECRET
     ? `${SUPABASE_URL}/functions/v1/wa-feedback-webhook?secret=${WEBHOOK_SECRET}`
     : `${SUPABASE_URL}/functions/v1/wa-feedback-webhook`;
-  const runName = `suggest-wa-${client_id.slice(0, 8)}-${Date.now()}`;
+  const runName = `copiloto-${client_id.slice(0, 8)}-${Date.now()}`;
+
+  // sessionKey garante sessão persistente por lead — o agente lembra o histórico da conversa
+  const sessionKey = `copiloto-${client_id}`;
 
   const hookRes = await fetch(`${OPENCLAW_URL}/hooks/agent`, {
     method: "POST",
@@ -82,12 +83,13 @@ ${inbound_text}`;
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      message: prompt,
-      agentId: "agente-feedback-wa",
+      message,
+      agentId: "agente-copiloto-vendas",
+      sessionKey,
       deliver: "webhook",
       to: webhookUrl,
       thinking: "low",
-      timeoutSeconds: 60,
+      timeoutSeconds: 30,
       name: runName,
     }),
   });

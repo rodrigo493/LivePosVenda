@@ -28,7 +28,9 @@ Edge Function: analyze-wa-conversation
 [OpenClaw processa assincronamente — Claude Haiku 4.5]
         ↓
 Edge Function: wa-feedback-webhook  ← OpenClaw chama aqui
-  - Extrai run_id + texto de resposta do agente
+  - Valida secret embutido na URL (?secret=...) — não assume header do OpenClaw
+  - Salva body bruto inteiro para debug na v1 (raw_response = JSON.stringify(body))
+  - Extrai run_id + texto de resposta: body.output || body.text || body.message || body.content || ''
   - Parser defensivo: raw.match(/\{[\s\S]*\}/) antes de JSON.parse
   - Atualiza wa_feedbacks: scores + raw_response + status: "done"
   - Se alert_level = "critical" → insere em notifications (usuário + todos admins)
@@ -132,7 +134,8 @@ Critérios:
 - score_response_time: velocidade e consistência das respostas
 - score_tone: educação, clareza e profissionalismo
 - score_commercial: avanço no funil, aproveitamento de oportunidade
-- score_overall: média ponderada (tone 40%, commercial 35%, response_time 25%)
+- score_overall: média ponderada (tone 40%, commercial 35%, response_time 25%)  
+  ⚠️ Pesos canônicos — o agente `agente-feedback-wa` no OpenClaw DEVE usar estes mesmos pesos no seu system prompt
 - alert_level: "critical" se score_overall < threshold configurado (padrão 5.0)
 
 CONVERSA:
@@ -161,12 +164,18 @@ CONVERSA:
 ### `wa-feedback-webhook`
 
 **Trigger:** chamada do OpenClaw após processar o agente  
-**Sem autenticação de usuário** — valida token secreto por header (`X-Openclaw-Secret`)  
+**Sem autenticação de usuário** — valida secret embutido no path da URL (`?secret=OPENCLAW_WEBHOOK_SECRET`).  
+Não assumir que OpenClaw envia header próprio no callback — documentação não garante isso.  
 **Lógica:**
-1. Extrai `run_id` e texto de resposta do body
-2. Parser defensivo:
+1. Valida `url.searchParams.get("secret") === OPENCLAW_WEBHOOK_SECRET`
+2. Salva `JSON.stringify(body)` em `raw_response` imediatamente para debug
+3. Extrai `run_id` e texto de resposta:
    ```ts
-   const raw = body.output || body.text || body.message || '';
+   const raw = body.output ?? body.text ?? body.message ?? body.content ?? body.result ?? '';
+   const runId = body.runId ?? body.run_id ?? '';
+   ```
+4. Parser defensivo:
+   ```ts
    const match = raw.match(/\{[\s\S]*\}/);
    if (!match) → update status "error", salva raw_response, return
    const data = JSON.parse(match[0]);
@@ -249,11 +258,26 @@ adminNav:
 
 ---
 
-## Feature 2 — Sugestões de Resposta no Sidebar da Extensão
+## Feature 2 — Copiloto de Vendas no Sidebar da Extensão
+
+> **Agente separado do Feedback.** O Feedback usa `agente-feedback-wa` para pontuar conversas passadas.  
+> O Copiloto usa `agente-copiloto-vendas` para sugerir respostas em tempo real.  
+> São sistemas distintos: latência, sessão, prompt e objetivo são diferentes.
+
+### Diferenças arquiteturais vs Feature 1 (Feedback)
+
+| Dimensão | Feedback WA | Copiloto de Vendas |
+|---|---|---|
+| Quando dispara | Manual / agendado | Cada mensagem nova do lead |
+| Latência aceitável | 1–2 min | 5–15 segundos |
+| Objetivo | Pontuar conversa passada | Sugerir próxima resposta |
+| Sessão | Isolada por análise | **Persistente por lead** (`sessionKey`) |
+| Agente | `agente-feedback-wa` | `agente-copiloto-vendas` |
+| Saída | JSON com scores | Texto da sugestão |
 
 ### Visão Geral
 
-Quando um lead envia uma mensagem no WA Web, a extensão dispara automaticamente uma chamada ao agente `agente-feedback-wa` solicitando uma sugestão de resposta. A sugestão aparece no sidebar em ~10–20s e o usuário copia com um clique.
+Quando um lead envia uma mensagem no WA Web, a extensão dispara automaticamente uma chamada ao `agente-copiloto-vendas` (Claude Haiku 4.5 no OpenClaw). O agente mantém **sessão persistente por lead** via `sessionKey: copiloto-{client_id}` — assim ele lembra o histórico da conversa sem precisar reenviá-lo completo a cada vez. A sugestão aparece no sidebar em ~5–15s e o vendedor copia com um clique.
 
 ### Fluxo
 
@@ -263,15 +287,18 @@ mensagem inbound chega no WA Web
 wa_hook.js captura (LIVECRM_INBOUND) → content_script → background.js
         ↓
 background.js chama Edge Function: suggest-wa-response
-  { phone, inbound_text, client_id, últimas 10 msgs como contexto }
+  { inbound_text, client_id }
         ↓
 Edge Function insere wa_suggestions (status: "pending") + run_id
         ↓
 POST openclaw.liveuni.com.br/hooks/agent
-  { agentId: "agente-feedback-wa", message: "<prompt>",
-    deliver: "webhook", to: wa-suggestion-webhook, thinking: "low" }
-        ↓ (~10–20s — OpenClaw processa)
-wa-suggestion-webhook recebe → atualiza wa_suggestions (status: "done")
+  { agentId: "agente-copiloto-vendas",
+    sessionKey: "copiloto-{client_id}",   ← sessão persistente por lead
+    message: "<contexto das últimas msgs + nova msg>",
+    deliver: "webhook", to: wa-feedback-webhook?secret=...,
+    thinking: "low", timeoutSeconds: 30 }
+        ↓ (~5–15s — OpenClaw processa com memória da sessão)
+wa-feedback-webhook recebe → atualiza wa_suggestions (status: "done")
         ↓
 Sidebar faz polling a cada 5s → exibe sugestão + botão Copiar
 ```
@@ -298,35 +325,35 @@ create policy "user_own" on wa_suggestions for select
 -- INSERT/UPDATE via service_role → RLS bypassado
 ```
 
-### Prompt enviado ao agente
+### Mensagem enviada ao agente
+
+O system prompt fica no OpenClaw (no agente `agente-copiloto-vendas`) — inclui produtos Live, tom consultivo e lógica de handoff para humano. A edge function envia apenas o contexto da conversa:
 
 ```
-Você é um assistente de vendas e atendimento da Live Equipamentos.
-Analise a conversa abaixo e sugira UMA resposta para a última mensagem
-recebida do lead/cliente. Seja direto, profissional e natural.
-Retorne APENAS o texto da resposta, sem explicações, sem aspas, sem prefixos.
+HISTÓRICO (últimas mensagens):
+<HH:mm [CLIENTE|ATENDENTE] texto>
 
-HISTÓRICO DA CONVERSA:
-<últimas 10 mensagens: "HH:mm [entrada|saída] texto">
-
-ÚLTIMA MENSAGEM DO LEAD:
+MENSAGEM DO LEAD:
 <texto da mensagem inbound>
 ```
+
+> **Sessão persistente:** `sessionKey: "copiloto-{client_id}"` → o OpenClaw mantém memória da conversa entre chamadas. Não é necessário reenviar o histórico completo a cada mensagem — as últimas 10 msgs são enviadas apenas como âncora de contexto imediato.
 
 ### Edge Functions
 
 **`suggest-wa-response`**
 - Auth: token do usuário (chamada pelo background.js via fetch com JWT)
-- Input: `{ phone, inbound_text, client_id }`
-- Busca últimas 10 mensagens do cliente em `whatsapp_messages`
-- Monta prompt, chama openclaw, insere `wa_suggestions` com run_id
-- Retorna `{ ok: true, suggestion_id }`
+- Input: `{ inbound_text, client_id }`
+- Busca últimas 10 mensagens do cliente em `whatsapp_messages` (âncora de contexto)
+- Chama OpenClaw com `agentId: "agente-copiloto-vendas"` e `sessionKey: "copiloto-{client_id}"`
+- `timeoutSeconds: 30` (Copiloto tem alvo de 5–15s, não 120s)
+- Insere `wa_suggestions` com run_id, retorna `{ ok: true, suggestion_id }`
 
-**`wa-suggestion-webhook`**
-- Sem auth de usuário — valida `X-Openclaw-Secret`
-- Extrai run_id + texto de resposta
+**Webhook compartilhado: `wa-feedback-webhook`**
+- Valida `?secret=` na URL (mesmo webhook do Feedback)
+- Distingue feedback de sugestão pelo `run_id` — busca primeiro em `wa_feedbacks`, depois em `wa_suggestions`
 - Atualiza `wa_suggestions` onde `run_id = ?`, status: "done"
-- Sem alertas — feature de sugestão não gera notificações
+- Sem alertas — sugestão não gera notificações
 
 ### UI — Sidebar da Extensão
 
@@ -363,13 +390,16 @@ Nova seção abaixo das informações do contato:
 ## Restrições e decisões
 
 - OpenClaw é **async puro** — não há modo síncrono no `/hooks/agent`
-- Agente dedicado `agente-feedback-wa` (Claude Haiku 4.5) — não usar `consultor-virtual-live`
+- **Dois agentes distintos:** `agente-feedback-wa` (pontua conversas) e `agente-copiloto-vendas` (sugere em tempo real) — nunca misturar
+- Agente `agente-copiloto-vendas` precisa ser criado no OpenClaw com system prompt de vendas consultivas Live antes do deploy da Feature 2
 - Parser defensivo obrigatório — LLMs podem retornar JSON envolto em markdown
 - `raw_response` salvo sempre — facilita debug sem reprocessar
 - RLS: usuário vê só os próprios feedbacks; admin vê todos via policy separada
 - Threshold de alerta configurável — padrão 5.0 (escala 0–10)
 - Feedback de alerta notifica usuário + **todos** os admins simultaneamente
-- Agente `agente-feedback-wa` serve as duas features (feedback + sugestão) com prompts distintos
+- Agente `agente-feedback-wa` serve SOMENTE para Feedback (Feature 1) — pontuar conversas passadas
+- Agente `agente-copiloto-vendas` serve SOMENTE para Copiloto (Feature 2) — sugerir em tempo real com sessão persistente por lead
 - Sugestões não geram alertas — são auxiliares ao usuário, não métricas de qualidade
-- Polling de 5s no sidebar é suficiente dado latência esperada de 10–20s do agente
-- Timeout de 60s no sidebar para sugestão sem resposta — evita spinner eterno
+- Polling de 5s no sidebar é suficiente dado latência alvo de 5–15s do Copiloto
+- Timeout de 30s no OpenClaw + 30s no sidebar para sugestão — evita spinner eterno
+- `sessionKey: "copiloto-{client_id}"` garante que o Copiloto lembra a conversa sem reenviar histórico completo
