@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useMyProfile } from "@/hooks/useMyProfile";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Trash2, FileText, Download, Eye, Plus, Save, Wrench, Package, Pencil, CreditCard, Banknote, QrCode, Truck, CalendarClock, Landmark } from "lucide-react";
+import { ArrowLeft, Trash2, FileText, Download, Eye, Plus, Save, Wrench, Package, Pencil, CreditCard, Banknote, QrCode, Truck, CalendarClock, Landmark, ExternalLink } from "lucide-react";
 import { ApprovalActionDialog } from "@/components/shared/ApprovalActionDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -640,7 +640,7 @@ const QuoteDetailPage = () => {
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
-            className="mt-4 flex items-center gap-3"
+            className="mt-4 flex flex-wrap items-center gap-3"
           >
             <CreditCard className="h-4 w-4 text-muted-foreground shrink-0" />
             <label className="text-xs text-muted-foreground whitespace-nowrap">Condições do parcelamento:</label>
@@ -652,6 +652,17 @@ const QuoteDetailPage = () => {
               onChange={(e) => setInstallmentValue(e.target.value)}
               className="h-8 w-56 text-sm font-mono"
             />
+            <a
+              href={`https://docs.google.com/spreadsheets/d/10PHSgZPE8S2LZsYPClxZzUC4e9YDm80qv3ipxRyLkXU/edit#gid=2143685421`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={`Orçamento: ${quote?.quote_number} — abrir calculadora`}
+              className="inline-flex items-center gap-1.5 px-3 h-8 rounded-lg border border-dashed border-primary/50 text-xs text-primary hover:bg-primary/5 transition-colors whitespace-nowrap"
+            >
+              <ExternalLink className="h-3 w-3" />
+              Calcular no Sheets
+            </a>
+            <span className="text-[10px] text-muted-foreground">Nº orçamento: <strong>{quote?.quote_number}</strong></span>
           </motion.div>
         )}
 

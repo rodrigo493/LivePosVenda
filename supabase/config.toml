@@ -44,3 +44,6 @@ verify_jwt = false
 
 [functions.meta-lead-webhook]
 verify_jwt = false
+
+[functions.update-quote-installment]
+verify_jwt = false
