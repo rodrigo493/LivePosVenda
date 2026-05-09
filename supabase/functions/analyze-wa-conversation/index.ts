@@ -4,9 +4,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANON_KEY     = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-const OPENCLAW_URL      = Deno.env.get("OPENCLAW_URL")!;
-const OPENCLAW_TOKEN    = Deno.env.get("OPENCLAW_HOOKS_TOKEN")!;
-const WEBHOOK_SECRET    = Deno.env.get("OPENCLAW_WEBHOOK_SECRET") ?? "";
+const OPENCLAW_URL          = Deno.env.get("OPENCLAW_URL")!;
+const OPENCLAW_TOKEN        = Deno.env.get("OPENCLAW_HOOKS_TOKEN")!;
+const OPENCLAW_GATEWAY_TOKEN = Deno.env.get("OPENCLAW_GATEWAY_TOKEN")!;
+const WEBHOOK_SECRET        = Deno.env.get("OPENCLAW_WEBHOOK_SECRET") ?? "";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -80,10 +81,13 @@ Deno.serve(async (req) => {
     .order("created_at", { ascending: true })
     .limit(100);
 
-  console.log("[analyze-wa] messages count:", messages?.length ?? 0, "error:", msgErr?.message ?? null);
+  console.log("[analyze-wa] client_id usado:", client_id, "messages count:", messages?.length ?? 0, "error:", msgErr?.message ?? null);
   if (msgErr) return json({ error: `DB error: ${msgErr.message}` }, 500);
   if (!messages || messages.length === 0) {
-    return json({ error: "Nenhuma mensagem encontrada para este cliente" }, 404);
+    // Diagnóstico extra: contar total de mensagens na tabela (sem filtro)
+    const { count } = await sbAdmin.from("whatsapp_messages").select("*", { count: "exact", head: true });
+    console.log("[analyze-wa] total messages na tabela:", count);
+    return json({ error: `Nenhuma mensagem para client_id=${client_id} (total na tabela: ${count})` }, 404);
   }
 
   const instanceId = (messages[0] as any).instance_id ?? null;
@@ -136,7 +140,7 @@ ${thread}`;
     hookRes = await fetch(`${OPENCLAW_URL}/hooks/agent`, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${OPENCLAW_TOKEN}`,
+        "Authorization": `Bearer ${OPENCLAW_GATEWAY_TOKEN}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -160,8 +164,15 @@ ${thread}`;
     return json({ error: `OpenClaw error ${hookRes.status}: ${err}` }, 502);
   }
 
-  const hookBody = await hookRes.json();
-  console.log("[analyze-wa] OpenClaw response:", JSON.stringify(hookBody));
+  const rawText = await hookRes.text();
+  console.log("[analyze-wa] OpenClaw raw (200chars):", rawText.slice(0, 200));
+  let hookBody: any;
+  try {
+    hookBody = JSON.parse(rawText);
+  } catch {
+    return json({ error: `OpenClaw retornou não-JSON (status ${hookRes.status}): ${rawText.slice(0, 150)}` }, 502);
+  }
+  console.log("[analyze-wa] OpenClaw parsed runId:", hookBody?.runId);
   const { runId } = hookBody;
 
   // 5. Inserir wa_feedbacks pending
