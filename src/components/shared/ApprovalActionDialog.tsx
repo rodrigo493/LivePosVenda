@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { Package, Shield, Wrench, ArrowLeft } from "lucide-react";
+import { Package, Shield, Wrench, ArrowLeft, ShoppingCart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { notifySquad } from "@/lib/squadNotify";
 
 type ApprovalQuote = {
@@ -24,6 +25,7 @@ type Props = {
 
 export function ApprovalActionDialog({ open, onOpenChange, quote }: Props) {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [step, setStep] = useState<"choose" | "pa" | "pg">("choose");
   const [squadNotes, setSquadNotes] = useState("");
 
@@ -80,6 +82,23 @@ export function ApprovalActionDialog({ open, onOpenChange, quote }: Props) {
     resetAndClose(false);
   };
 
+  const createPd = async () => {
+    const { data: pdNumData } = await supabase.rpc("generate_pd_number");
+    const pdNumber = pdNumData || quote.quote_number.replace(/^OC\./, "PD.");
+    const { data: pdData, error } = await supabase.from("service_requests").insert({
+      ticket_id: quote.ticket_id || null,
+      request_type: "troca_peca" as any,
+      document_type: "pd",
+      notes: "Gerado a partir de orçamento aprovado",
+      request_number: pdNumber,
+    } as any).select().single();
+    if (error) { toast.error(error.message || "Erro ao criar PD"); return; }
+    await supabase.from("quotes").update({ service_request_id: pdData.id } as any).eq("id", quote.id);
+    invalidate();
+    resetAndClose(false);
+    navigate(`/pedidos-venda/${pdData.id}`);
+  };
+
   const createOs = async () => {
     if (!quote.client_id || !quote.equipment_id) {
       toast.error("Orçamento sem cliente ou equipamento vinculado — não é possível criar OS.");
@@ -118,7 +137,10 @@ export function ApprovalActionDialog({ open, onOpenChange, quote }: Props) {
 
         {step === "choose" && (
           <div className="flex flex-col gap-3 pt-2">
-            <Button className="w-full gap-2" onClick={createOs}>
+            <Button className="w-full gap-2" onClick={createPd}>
+              <ShoppingCart className="h-4 w-4" /> Pedido de Venda (PD)
+            </Button>
+            <Button variant="outline" className="w-full gap-2" onClick={createOs}>
               <Wrench className="h-4 w-4" /> Ordem de Serviço (OS)
             </Button>
             <Button variant="outline" className="w-full gap-2" onClick={() => setStep("pa")}>
