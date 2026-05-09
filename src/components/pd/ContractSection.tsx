@@ -28,6 +28,17 @@ export function ContractSection({
   initialInstallments,
   exportedBy,
 }: Props) {
+  const [comprador, setComprador] = useState({
+    name:       client.name,
+    cpfCnpj:   client.cpfCnpj,
+    razaoSocial: client.razaoSocial,
+    email:      client.email,
+    phone:      client.phone,
+    address:    client.address,
+    city:       client.city,
+    state:      client.state,
+    zipCode:    client.zipCode,
+  });
   const [bairro, setBairro] = useState(initialBairro ?? "");
   const [installments, setInstallments] = useState<ContractInstallment[]>(
     initialInstallments ?? []
@@ -36,30 +47,24 @@ export function ContractSection({
 
   const saveContractData = useSaveContractData();
 
-  const addInstallment = () => {
+  const setField = (field: keyof typeof comprador) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setComprador((prev) => ({ ...prev, [field]: e.target.value }));
+
+  const addInstallment = () =>
     setInstallments((prev) => [
       ...prev,
       { parcela: prev.length + 1, data: "", valor: "", forma: "" },
     ]);
-  };
 
-  const removeInstallment = (index: number) => {
+  const removeInstallment = (index: number) =>
     setInstallments((prev) =>
-      prev
-        .filter((_, i) => i !== index)
-        .map((inst, i) => ({ ...inst, parcela: i + 1 }))
+      prev.filter((_, i) => i !== index).map((inst, i) => ({ ...inst, parcela: i + 1 }))
     );
-  };
 
-  const updateInstallment = (
-    index: number,
-    field: keyof ContractInstallment,
-    value: string | number
-  ) => {
+  const updateInstallment = (index: number, field: keyof ContractInstallment, value: string | number) =>
     setInstallments((prev) =>
       prev.map((inst, i) => (i === index ? { ...inst, [field]: value } : inst))
     );
-  };
 
   const handleGenerate = async () => {
     if (!bairro.trim()) {
@@ -83,7 +88,7 @@ export function ContractSection({
       const pdfData: ContractPdfData = {
         contractNumber,
         date,
-        client: { ...client, bairro },
+        client: { ...comprador, bairro },
         items,
         total,
         installments,
@@ -101,37 +106,77 @@ export function ContractSection({
   };
 
   return (
-    <div className="border rounded-lg p-4 space-y-4 bg-muted/20">
+    <div className="border rounded-lg p-4 space-y-5 bg-muted/20">
       <h3 className="font-semibold text-sm flex items-center gap-2">
         <FileText className="h-4 w-4 text-muted-foreground" />
         Dados do Contrato
       </h3>
 
-      {/* Bairro */}
-      <div className="space-y-1.5">
-        <Label htmlFor="contract-bairro">Bairro (endereço de entrega)</Label>
-        <Input
-          id="contract-bairro"
-          value={bairro}
-          onChange={(e) => setBairro(e.target.value)}
-          placeholder="Ex: Centro, Jardim das Flores..."
-          className="max-w-xs"
-        />
+      {/* ── Dados do Comprador ─────────────────────────────────────────── */}
+      <div className="space-y-3">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Dados do Comprador
+        </p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label className="text-xs">Nome / Responsável</Label>
+            <Input value={comprador.name} onChange={setField("name")} placeholder="Nome do comprador" className="h-8 text-sm" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Razão Social</Label>
+            <Input value={comprador.razaoSocial} onChange={setField("razaoSocial")} placeholder="Nome da empresa ou próprio nome" className="h-8 text-sm" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">CPF / CNPJ</Label>
+            <Input value={comprador.cpfCnpj} onChange={setField("cpfCnpj")} placeholder="000.000.000-00" className="h-8 text-sm" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">E-mail</Label>
+            <Input value={comprador.email} onChange={setField("email")} placeholder="email@exemplo.com" className="h-8 text-sm" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Telefone</Label>
+            <Input value={comprador.phone} onChange={setField("phone")} placeholder="(11) 99999-9999" className="h-8 text-sm" />
+          </div>
+        </div>
+
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground pt-1">
+          Endereço de Entrega
+        </p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1 sm:col-span-2">
+            <Label className="text-xs">Rua / Logradouro</Label>
+            <Input value={comprador.address} onChange={setField("address")} placeholder="Rua, nº" className="h-8 text-sm" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Bairro</Label>
+            <Input value={bairro} onChange={(e) => setBairro(e.target.value)} placeholder="Ex: Centro" className="h-8 text-sm" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Cidade</Label>
+            <Input value={comprador.city} onChange={setField("city")} placeholder="Cidade" className="h-8 text-sm" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Estado (UF)</Label>
+            <Input value={comprador.state} onChange={setField("state")} placeholder="SP" className="h-8 text-sm max-w-[80px]" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">CEP</Label>
+            <Input value={comprador.zipCode} onChange={setField("zipCode")} placeholder="00000-000" className="h-8 text-sm max-w-[140px]" />
+          </div>
+        </div>
       </div>
 
-      {/* Editor de parcelas */}
+      {/* ── Parcelas ──────────────────────────────────────────────────── */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <Label>Parcelas do contrato</Label>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={addInstallment}
-            className="h-7 text-xs"
-          >
-            <Plus className="h-3 w-3 mr-1" />
-            Parcela
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Parcelas do Contrato
+          </p>
+          <Button type="button" variant="outline" size="sm" onClick={addInstallment} className="h-7 text-xs">
+            <Plus className="h-3 w-3 mr-1" /> Parcela
           </Button>
         </div>
 
@@ -145,36 +190,12 @@ export function ContractSection({
               <span />
             </div>
             {installments.map((inst, i) => (
-              <div
-                key={i}
-                className="grid grid-cols-[36px_1fr_1fr_1fr_32px] gap-2 items-center"
-              >
+              <div key={i} className="grid grid-cols-[36px_1fr_1fr_1fr_32px] gap-2 items-center">
                 <span className="text-sm text-center font-medium">{inst.parcela}</span>
-                <Input
-                  value={inst.data}
-                  onChange={(e) => updateInstallment(i, "data", e.target.value)}
-                  placeholder="24.10.2025"
-                  className="h-8 text-sm"
-                />
-                <Input
-                  value={inst.valor}
-                  onChange={(e) => updateInstallment(i, "valor", e.target.value)}
-                  placeholder="R$ 9.102,50"
-                  className="h-8 text-sm"
-                />
-                <Input
-                  value={inst.forma}
-                  onChange={(e) => updateInstallment(i, "forma", e.target.value)}
-                  placeholder="Bolepix"
-                  className="h-8 text-sm"
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => removeInstallment(i)}
-                >
+                <Input value={inst.data} onChange={(e) => updateInstallment(i, "data", e.target.value)} placeholder="24.10.2025" className="h-8 text-sm" />
+                <Input value={inst.valor} onChange={(e) => updateInstallment(i, "valor", e.target.value)} placeholder="R$ 9.102,50" className="h-8 text-sm" />
+                <Input value={inst.forma} onChange={(e) => updateInstallment(i, "forma", e.target.value)} placeholder="Bolepix" className="h-8 text-sm" />
+                <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => removeInstallment(i)}>
                   <Trash2 className="h-3 w-3 text-destructive" />
                 </Button>
               </div>
@@ -183,14 +204,9 @@ export function ContractSection({
         )}
       </div>
 
-      {/* Botão gerar */}
+      {/* ── Botão gerar ───────────────────────────────────────────────── */}
       <div className="pt-1">
-        <Button
-          type="button"
-          onClick={handleGenerate}
-          disabled={generating || saveContractData.isPending}
-          size="sm"
-        >
+        <Button type="button" onClick={handleGenerate} disabled={generating || saveContractData.isPending} size="sm">
           <FileText className="h-4 w-4 mr-2" />
           {generating ? "Gerando PDF..." : "Gerar Contrato PDF"}
         </Button>
