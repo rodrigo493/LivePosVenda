@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { HeaderAlerts } from "@/components/layout/HeaderAlerts";
@@ -6,6 +7,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useWhatsAppRealtimeSync } from "@/hooks/useWhatsAppRealtimeSync";
 import { useNavigate } from "react-router-dom";
 import { useMyWhatsAppStatus } from "@/hooks/useMyWhatsAppStatus";
+import { useNotifications } from "@/hooks/useNotifications";
 import {
   Popover,
   PopoverContent,
@@ -21,6 +23,8 @@ export function AppLayout({ children }: AppLayoutProps) {
   const { user, roles, signOut } = useAuth();
   const navigate = useNavigate();
   const { state: waState } = useMyWhatsAppStatus(user?.id);
+  const { notifications, unreadCount, markRead, markAllRead } = useNotifications();
+  const [notifOpen, setNotifOpen] = useState(false);
 
   const initials = user?.user_metadata?.full_name
     ? user.user_metadata.full_name
@@ -82,10 +86,55 @@ export function AppLayout({ children }: AppLayoutProps) {
                   />
                 </button>
               )}
-              <button className="relative p-2 rounded-lg hover:bg-zinc-800 transition-colors">
-                <Bell className="h-4 w-4 text-zinc-400" />
-                <span className="absolute top-1.5 right-1.5 h-2 w-2 bg-primary rounded-full" />
-              </button>
+              <Popover open={notifOpen} onOpenChange={setNotifOpen}>
+                <PopoverTrigger asChild>
+                  <button className="relative p-2 rounded-lg hover:bg-zinc-800 transition-colors">
+                    <Bell className="h-4 w-4 text-zinc-400" />
+                    {unreadCount > 0 && (
+                      <span className="absolute top-1 right-1 h-4 w-4 bg-red-500 rounded-full text-[9px] text-white font-bold flex items-center justify-center">
+                        {unreadCount > 9 ? "9+" : unreadCount}
+                      </span>
+                    )}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-80 p-0 max-h-96 overflow-hidden flex flex-col">
+                  <div className="flex items-center justify-between px-4 py-2 border-b">
+                    <span className="text-sm font-semibold">Notificações</span>
+                    {unreadCount > 0 && (
+                      <button
+                        onClick={() => markAllRead()}
+                        className="text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        Marcar tudo como lido
+                      </button>
+                    )}
+                  </div>
+                  <div className="overflow-y-auto flex-1">
+                    {notifications.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-6">
+                        Nenhuma notificação
+                      </p>
+                    ) : (
+                      notifications.map((n) => (
+                        <button
+                          key={n.id}
+                          onClick={() => {
+                            markRead(n.id);
+                            setNotifOpen(false);
+                            if (n.link) navigate(n.link);
+                          }}
+                          className={`w-full text-left px-4 py-3 border-b hover:bg-muted transition-colors ${
+                            !n.read ? "bg-blue-50" : ""
+                          }`}
+                        >
+                          <p className="text-sm font-medium">{n.title}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{n.body}</p>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </PopoverContent>
+              </Popover>
 
               <Popover>
                 <PopoverTrigger asChild>
