@@ -164,6 +164,11 @@ export function generateQuotePdf(data: QuotePdfData) {
   if (data.freight > 0) {
     doc.text("Frete:", rightCol - 65, subY + 6);
     doc.text(`R$ ${data.freight.toFixed(2)}`, rightCol, subY + 6, { align: "right" });
+  } else {
+    doc.setTextColor(150, 150, 150);
+    doc.text("Frete:", rightCol - 65, subY + 6);
+    doc.text("Não incluso", rightCol, subY + 6, { align: "right" });
+    doc.setTextColor(0);
   }
   if (data.discount > 0) {
     doc.text("Desconto:", rightCol - 65, subY + 12);
