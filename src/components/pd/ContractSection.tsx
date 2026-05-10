@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Calculator, CheckCircle2, CreditCard, FileText, Landmark, Loader2, Plus, QrCode, RefreshCw, Trash2 } from "lucide-react";
+import { Building2, Calculator, CalendarDays, CheckCircle2, CreditCard, FileText, Landmark, Loader2, Plus, QrCode, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useSaveContractData, type ContractInstallment } from "@/hooks/useContractData";
 import {
@@ -15,7 +15,7 @@ import {
 import { fmtBRL, EBOOK_MAPPING, DIMENSIONS_MAPPING } from "@/lib/contractMappings";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-type PaymentMethod = "pix" | "transferencia" | "cartao";
+type PaymentMethod = "pix" | "transferencia" | "cartao" | "compra_programada" | "financiamento";
 
 interface Props {
   pdId: string;
@@ -181,6 +181,7 @@ export function ContractSection({
   const [cardBrand, setCardBrand] = useState("");
   const [calcLoading, setCalcLoading] = useState(false);
   const [calcOptions, setCalcOptions] = useState<string[] | null>(null);
+  const [financiamentoInstituicao, setFinanciamentoInstituicao] = useState("");
 
   const handleCalculateInstallment = async () => {
     if (!cardBrand) { toast.error("Selecione a bandeira do cartão primeiro"); return; }
@@ -221,6 +222,12 @@ export function ContractSection({
     toast.success(`${n} parcelas preenchidas em "3. Condições de Pagamento".`);
   };
 
+  const FORMA_LABEL: Record<string, string> = {
+    pix:              "PIX",
+    transferencia:    "Transferência (TED/DOC)",
+    compra_programada:"Compra Programada",
+  };
+
   const applyPayment = () => {
     const start = contractDate.trim() ? parseInstDate(contractDate) : new Date();
     let newInsts: ContractInstallment[] = [];
@@ -231,12 +238,31 @@ export function ContractSection({
         d.setDate(d.getDate() + i * 30);
         return { parcela: i + 1, data: fmtInstDate(d), valor: fmtBRL(valorParcela), forma: "Cartão" };
       });
+    } else if (payMethod === "financiamento") {
+      const forma = financiamentoInstituicao.trim()
+        ? `Financiamento — ${financiamentoInstituicao.trim()}`
+        : "Financiamento";
+      newInsts = [{ parcela: 1, data: fmtInstDate(start), valor: fmtBRL(calcTotal), forma }];
     } else {
-      const forma = payMethod === "pix" ? "PIX" : "Transferência (TED/DOC)";
+      const forma = FORMA_LABEL[payMethod] ?? payMethod;
       newInsts = [{ parcela: 1, data: fmtInstDate(start), valor: fmtBRL(calcTotal), forma }];
     }
     setInstallments(newInsts);
     toast.success("Parcelas preenchidas em \"3. Condições de Pagamento\".");
+  };
+
+  const addSingleInstallment = () => {
+    setInstallments((prev) => {
+      const start = contractDate.trim() ? parseInstDate(contractDate) : new Date();
+      const lastDate = prev.length > 0 ? parseInstDate(prev[prev.length - 1].data) : start;
+      const nextDate = new Date(lastDate);
+      if (prev.length > 0) nextDate.setDate(nextDate.getDate() + 30);
+      const forma = payMethod === "financiamento"
+        ? (financiamentoInstituicao.trim() ? `Financiamento — ${financiamentoInstituicao.trim()}` : "Financiamento")
+        : (FORMA_LABEL[payMethod] ?? payMethod);
+      return [...prev, { parcela: prev.length + 1, data: fmtInstDate(nextDate), valor: fmtBRL(calcTotal), forma }];
+    });
+    toast.success("Parcela adicionada em \"3. Condições de Pagamento\".");
   };
 
   // ── obs / data ─────────────────────────────────────────────────────────────
@@ -494,9 +520,11 @@ export function ContractSection({
         <div className="grid grid-cols-3 gap-2">
           {(
             [
-              { key: "pix",          label: "À vista — PIX",          sub: "Pagamento via PIX",              Icon: QrCode     },
-              { key: "transferencia",label: "Transferência bancária",  sub: "TED ou DOC para conta",          Icon: Landmark   },
-              { key: "cartao",       label: "Cartão — Parcelado",      sub: "Parcelamento com juros",         Icon: CreditCard },
+              { key: "pix",              label: "À vista — PIX",          sub: "Pagamento via PIX",              Icon: QrCode       },
+              { key: "transferencia",    label: "Transferência bancária",  sub: "TED ou DOC para conta",          Icon: Landmark     },
+              { key: "cartao",           label: "Cartão — Parcelado",      sub: "Parcelamento com juros",         Icon: CreditCard   },
+              { key: "compra_programada",label: "Compra Programada",       sub: "Condições especiais de compra",  Icon: CalendarDays },
+              { key: "financiamento",    label: "Financiamento",           sub: "Instituição financeira",         Icon: Building2    },
             ] as const
           ).map(({ key, label, sub, Icon }) => (
             <button
@@ -596,18 +624,57 @@ export function ContractSection({
           </div>
         )}
 
-        {payMethod !== "cartao" && (
+        {/* PIX / Transferência / Compra Programada */}
+        {(payMethod === "pix" || payMethod === "transferencia" || payMethod === "compra_programada") && (
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              {payMethod === "pix" ? <QrCode className="h-4 w-4" /> : <Landmark className="h-4 w-4" />}
+              {payMethod === "pix" && <QrCode className="h-4 w-4" />}
+              {payMethod === "transferencia" && <Landmark className="h-4 w-4" />}
+              {payMethod === "compra_programada" && <CalendarDays className="h-4 w-4" />}
               <span>
-                Pagamento único de <strong className="text-foreground font-mono">{fmtBRL(calcTotal)}</strong>{" "}
-                via {payMethod === "pix" ? "PIX" : "Transferência (TED/DOC)"}
+                Valor de <strong className="text-foreground font-mono">{fmtBRL(calcTotal)}</strong>{" "}
+                via {FORMA_LABEL[payMethod]}
               </span>
             </div>
-            <Button type="button" size="sm" onClick={applyPayment} className="h-8 text-xs">
-              Aplicar ao contrato → preencher parcelas
-            </Button>
+            <div className="flex gap-2">
+              <Button type="button" size="sm" onClick={applyPayment} className="h-8 text-xs">
+                Aplicar ao contrato → preencher parcelas
+              </Button>
+              <Button type="button" size="sm" variant="outline" onClick={addSingleInstallment} className="h-8 text-xs gap-1">
+                <Plus className="h-3 w-3" /> Incluir parcela
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Financiamento */}
+        {payMethod === "financiamento" && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
+              <Label className="text-xs text-muted-foreground whitespace-nowrap">Instituição financeira:</Label>
+              <Input
+                value={financiamentoInstituicao}
+                onChange={(e) => setFinanciamentoInstituicao(e.target.value)}
+                placeholder="Ex: Caixa Econômica, Santander..."
+                className="h-8 text-sm flex-1"
+              />
+            </div>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Building2 className="h-4 w-4" />
+              <span>
+                Valor de <strong className="text-foreground font-mono">{fmtBRL(calcTotal)}</strong>{" "}
+                via Financiamento{financiamentoInstituicao.trim() ? ` — ${financiamentoInstituicao.trim()}` : ""}
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <Button type="button" size="sm" onClick={applyPayment} className="h-8 text-xs">
+                Aplicar ao contrato → preencher parcelas
+              </Button>
+              <Button type="button" size="sm" variant="outline" onClick={addSingleInstallment} className="h-8 text-xs gap-1">
+                <Plus className="h-3 w-3" /> Incluir parcela
+              </Button>
+            </div>
           </div>
         )}
       </div>
