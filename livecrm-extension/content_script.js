@@ -1522,6 +1522,7 @@ async function renderSidebarNotFound(phone) {
     createBtn.disabled = true; createBtn.textContent = 'Criando...';
     try {
       await sendToBackground({ type: 'CREATE_TICKET', phone, name, pipelineId });
+      sidebarCurrentPhone = null; // força watcher a re-render na próxima iteração
       await refreshSidebar(phone);
     } catch (e) {
       createBtn.disabled = false; createBtn.textContent = '+ Criar Card';

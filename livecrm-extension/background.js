@@ -1121,6 +1121,17 @@ async function handleCreateTicket(phone, name, pipelineId) {
     console.log('[LiveCRM] novo cliente criado:', clientId);
   }
 
+  // Proteção contra duplicata: retorna ticket existente se já houver um aberto
+  const { data: existingTicket } = await sb
+    .from('tickets').select('id')
+    .eq('client_id', clientId).eq('pipeline_id', pipelineId)
+    .is('deleted_at', null).neq('status', 'fechado')
+    .order('created_at', { ascending: false }).limit(1).maybeSingle();
+  if (existingTicket) {
+    console.log('[LiveCRM] ticket já existe:', existingTicket.id, '— retornando sem duplicar');
+    return { clientId, ticketId: existingTicket.id };
+  }
+
   // Busca primeira etapa do funil
   const { data: firstStage } = await sb
     .from('pipeline_stages').select('key, label')
