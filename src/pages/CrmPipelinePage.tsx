@@ -1594,13 +1594,13 @@ const QUOTE_STATUS_OPTIONS = [
   { value: "reprovado", label: "Reprovado" },
 ];
 
-function getLastOrderTag(quotes: any[]): "ORÇ" | "PA" | "PG" | null {
+function getLastOrderTag(quotes: any[]): "ORÇ" | "PA" | "PG" | "PD" | null {
   if (!quotes || quotes.length === 0) return null;
   const last = [...quotes].sort(
     (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
   )[0];
   if (last.warranty_claim_id) return "PG";
-  if (last.service_request_id) return "PA";
+  if (last.service_request_id) return last.service_requests?.document_type === "pd" ? "PD" : "PA";
   return "ORÇ";
 }
 
@@ -1610,7 +1610,10 @@ function getLastOrderRoute(quotes: any[]): string | null {
     (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
   )[0];
   if (last.warranty_claim_id) return `/pedidos-garantia/${last.warranty_claim_id}`;
-  if (last.service_request_id) return `/pedidos-acessorios/${last.service_request_id}`;
+  if (last.service_request_id) {
+    const isPd = last.service_requests?.document_type === "pd";
+    return `/${isPd ? "pedidos-venda" : "pedidos-acessorios"}/${last.service_request_id}`;
+  }
   return null;
 }
 

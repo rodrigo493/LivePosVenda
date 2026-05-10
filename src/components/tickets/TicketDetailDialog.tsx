@@ -92,7 +92,7 @@ function useTicketQuotes(ticketId: string | undefined) {
   return useQuery({
     queryKey: ["ticket-quotes", ticketId], enabled: !!ticketId,
     queryFn: async () => {
-      const { data, error } = await supabase.from("quotes").select("*, service_requests(id, request_number), warranty_claims(id, claim_number)").eq("ticket_id", ticketId!).order("created_at", { ascending: false });
+      const { data, error } = await supabase.from("quotes").select("*, service_requests(id, request_number, document_type), warranty_claims(id, claim_number)").eq("ticket_id", ticketId!).order("created_at", { ascending: false });
       if (error) throw error; return data;
     },
   });
@@ -164,7 +164,7 @@ function useClientQuotes(clientId: string | undefined) {
   return useQuery({
     queryKey: ["client-quotes", clientId], enabled: !!clientId,
     queryFn: async () => {
-      const { data, error } = await supabase.from("quotes").select("*, service_requests(id, request_number), warranty_claims(id, claim_number), quote_items(quantity, unit_price)").eq("client_id", clientId!).order("created_at", { ascending: false });
+      const { data, error } = await supabase.from("quotes").select("*, service_requests(id, request_number, document_type), warranty_claims(id, claim_number), quote_items(quantity, unit_price)").eq("client_id", clientId!).order("created_at", { ascending: false });
       if (error) throw error; return data;
     },
   });
@@ -1777,14 +1777,17 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
                                     <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
                                       <span className="text-xs font-mono font-semibold text-primary">{q.quote_number || "—"}</span>
                                       {isCurrentTicket && <Badge className="text-[9px] h-4 px-1.5 bg-primary/10 text-primary border-primary/20">Chamado atual</Badge>}
-                                      {q.service_request_id && (
-                                        <Badge
-                                          className="text-[9px] h-4 px-1.5 bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-200 cursor-pointer"
-                                          onClick={() => { onOpenChange(false); navigate(`/pedidos-acessorios/${q.service_request_id}?from_ticket=${ticket.id}`); }}
-                                        >
-                                          PA · {q.service_requests?.request_number || "—"}
-                                        </Badge>
-                                      )}
+                                      {q.service_request_id && (() => {
+                                        const isPd = q.service_requests?.document_type === "pd";
+                                        return (
+                                          <Badge
+                                            className={`text-[9px] h-4 px-1.5 cursor-pointer ${isPd ? "bg-indigo-100 text-indigo-800 border-indigo-200 hover:bg-indigo-200" : "bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-200"}`}
+                                            onClick={() => { onOpenChange(false); navigate(`/${isPd ? "pedidos-venda" : "pedidos-acessorios"}/${q.service_request_id}?from_ticket=${ticket.id}`); }}
+                                          >
+                                            {isPd ? "PD" : "PA"} · {q.service_requests?.request_number || "—"}
+                                          </Badge>
+                                        );
+                                      })()}
                                       {q.warranty_claim_id && (
                                         <Badge
                                           className="text-[9px] h-4 px-1.5 bg-amber-100 text-amber-800 border-amber-200 hover:bg-amber-200 cursor-pointer"
