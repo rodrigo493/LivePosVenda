@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { CreditCard, FileText, Landmark, Plus, QrCode, RefreshCw, Trash2 } from "lucide-react";
+import { Calculator, CheckCircle2, CreditCard, FileText, Landmark, Loader2, Plus, QrCode, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useSaveContractData, type ContractInstallment } from "@/hooks/useContractData";
 import {
@@ -13,6 +13,7 @@ import {
   type ContractProductRow,
 } from "@/lib/generateContractPdf";
 import { fmtBRL, EBOOK_MAPPING, DIMENSIONS_MAPPING } from "@/lib/contractMappings";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type PaymentMethod = "pix" | "transferencia" | "cartao";
 
@@ -175,11 +176,52 @@ export function ContractSection({
   // ── forma de pagamento / calculadora ──────────────────────────────────────
   const [payMethod, setPayMethod] = useState<PaymentMethod>(initialPaymentMethod);
   const [numParcelas, setNumParcelas] = useState(initialInstallmentsCount);
+  const [cardBrand, setCardBrand] = useState("");
+  const [calcLoading, setCalcLoading] = useState(false);
+  const [calcOptions, setCalcOptions] = useState<string[] | null>(null);
+
+  const handleCalculateInstallment = async () => {
+    if (!cardBrand) { toast.error("Selecione a bandeira do cartão primeiro"); return; }
+    setCalcLoading(true);
+    setCalcOptions(null);
+    try {
+      const resp = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/calculate-installment`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", apikey: import.meta.env.VITE_SUPABASE_ANON_KEY },
+          body: JSON.stringify({ total: calcTotal, brand: cardBrand, secret: "livecare-sheets-2026" }),
+        }
+      );
+      const json = await resp.json();
+      if (json.options?.length) setCalcOptions(json.options);
+      else toast.error(json.error || "Erro ao calcular parcelamento");
+    } catch {
+      toast.error("Erro ao conectar com a planilha");
+    } finally {
+      setCalcLoading(false);
+    }
+  };
+
+  const applyCalcOption = (opt: string) => {
+    const m = opt.match(/^(\d+)x de (.+)$/);
+    if (!m) { toast.error("Formato de parcela inválido"); return; }
+    const n = parseInt(m[1]);
+    const valor = m[2].trim();
+    const start = contractDate.trim() ? parseInstDate(contractDate) : new Date();
+    const newInsts: ContractInstallment[] = Array.from({ length: n }, (_, i) => {
+      const d = new Date(start);
+      d.setDate(d.getDate() + i * 30);
+      return { parcela: i + 1, data: fmtInstDate(d), valor, forma: "Cartão" };
+    });
+    setInstallments(newInsts);
+    setCalcOptions(null);
+    toast.success(`${n} parcelas preenchidas em "3. Condições de Pagamento".`);
+  };
 
   const applyPayment = () => {
     const start = contractDate.trim() ? parseInstDate(contractDate) : new Date();
     let newInsts: ContractInstallment[] = [];
-
     if (payMethod === "cartao") {
       const valorParcela = calcTotal / (numParcelas || 1);
       newInsts = Array.from({ length: numParcelas }, (_, i) => {
@@ -191,7 +233,6 @@ export function ContractSection({
       const forma = payMethod === "pix" ? "PIX" : "Transferência (TED/DOC)";
       newInsts = [{ parcela: 1, data: fmtInstDate(start), valor: fmtBRL(calcTotal), forma }];
     }
-
     setInstallments(newInsts);
     toast.success("Parcelas preenchidas em \"3. Condições de Pagamento\".");
   };
@@ -475,40 +516,98 @@ export function ContractSection({
         </div>
 
         {payMethod === "cartao" && (
-          <div className="flex items-center gap-3 text-sm">
-            <CreditCard className="h-4 w-4 text-muted-foreground shrink-0" />
-            <span className="text-muted-foreground">Quantidade de parcelas:</span>
-            <Input
-              type="number"
-              min={1}
-              max={48}
-              value={numParcelas}
-              onChange={(e) => setNumParcelas(Math.max(1, parseInt(e.target.value) || 1))}
-              className="h-8 w-16 text-center text-sm"
-            />
-            <span className="text-muted-foreground">
-              = {numParcelas}x de{" "}
-              <strong className="text-foreground font-mono">
-                {fmtBRL(calcTotal / (numParcelas || 1))}
-              </strong>{" "}
-              (sem juros base — juros da operadora à parte)
-            </span>
+          <div className="space-y-3">
+            {/* Bandeira + botão calcular */}
+            <div className="flex flex-wrap items-center gap-3">
+              <CreditCard className="h-4 w-4 text-muted-foreground shrink-0" />
+              <Select value={cardBrand} onValueChange={setCardBrand}>
+                <SelectTrigger className="h-8 w-44 text-xs">
+                  <SelectValue placeholder="Bandeira do cartão..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="visa_master">Visa / Mastercard</SelectItem>
+                  <SelectItem value="elo">Elo</SelectItem>
+                  <SelectItem value="hipercard">Hipercard / Demais</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1.5 text-xs"
+                disabled={!cardBrand || calcLoading}
+                onClick={handleCalculateInstallment}
+              >
+                {calcLoading
+                  ? <><Loader2 className="h-3 w-3 animate-spin" /> Calculando...</>
+                  : <><Calculator className="h-3 w-3" /> Calcular Parcelamento</>}
+              </Button>
+            </div>
+
+            {/* Grid de opções da planilha */}
+            {calcOptions && (
+              <div className="bg-muted/40 rounded-xl border p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                    Selecione a condição — clique para preencher as parcelas:
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setCalcOptions(null)}
+                    className="text-[10px] text-primary hover:underline font-medium"
+                  >
+                    Fechar
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5">
+                  {calcOptions.map((opt) => (
+                    <button
+                      key={opt}
+                      type="button"
+                      onClick={() => applyCalcOption(opt)}
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs text-left transition-all border-border bg-background hover:border-primary/50 hover:bg-primary/5 font-mono"
+                    >
+                      <CheckCircle2 className="h-3 w-3 text-muted-foreground shrink-0" />
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Fallback manual */}
+            <div className="flex items-center gap-3 text-xs text-muted-foreground">
+              <span>Ou sem juros (simulação):</span>
+              <Input
+                type="number"
+                min={1}
+                max={48}
+                value={numParcelas}
+                onChange={(e) => setNumParcelas(Math.max(1, parseInt(e.target.value) || 1))}
+                className="h-7 w-14 text-center text-xs"
+              />
+              <span>x = <strong className="text-foreground font-mono">{fmtBRL(calcTotal / (numParcelas || 1))}</strong></span>
+              <Button type="button" size="sm" variant="outline" onClick={applyPayment} className="h-7 text-xs">
+                Aplicar
+              </Button>
+            </div>
           </div>
         )}
 
         {payMethod !== "cartao" && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            {payMethod === "pix" ? <QrCode className="h-4 w-4" /> : <Landmark className="h-4 w-4" />}
-            <span>
-              Pagamento único de <strong className="text-foreground font-mono">{fmtBRL(calcTotal)}</strong>{" "}
-              via {payMethod === "pix" ? "PIX" : "Transferência (TED/DOC)"}
-            </span>
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              {payMethod === "pix" ? <QrCode className="h-4 w-4" /> : <Landmark className="h-4 w-4" />}
+              <span>
+                Pagamento único de <strong className="text-foreground font-mono">{fmtBRL(calcTotal)}</strong>{" "}
+                via {payMethod === "pix" ? "PIX" : "Transferência (TED/DOC)"}
+              </span>
+            </div>
+            <Button type="button" size="sm" onClick={applyPayment} className="h-8 text-xs">
+              Aplicar ao contrato → preencher parcelas
+            </Button>
           </div>
         )}
-
-        <Button type="button" size="sm" onClick={applyPayment} className="h-8 text-xs">
-          Aplicar ao contrato → preencher parcelas
-        </Button>
       </div>
 
       {/* ── Dimensões (editáveis) ─────────────────────────────────────── */}
