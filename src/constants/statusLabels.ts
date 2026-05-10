@@ -58,7 +58,7 @@ export const serviceRequestStatusLabels: Record<string, string> = {
 // Quote status labels
 export const quoteStatusLabels: Record<string, string> = {
   rascunho: "Rascunho",
-  aguardando_aprovacao: "Aguardando Aprovação",
+  aguardando_aprovacao: "Em Análise",
   aprovado: "Aprovado",
   reprovado: "Reprovado",
   convertido_os: "Convertido em OS",

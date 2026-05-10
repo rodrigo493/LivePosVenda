@@ -51,7 +51,10 @@ export function useUpdateQuote() {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["quotes"] }),
+    onSuccess: (data) => {
+      qc.setQueryData(["quotes", data.id], (old: any) => old ? { ...old, ...data } : data);
+      qc.invalidateQueries({ queryKey: ["quotes"] });
+    },
   });
 }
 

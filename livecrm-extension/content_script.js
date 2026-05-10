@@ -1295,14 +1295,19 @@ function renderSidebarData(phone, { client, ticket, stageLabel, pendingQuotePdf 
           pendingQuotePdf.pdfUrl,
           pendingQuotePdf.quoteNumber + '.pdf'
         );
-        if (ok) {
+        if (ok === true) {
           sendPdfBtn.textContent = '✓ PDF enviado';
           pdfFeedback.textContent = 'Confirme o envio no WhatsApp.';
           pdfFeedback.style.color = '#065f46';
+        } else if (ok === 'downloaded') {
+          sendPdfBtn.disabled = false;
+          sendPdfBtn.textContent = '📥 PDF baixado';
+          pdfFeedback.textContent = 'Arquivo salvo no dispositivo — anexe manualmente no WhatsApp.';
+          pdfFeedback.style.color = '#92400e';
         } else {
           sendPdfBtn.disabled = false;
           sendPdfBtn.textContent = '📤 Enviar PDF para conversa';
-          pdfFeedback.textContent = 'Não foi possível injetar o arquivo. Tente anexar manualmente.';
+          pdfFeedback.textContent = 'Não foi possível enviar. Tente novamente.';
           pdfFeedback.style.color = '#dc2626';
         }
       } catch (e) {
@@ -1437,9 +1442,29 @@ async function sendPdfToWaConversation(pdfUrl, fileName) {
     const blob = await resp.blob();
     const file = new File([blob], fileName, { type: 'application/pdf' });
 
-    // Estratégia 1: injetar via DataTransfer no input de arquivo do WA Web
+    // Tenta abrir o menu de anexo do WA Web clicando no botão clipe
+    const clipBtn =
+      document.querySelector('[data-testid="clip"]') ||
+      document.querySelector('span[data-icon="attach-menu-plus"]')?.closest('button') ||
+      document.querySelector('span[data-icon="clip"]')?.closest('button');
+
+    if (clipBtn) {
+      clipBtn.click();
+      await new Promise(r => setTimeout(r, 500));
+
+      // Clica na opção "Documento" dentro do menu
+      const docBtn =
+        document.querySelector('[data-testid="mi-attach-document"]') ||
+        document.querySelector('span[data-icon="document"]')?.closest('button') ||
+        document.querySelector('li button[aria-label*="ocument"]');
+      if (docBtn) {
+        docBtn.click();
+        await new Promise(r => setTimeout(r, 500));
+      }
+    }
+
+    // Agora o input[type="file"] pode estar visível após abrir o menu
     const fileInputs = Array.from(document.querySelectorAll('input[type="file"]'));
-    // Prefere o input que aceita documentos (accept="*" ou sem restrição de imagem)
     const docInput = fileInputs.find(i => !i.accept.includes('image') && !i.accept.includes('video'))
       || fileInputs[0];
 
@@ -1451,14 +1476,15 @@ async function sendPdfToWaConversation(pdfUrl, fileName) {
       return true;
     }
 
-    // Estratégia 2: colar via ClipboardItem (funciona em alguns browsers)
-    if (navigator.clipboard?.write && window.ClipboardItem) {
-      await navigator.clipboard.write([new ClipboardItem({ 'application/pdf': blob })]);
-      const input = document.querySelector('footer [contenteditable="true"], [data-testid="conversation-compose-box-input"]');
-      if (input) { input.focus(); document.execCommand('paste'); return true; }
-    }
-
-    return false;
+    // Fallback: baixa o PDF direto no dispositivo para anexo manual
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+    return 'downloaded';
   } catch (e) {
     console.warn('[LiveCRM CS] sendPdfToWaConversation error:', e.message);
     return false;
