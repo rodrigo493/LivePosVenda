@@ -1414,6 +1414,7 @@ const TICKET_TYPE_LABELS: Record<string, { label: string; color: string }> = {
   pos_venda: { label: "Pós Venda", color: "bg-green-100 text-green-800" },
   negociacao: { label: "Negociação", color: "bg-indigo-100 text-indigo-800" },
   comprar_acessorios: { label: "Acessórios", color: "bg-pink-100 text-pink-800" },
+  vendas: { label: "Vendas", color: "bg-emerald-100 text-emerald-800" },
 };
 
 interface QuoteRef {
