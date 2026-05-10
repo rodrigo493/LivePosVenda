@@ -1396,6 +1396,12 @@ const PDDetailPage = () => {
             items={contractItems}
             total={linkedQuote?.total ?? 0}
             initialBairro={(sr as any).contract_bairro}
+            initialContractDate={(() => {
+              const raw = (linkedQuote as any)?.created_at ?? (sr as any).created_at ?? "";
+              if (!raw) return "";
+              const d = new Date(raw);
+              return `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.${d.getFullYear()}`;
+            })()}
             initialInstallments={initialInstallments}
             initialPaymentMethod={
               ((linkedQuote as any)?.payment_method === "cartao" ? "cartao" : (linkedQuote as any)?.payment_method === "transferencia" ? "transferencia" : "pix") as "pix" | "transferencia" | "cartao"

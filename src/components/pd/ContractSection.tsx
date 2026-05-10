@@ -24,6 +24,7 @@ interface Props {
   items: ContractPdfData["items"];
   total: number;
   initialBairro?: string | null;
+  initialContractDate?: string;
   initialInstallments?: ContractInstallment[];
   initialPaymentMethod?: PaymentMethod;
   initialInstallmentsCount?: number;
@@ -128,6 +129,7 @@ export function ContractSection({
   items,
   total,
   initialBairro,
+  initialContractDate = "",
   initialInstallments,
   initialPaymentMethod = "pix",
   initialInstallmentsCount = 1,
@@ -239,7 +241,7 @@ export function ContractSection({
 
   // ── obs / data ─────────────────────────────────────────────────────────────
   const [obs, setObs] = useState("EQUIPAMENTO PADRÃO LIVE");
-  const [contractDate, setContractDate] = useState("");
+  const [contractDate, setContractDate] = useState(initialContractDate);
 
   // ── parcelas ───────────────────────────────────────────────────────────────
   const [installments, setInstallments] = useState<ContractInstallment[]>(() =>
