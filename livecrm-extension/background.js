@@ -1050,8 +1050,15 @@ async function handleCreateCrmContact(phone) {
 
 async function handleSaveNote(ticketId, clientId, text) {
   if (!sb) throw new Error('Extensao nao autenticada');
-  const { error } = await sb.from('client_service_history')
-    .insert({ client_id: clientId, service_date: new Date().toISOString(), problem_reported: '[Nota WA] ' + text, service_status: 'nota' });
+  const now = new Date();
+  const dateLabel = now.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+  const { error } = await sb.from('client_service_history').insert({
+    client_id: clientId,
+    service_date: now.toISOString(),
+    problem_reported: `[Nota WA — ${dateLabel}]\n${text}`,
+    service_status: 'nota',
+    created_by: currentUserId || null,
+  });
   if (error) throw new Error(error.message);
   return { ok: true };
 }
