@@ -982,7 +982,7 @@ async function handleGetClientData(phone) {
   const orParts = variants.flatMap(v => [`phone.eq.${v}`, `whatsapp.eq.${v}`]).join(',');
   const { data: client } = await sb
     .from('clients').select('id, name, whatsapp, phone')
-    .or(orParts).limit(1).maybeSingle();
+    .or(orParts).order('created_at', { ascending: false }).limit(1).maybeSingle();
   if (!client) return { client: null, ticket: null };
 
   // Orçamento pendente com PDF (aguardando aprovação)
@@ -999,13 +999,21 @@ async function handleGetClientData(phone) {
     if (q?.pdf_url) pendingQuotePdf = { quoteId: q.id, quoteNumber: q.quote_number, pdfUrl: q.pdf_url };
   }
 
-  const { data: ticket } = await sb
+  // Sem embed de pipelines — join embedded causava retorno null silencioso no PostgREST
+  const { data: ticket, error: ticketErr } = await sb
     .from('tickets')
-    .select('id, pipeline_stage, pipeline_id, pipelines(name)')
+    .select('id, pipeline_stage, pipeline_id')
     .eq('client_id', client.id)
     .is('deleted_at', null)
     .order('updated_at', { ascending: false })
     .limit(1).maybeSingle();
+  if (ticketErr) console.error('[LiveCRM] GET_CLIENT_DATA ticket err:', ticketErr.message);
+
+  let pipelineName = null;
+  if (ticket?.pipeline_id) {
+    const { data: pl } = await sb.from('pipelines').select('name').eq('id', ticket.pipeline_id).maybeSingle();
+    pipelineName = pl?.name || null;
+  }
 
   let stageLabel = ticket?.pipeline_stage || null;
   if (ticket?.pipeline_id && ticket?.pipeline_stage) {
@@ -1020,7 +1028,7 @@ async function handleGetClientData(phone) {
     id: ticket.id,
     pipeline_stage: ticket.pipeline_stage,
     pipeline_id: ticket.pipeline_id,
-    pipeline_name: ticket.pipelines?.name || null,
+    pipeline_name: pipelineName,
   } : null;
   return { client, ticket: ticketOut, stageLabel, pendingQuotePdf };
 }
