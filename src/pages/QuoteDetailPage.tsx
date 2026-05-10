@@ -929,20 +929,24 @@ const QuoteDetailPage = () => {
         </Button>
         <div className="flex-1" />
         {quote.status === "rascunho" && (
-          <Button onClick={async () => {
-            const pdfUrl = await uploadPdfToStorage();
-            await updateQuote.mutateAsync({
-              id: id!,
-              status: "aguardando_aprovacao",
-              subtotal: totals.subtotalPecas + totals.subtotalServicos,
-              total: totals.charged,
-              freight: totals.frete,
-              discount: totals.desconto,
-              ...(pdfUrl ? { pdf_url: pdfUrl } : {}),
-            });
-            if (pdfUrl) toast.success("PDF disponível na extensão WhatsApp para envio.");
-          }}>
-            Enviar para Aprovação
+          <Button
+            disabled={updateQuote.isPending}
+            onClick={async () => {
+              try {
+                await updateQuote.mutateAsync({
+                  id: id!,
+                  status: "aguardando_aprovacao",
+                  subtotal: totals.subtotalPecas + totals.subtotalServicos,
+                  total: totals.charged,
+                  freight: totals.frete,
+                  discount: totals.desconto,
+                });
+              } catch (e: any) {
+                toast.error("Erro ao enviar para aprovação: " + (e?.message || "tente novamente"));
+              }
+            }}
+          >
+            {updateQuote.isPending ? "Enviando..." : "Enviar para Aprovação"}
           </Button>
         )}
         {quote.status === "aguardando_aprovacao" && (

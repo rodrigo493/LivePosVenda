@@ -1823,7 +1823,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
                                       </SelectTrigger>
                                       <SelectContent>
                                         <SelectItem value="rascunho">Rascunho</SelectItem>
-                                        <SelectItem value="em_analise">Em Análise</SelectItem>
+                                        <SelectItem value="aguardando_aprovacao">Aguardando Aprovação</SelectItem>
                                         <SelectItem value="aprovado">Aprovado</SelectItem>
                                         <SelectItem value="reprovado">Reprovado</SelectItem>
                                         <SelectItem value="cancelado">Cancelado</SelectItem>

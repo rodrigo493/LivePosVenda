@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -311,6 +312,10 @@ export function ContractSection({
     setGenerating(true);
     try {
       await saveContractData.mutateAsync({ pdId, bairro, installments });
+      // Registra que o contrato foi gerado (para extensão e tag kanban)
+      await supabase.from("service_requests")
+        .update({ contract_generated_at: new Date().toISOString() })
+        .eq("id", pdId);
 
       const today = new Date();
       const date = `${String(today.getDate()).padStart(2, "0")}/${String(

@@ -1635,6 +1635,9 @@ function PipelineCard({ ticket, pipelineName, stageKey, onQuickTask, onClick, on
   const unreadIg = ticket._unreadInstagram || 0;
   const isNewLead = ticket._isNewLead || false;
   const lastOrderTag = getLastOrderTag(ticket.quotes || []);
+  const hasContract = (ticket.quotes || []).some(
+    (q: any) => q.service_requests?.document_type === "pd" && q.service_requests?.contract_generated_at
+  );
   const isDelayed = ticket._isDelayed;
   const days = ticket._daysSinceInteraction ?? 0;
   const stageColor: string = ticket._stageColor ?? "#6366f1";
@@ -1709,6 +1712,11 @@ function PipelineCard({ ticket, pipelineName, stageKey, onQuickTask, onClick, on
                 : "bg-blue-900/60 text-blue-300 border-blue-700/50"
             }`}>
               {lastOrderTag}
+            </span>
+          )}
+          {hasContract && (
+            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded border bg-green-900/60 text-green-300 border-green-700/50">
+              CONTRATO
             </span>
           )}
           {stageKey === "concluido" ? (

@@ -1003,18 +1003,31 @@ async function handleGetClientData(phone) {
     sb.from('clients').update({ wa_jid: jid }).eq('id', client.id).then(() => {});
   }
 
-  // Orçamento pendente com PDF (aguardando aprovação)
+  // Orçamento aguardando aprovação — mostra apenas o número, sem upload de PDF
   let pendingQuotePdf = null;
   if (client.id) {
     const { data: q } = await sb
       .from('quotes')
-      .select('id, quote_number, pdf_url')
+      .select('id, quote_number')
       .eq('client_id', client.id)
       .eq('status', 'aguardando_aprovacao')
-      .not('pdf_url', 'is', null)
       .order('created_at', { ascending: false })
       .limit(1).maybeSingle();
-    if (q?.pdf_url) pendingQuotePdf = { quoteId: q.id, quoteNumber: q.quote_number, pdfUrl: q.pdf_url };
+    if (q) pendingQuotePdf = { quoteId: q.id, quoteNumber: q.quote_number };
+  }
+
+  // Contrato gerado mais recente — PD com contract_generated_at preenchido
+  let pendingContract = null;
+  if (client.id) {
+    const { data: sr } = await sb
+      .from('service_requests')
+      .select('request_number, contract_generated_at')
+      .eq('client_id', client.id)
+      .eq('document_type', 'pd')
+      .not('contract_generated_at', 'is', null)
+      .order('contract_generated_at', { ascending: false })
+      .limit(1).maybeSingle();
+    if (sr) pendingContract = { contractNumber: sr.request_number };
   }
 
   // Sem embed de pipelines — join embedded causava retorno null silencioso no PostgREST
@@ -1048,7 +1061,7 @@ async function handleGetClientData(phone) {
     pipeline_id: ticket.pipeline_id,
     pipeline_name: pipelineName,
   } : null;
-  return { client, ticket: ticketOut, stageLabel, pendingQuotePdf };
+  return { client, ticket: ticketOut, stageLabel, pendingQuotePdf, pendingContract };
 }
 
 async function handleCreateCrmContact(phone) {

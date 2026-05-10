@@ -1005,7 +1005,7 @@ function renderSuggestionPanel() {
   body.appendChild(panel);
 }
 
-function renderSidebarData(phone, { client, ticket, stageLabel, pendingQuotePdf }) {
+function renderSidebarData(phone, { client, ticket, stageLabel, pendingQuotePdf, pendingContract }) {
   const body = document.getElementById('livecrm-panel-body');
   if (!body) return;
   body.textContent = '';
@@ -1276,47 +1276,23 @@ function renderSidebarData(phone, { client, ticket, stageLabel, pendingQuotePdf 
     pdfInfo.textContent = '📄 ' + pendingQuotePdf.quoteNumber;
     Object.assign(pdfInfo.style, { fontSize: '12px', color: '#374151', marginBottom: '8px', fontWeight: '600' });
     body.appendChild(pdfInfo);
+  }
 
-    const sendPdfBtn = styledBtn('📤 Enviar PDF para conversa', true);
-    Object.assign(sendPdfBtn.style, { background: '#1d4ed8', borderColor: '#1d4ed8' });
-    body.appendChild(sendPdfBtn);
+  // ── Contrato Gerado ───────────────────────────────────────────────────────
+  if (pendingContract) {
+    const sep4 = document.createElement('hr');
+    Object.assign(sep4.style, { border: 'none', borderTop: '1px solid #e5e7eb', margin: '10px 0' });
+    body.appendChild(sep4);
 
-    const pdfFeedback = document.createElement('div');
-    Object.assign(pdfFeedback.style, { fontSize: '11px', minHeight: '16px', marginTop: '4px', textAlign: 'center' });
-    body.appendChild(pdfFeedback);
+    const ctLbl = document.createElement('div');
+    ctLbl.textContent = 'CONTRATO GERADO';
+    Object.assign(ctLbl.style, { fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.5px', color: '#6b7280', marginBottom: '6px' });
+    body.appendChild(ctLbl);
 
-    sendPdfBtn.addEventListener('click', async () => {
-      sendPdfBtn.disabled = true;
-      sendPdfBtn.textContent = '⟳ Enviando...';
-      pdfFeedback.textContent = '';
-      pdfFeedback.style.color = '#6b7280';
-      try {
-        const ok = await sendPdfToWaConversation(
-          pendingQuotePdf.pdfUrl,
-          pendingQuotePdf.quoteNumber + '.pdf'
-        );
-        if (ok === true) {
-          sendPdfBtn.textContent = '✓ PDF enviado';
-          pdfFeedback.textContent = 'Confirme o envio no WhatsApp.';
-          pdfFeedback.style.color = '#065f46';
-        } else if (ok === 'downloaded') {
-          sendPdfBtn.disabled = false;
-          sendPdfBtn.textContent = '📥 PDF baixado';
-          pdfFeedback.textContent = 'Arquivo salvo no dispositivo — anexe manualmente no WhatsApp.';
-          pdfFeedback.style.color = '#92400e';
-        } else {
-          sendPdfBtn.disabled = false;
-          sendPdfBtn.textContent = '📤 Enviar PDF para conversa';
-          pdfFeedback.textContent = 'Não foi possível enviar. Tente novamente.';
-          pdfFeedback.style.color = '#dc2626';
-        }
-      } catch (e) {
-        sendPdfBtn.disabled = false;
-        sendPdfBtn.textContent = '📤 Enviar PDF para conversa';
-        pdfFeedback.textContent = 'Erro: ' + e.message;
-        pdfFeedback.style.color = '#dc2626';
-      }
-    });
+    const ctInfo = document.createElement('div');
+    ctInfo.textContent = '📋 ' + pendingContract.contractNumber;
+    Object.assign(ctInfo.style, { fontSize: '12px', color: '#374151', marginBottom: '8px', fontWeight: '600' });
+    body.appendChild(ctInfo);
   }
 }
 
