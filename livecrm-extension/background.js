@@ -478,7 +478,6 @@ function fiberExtractPhone() {
 
   // 4. Fallback: telefone anotado via click-tracking no sidebar (wa_hook.js)
   //    data-livecrm-phone é mais confiável que __livecrm_active_phone pois é atualizado no clique
-  const mainEl = document.getElementById('main');
   const annotatedPhone = mainEl?.getAttribute('data-livecrm-phone');
   if (annotatedPhone) {
     const own = window.__livecrm_own_jid;
