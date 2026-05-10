@@ -476,7 +476,16 @@ function fiberExtractPhone() {
     }
   } catch { /* webpack cache inacessível */ }
 
-  // 4. Fallback: último telefone capturado pelo wa_hook via evento de mensagem
+  // 4. Fallback: telefone anotado via click-tracking no sidebar (wa_hook.js)
+  //    data-livecrm-phone é mais confiável que __livecrm_active_phone pois é atualizado no clique
+  const mainEl = document.getElementById('main');
+  const annotatedPhone = mainEl?.getAttribute('data-livecrm-phone');
+  if (annotatedPhone) {
+    const own = window.__livecrm_own_jid;
+    if (!own || annotatedPhone !== own) return annotatedPhone;
+  }
+
+  // 5. Fallback: último telefone capturado via evento de mensagem ou click-tracking
   if (window.__livecrm_active_phone) {
     const own = window.__livecrm_own_jid;
     if (!own || window.__livecrm_active_phone !== own) return window.__livecrm_active_phone;
@@ -978,12 +987,21 @@ function phoneVariants(phone) {
 
 async function handleGetClientData(phone) {
   if (!sb) return { client: null, ticket: null };
+  const digits = phone.replace(/\D/g, '');
+  const jid = digits + '@s.whatsapp.net';
   const variants = phoneVariants(phone);
-  const orParts = variants.flatMap(v => [`phone.eq.${v}`, `whatsapp.eq.${v}`]).join(',');
+  const orParts = [
+    `wa_jid.eq.${jid}`,
+    ...variants.flatMap(v => [`phone.eq.${v}`, `whatsapp.eq.${v}`]),
+  ].join(',');
   const { data: client } = await sb
-    .from('clients').select('id, name, whatsapp, phone')
+    .from('clients').select('id, name, whatsapp, phone, wa_jid')
     .or(orParts).order('created_at', { ascending: false }).limit(1).maybeSingle();
   if (!client) return { client: null, ticket: null };
+  // Salva wa_jid se ainda não está registrado — garante lookup direto futuro
+  if (!client.wa_jid) {
+    sb.from('clients').update({ wa_jid: jid }).eq('id', client.id).then(() => {});
+  }
 
   // Orçamento pendente com PDF (aguardando aprovação)
   let pendingQuotePdf = null;
@@ -1042,7 +1060,7 @@ async function handleCreateCrmContact(phone) {
     .or(`whatsapp.eq.${digits},phone.eq.${phoneLocal}`).maybeSingle();
   if (existing) return { clientId: existing.id };
   const { data: newClient, error } = await sb
-    .from('clients').insert({ name: phone, phone: phoneLocal, whatsapp: digits })
+    .from('clients').insert({ name: phone, phone: phoneLocal, whatsapp: digits, wa_jid: digits + '@s.whatsapp.net' })
     .select('id').single();
   if (error) throw new Error(error.message);
   return { clientId: newClient.id };
@@ -1129,7 +1147,7 @@ async function handleCreateTicket(phone, name, pipelineId) {
   } else {
     console.log('[LiveCRM] inserindo novo cliente...');
     const { data: newClient, error } = await sb
-      .from('clients').insert({ name: name || phone, phone: phoneLocal, whatsapp: digits })
+      .from('clients').insert({ name: name || phone, phone: phoneLocal, whatsapp: digits, wa_jid: digits + '@s.whatsapp.net' })
       .select('id').single();
     if (error) { console.error('[LiveCRM] ERRO insert cliente:', error.message, error.code); throw new Error(error.message); }
     clientId = newClient.id;

@@ -459,6 +459,38 @@
       });
     }
 
+    // Click-tracking: captura o JID do data-id ao clicar no item do sidebar —
+    // mais confiável que aria-selected no WA Web 2026 (não usa attr aria-selected)
+    const paneContainer = document.querySelector('#pane-side, [data-testid="chat-list-container"]') || document.body;
+    paneContainer.addEventListener('click', (e) => {
+      const item = e.target.closest('[data-id*="@c.us"], [data-id*="@s.whatsapp.net"]')
+        || e.target.closest('[data-testid="cell-frame-container"]');
+      if (!item) return;
+      const rawId = item.getAttribute('data-id') || '';
+      let phone = null;
+      if (rawId.includes('@c.us')) phone = rawId.replace(/@c\.us.*/, '');
+      else if (rawId.includes('@s.whatsapp.net')) phone = rawId.replace(/@s\.whatsapp\.net.*/, '');
+      if (!phone) {
+        const child = item.querySelector('[data-id*="@c.us"], [data-id*="@s.whatsapp.net"]');
+        if (child) {
+          const cid = child.getAttribute('data-id') || '';
+          if (cid.includes('@c.us')) phone = cid.replace(/@c\.us.*/, '');
+          else if (cid.includes('@s.whatsapp.net')) phone = cid.replace(/@s\.whatsapp\.net.*/, '');
+        }
+      }
+      if (!phone) return;
+      const own = window.__livecrm_own_jid;
+      if (own && phone === own) return;
+      window.__livecrm_active_phone = phone;
+      window.__livecrm_active_jid = rawId || (phone + '@s.whatsapp.net');
+      const m = document.getElementById('main');
+      if (m && phone !== lastAnnotatedPhone) {
+        m.setAttribute('data-livecrm-phone', phone);
+        lastAnnotatedPhone = phone;
+        console.log('[LiveCRM Hook] click-track phone:', phone);
+      }
+    }, true); // capture phase — funciona mesmo antes de child listeners
+
     console.log('[LiveCRM Hook] phone tracker iniciado');
   }
 
