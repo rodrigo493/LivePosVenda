@@ -31,7 +31,7 @@ import { ExternalLink } from "lucide-react";
 import { formatCurrency as fmtCurrency } from "@/lib/formatters";
 import { ContractSection } from "@/components/pd/ContractSection";
 import type { ContractItem } from "@/lib/generateContractPdf";
-import { extractCodeFromDescription, quoteToContractInstallments } from "@/lib/contractMappings";
+import { extractCodeFromDescription, quoteToContractInstallments, EBOOK_MAPPING } from "@/lib/contractMappings";
 
 const partTypes = [
   { value: "peca_cobrada", label: "Peça (Cobrada)" },
@@ -373,6 +373,23 @@ const PDDetailPage = () => {
 
   const items = linkedQuote?.quote_items || [];
 
+  // Flat list de linhas ERP: cada equipment + seu e-book derivado (mesma lógica do ContractSection)
+  const erpRows = useMemo(() => {
+    const rows: { key: string; label: string; description: string; isEbook: boolean }[] = [];
+    let idx = 0;
+    for (const item of items.filter((i: any) => i.item_type !== "frete" && i.item_type !== "desconto")) {
+      const code = (item.products?.code || extractCodeFromDescription(item.description || "")).toUpperCase().trim();
+      const ebook = EBOOK_MAPPING[code];
+      const hasEbook = !!ebook && item.item_type !== "brinde";
+      idx++;
+      rows.push({ key: item.id, label: `Item ${idx}`, description: item.description || "", isEbook: false });
+      if (hasEbook) {
+        rows.push({ key: `ebook_${item.id}`, label: `E-book (Item ${idx})`, description: ebook.desc, isEbook: true });
+      }
+    }
+    return rows;
+  }, [items]);
+
   const [itemErpData, setItemErpData] = useState<Record<string, { produto: string; quantidade: string; valorUnitario: string }>>({});
 
   useEffect(() => {
@@ -380,11 +397,23 @@ const PDDetailPage = () => {
     setItemErpData(prev => {
       const next = { ...prev };
       for (const item of items) {
+        const code = (item.products?.code || extractCodeFromDescription(item.description || "")).toUpperCase().trim();
+        const ebook = EBOOK_MAPPING[code];
+        const hasEbook = !!ebook && item.item_type !== "brinde";
+        const unitPrice = Number(item.unit_price || 0);
         if (!next[item.id]) {
           next[item.id] = {
             produto: item.products?.code || item.description || "",
             quantidade: String(item.quantity || 1),
-            valorUnitario: Number(item.unit_price || 0).toFixed(2),
+            valorUnitario: (hasEbook ? unitPrice * 0.6 : unitPrice).toFixed(2),
+          };
+        }
+        const ebookKey = `ebook_${item.id}`;
+        if (hasEbook && !next[ebookKey]) {
+          next[ebookKey] = {
+            produto: ebook.code,
+            quantidade: "1",
+            valorUnitario: (unitPrice * 0.4).toFixed(2),
           };
         }
       }
@@ -718,17 +747,17 @@ const PDDetailPage = () => {
       const today = new Date();
       const fallbackDate = `${String(today.getDate()).padStart(2, "0")}/${String(today.getMonth() + 1).padStart(2, "0")}/${today.getFullYear()}`;
 
-      const itensPedido = await Promise.all(items.filter((item: any) => item.item_type !== "frete" && item.item_type !== "desconto").map(async (item: any, idx: number) => {
-        const erpData = itemErpData[item.id];
-        const code = erpData?.produto || item.products?.code || "";
+      const itensPedido = await Promise.all(erpRows.map(async (row, idx) => {
+        const erpData = itemErpData[row.key];
+        const code = erpData?.produto || "";
         const idProduto = await resolveNomusProductId(code);
         if (!idProduto) throw new Error(`Produto "${code}" não encontrado no ERP Nomus.`);
         return {
           idProduto,
           item: String(idx + 1),
-          quantidade: String(Number(erpData?.quantidade || item.quantity || 1)),
-          valorUnitario: String(Number(erpData?.valorUnitario || item.unit_price || 0).toFixed(2)),
-          observacoes: item.description || "",
+          quantidade: String(Number(erpData?.quantidade || 1)),
+          valorUnitario: String(Number(erpData?.valorUnitario || 0).toFixed(2)),
+          observacoes: row.description || "",
           informacoesAdicionaisProduto: "",
           percentualAcrescimo: "0", percentualDesconto: "0",
           valorAcrescimo: "0", valorDesconto: "0",
@@ -1559,19 +1588,21 @@ const PDDetailPage = () => {
             </div>
           </div>
 
-          {items.length > 0 && (
+          {erpRows.length > 0 && (
             <div className="border-t pt-4">
               <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-3">Itens do Pedido (Dados ERP)</p>
               <div className="space-y-3">
-                {items.filter((item: any) => item.item_type !== "frete" && item.item_type !== "desconto").map((item: any, idx: number) => {
-                  const erpData = itemErpData[item.id] || { produto: "", quantidade: "1", valorUnitario: "0" };
+                {erpRows.map((row) => {
+                  const erpData = itemErpData[row.key] || { produto: "", quantidade: "1", valorUnitario: "0" };
                   return (
-                    <div key={item.id} className="bg-muted/30 rounded-lg p-3 grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+                    <div key={row.key} className={`rounded-lg p-3 grid grid-cols-1 md:grid-cols-4 gap-3 items-end ${row.isEbook ? "bg-muted/15 border border-dashed border-muted-foreground/20" : "bg-muted/30"}`}>
                       <div className="md:col-span-1">
-                        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Item {idx + 1} - Produto</Label>
+                        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                          {row.isEbook ? "📘 " : ""}{row.label} - {row.isEbook ? "E-Book" : "Produto"}
+                        </Label>
                         <Input
                           value={erpData.produto}
-                          onChange={e => updateItemErp(item.id, "produto", e.target.value)}
+                          onChange={e => updateItemErp(row.key, "produto", e.target.value)}
                           placeholder="Código do produto"
                           className="mt-1 h-8 text-xs font-mono"
                         />
@@ -1581,7 +1612,7 @@ const PDDetailPage = () => {
                         <Input
                           type="number"
                           value={erpData.quantidade}
-                          onChange={e => updateItemErp(item.id, "quantidade", e.target.value)}
+                          onChange={e => updateItemErp(row.key, "quantidade", e.target.value)}
                           className="mt-1 h-8 text-xs font-mono"
                         />
                       </div>
@@ -1591,12 +1622,12 @@ const PDDetailPage = () => {
                           type="number"
                           step="0.01"
                           value={erpData.valorUnitario}
-                          onChange={e => updateItemErp(item.id, "valorUnitario", e.target.value)}
+                          onChange={e => updateItemErp(row.key, "valorUnitario", e.target.value)}
                           className="mt-1 h-8 text-xs font-mono"
                         />
                       </div>
                       <div>
-                        <p className="text-[10px] text-muted-foreground truncate">{item.description}</p>
+                        <p className="text-[10px] text-muted-foreground truncate">{row.description}</p>
                       </div>
                     </div>
                   );
