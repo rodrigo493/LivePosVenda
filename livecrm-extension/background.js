@@ -1028,15 +1028,9 @@ async function handleCreateCrmContact(phone) {
 
 async function handleSaveNote(ticketId, clientId, text) {
   if (!sb) throw new Error('Extensao nao autenticada');
-  if (ticketId) {
-    const { error } = await sb.from('ticket_comments')
-      .insert({ ticket_id: ticketId, content: '[WA] ' + text });
-    if (error) throw new Error(error.message);
-  } else {
-    const { error } = await sb.from('client_service_history')
-      .insert({ client_id: clientId, service_date: new Date().toISOString(), problem_reported: '[Nota WA] ' + text, service_status: 'nota' });
-    if (error) throw new Error(error.message);
-  }
+  const { error } = await sb.from('client_service_history')
+    .insert({ client_id: clientId, service_date: new Date().toISOString(), problem_reported: '[Nota WA] ' + text, service_status: 'nota' });
+  if (error) throw new Error(error.message);
   return { ok: true };
 }
 
@@ -1110,11 +1104,11 @@ async function handleCreateTicket(phone, name, pipelineId) {
     clientId = newClient.id;
   }
 
-  // Busca primeira etapa do funil
+  // Busca primeira etapa do funil (coluna 'position', não 'order')
   const { data: firstStage } = await sb
     .from('pipeline_stages').select('key, label')
     .eq('pipeline_id', pipelineId)
-    .order('order', { ascending: true })
+    .order('position', { ascending: true })
     .limit(1).maybeSingle();
 
   // Cria ticket

@@ -838,18 +838,35 @@ function isStatusString(s) {
 }
 
 function getContactName() {
-  const header = document.querySelector('header[data-testid="conversation-header"]');
+  const header = document.querySelector(
+    'header[data-testid="conversation-header"], #main header, [data-testid="conversation-panel-body"] header'
+  );
   if (!header) return null;
-  // Usa o título específico do WA Web; fallbacks removidos pois pegam status
-  const titleEl = header.querySelector('[data-testid="conversation-info-header-chat-title"]');
+
+  // Tenta seletor específico do WA Web 2024-2026
+  const titleEl = header.querySelector(
+    '[data-testid="conversation-info-header-chat-title"], [data-testid="conversation-header-title"]'
+  );
   const spans = titleEl ? Array.from(titleEl.querySelectorAll('span[dir="auto"]')) : [];
-  const el = spans[0] ||
-    header.querySelector('span[title][class]') ||
-    header.querySelector('._amig') ||
-    header.querySelector('h1');
-  const text = el?.textContent?.trim() || null;
-  if (!text || isStatusString(text)) return null;
-  return text;
+
+  // Candidatos em ordem de especificidade
+  const candidates = [
+    spans[0],
+    titleEl,
+    // WA Web coloca o nome como atributo title em spans — mais confiável que text
+    header.querySelector('span[title]:not([title=""])'),
+    header.querySelector('span[dir="auto"]'),
+    header.querySelector('._amig'),
+    header.querySelector('h1, h2'),
+  ];
+
+  for (const el of candidates) {
+    if (!el) continue;
+    // Prefere o atributo title (evita concatenar spans de emoji)
+    const text = (el.getAttribute?.('title') || el.textContent || '').trim();
+    if (text && !isStatusString(text)) return text;
+  }
+  return null;
 }
 
 function styledBtn(text, primary) {
