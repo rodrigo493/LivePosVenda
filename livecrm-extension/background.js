@@ -614,7 +614,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     handleDeleteTicketProduct(msg.productId).then(sendResponse).catch(e => sendResponse({ error: e.message }));
     return true;
   } else if (msg.type === 'OPEN_CRM_TICKET') {
-    handleOpenCrmTicket(msg.ticketId).then(sendResponse).catch(e => sendResponse({ error: e.message }));
+    handleOpenCrmTicket(msg.ticketId, _sender.tab?.id).then(sendResponse).catch(e => sendResponse({ error: e.message }));
     return true;
   } else if (msg.type === 'OPEN_WA_CHAT') {
     handleOpenWaTab(msg.phone).then(sendResponse).catch(e => sendResponse({ error: e.message }));
@@ -1292,7 +1292,7 @@ async function handleOpenWaTab(phone) {
   }
 }
 
-async function handleOpenCrmTicket(ticketId) {
+async function handleOpenCrmTicket(ticketId, senderTabId) {
   const url = 'https://posvenda.liveuni.com.br/crm?open_ticket=' + ticketId;
   const tabs = await chrome.tabs.query({ url: 'https://posvenda.liveuni.com.br/*' });
   if (tabs.length > 0) {
@@ -1300,6 +1300,9 @@ async function handleOpenCrmTicket(ticketId) {
     await chrome.windows.update(tab.windowId, { focused: true });
     await chrome.tabs.update(tab.id, { active: true, url });
     return { ok: true };
+  } else if (senderTabId) {
+    await chrome.tabs.update(senderTabId, { url });
+    return { ok: true, navigated: true };
   } else {
     await chrome.tabs.create({ url });
     return { ok: true, opened: true };
