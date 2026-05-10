@@ -1005,7 +1005,7 @@ function renderSuggestionPanel() {
   body.appendChild(panel);
 }
 
-function renderSidebarData(phone, { client, ticket, stageLabel }) {
+function renderSidebarData(phone, { client, ticket, stageLabel, pendingQuotePdf }) {
   const body = document.getElementById('livecrm-panel-body');
   if (!body) return;
   body.textContent = '';
@@ -1260,6 +1260,59 @@ function renderSidebarData(phone, { client, ticket, stageLabel }) {
     body.appendChild(sep2);
     renderProductsSection(body, ticket, client);
   }
+
+  // ── PDF do Orçamento ──────────────────────────────────────────────────────
+  if (pendingQuotePdf) {
+    const sep3 = document.createElement('hr');
+    Object.assign(sep3.style, { border: 'none', borderTop: '1px solid #e5e7eb', margin: '10px 0' });
+    body.appendChild(sep3);
+
+    const pdfLbl = document.createElement('div');
+    pdfLbl.textContent = 'ORÇAMENTO AGUARDANDO APROVAÇÃO';
+    Object.assign(pdfLbl.style, { fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.5px', color: '#6b7280', marginBottom: '6px' });
+    body.appendChild(pdfLbl);
+
+    const pdfInfo = document.createElement('div');
+    pdfInfo.textContent = '📄 ' + pendingQuotePdf.quoteNumber;
+    Object.assign(pdfInfo.style, { fontSize: '12px', color: '#374151', marginBottom: '8px', fontWeight: '600' });
+    body.appendChild(pdfInfo);
+
+    const sendPdfBtn = styledBtn('📤 Enviar PDF para conversa', true);
+    Object.assign(sendPdfBtn.style, { background: '#1d4ed8', borderColor: '#1d4ed8' });
+    body.appendChild(sendPdfBtn);
+
+    const pdfFeedback = document.createElement('div');
+    Object.assign(pdfFeedback.style, { fontSize: '11px', minHeight: '16px', marginTop: '4px', textAlign: 'center' });
+    body.appendChild(pdfFeedback);
+
+    sendPdfBtn.addEventListener('click', async () => {
+      sendPdfBtn.disabled = true;
+      sendPdfBtn.textContent = '⟳ Enviando...';
+      pdfFeedback.textContent = '';
+      pdfFeedback.style.color = '#6b7280';
+      try {
+        const ok = await sendPdfToWaConversation(
+          pendingQuotePdf.pdfUrl,
+          pendingQuotePdf.quoteNumber + '.pdf'
+        );
+        if (ok) {
+          sendPdfBtn.textContent = '✓ PDF enviado';
+          pdfFeedback.textContent = 'Confirme o envio no WhatsApp.';
+          pdfFeedback.style.color = '#065f46';
+        } else {
+          sendPdfBtn.disabled = false;
+          sendPdfBtn.textContent = '📤 Enviar PDF para conversa';
+          pdfFeedback.textContent = 'Não foi possível injetar o arquivo. Tente anexar manualmente.';
+          pdfFeedback.style.color = '#dc2626';
+        }
+      } catch (e) {
+        sendPdfBtn.disabled = false;
+        sendPdfBtn.textContent = '📤 Enviar PDF para conversa';
+        pdfFeedback.textContent = 'Erro: ' + e.message;
+        pdfFeedback.style.color = '#dc2626';
+      }
+    });
+  }
 }
 
 async function renderProductsSection(container, ticket, client) {
@@ -1375,6 +1428,41 @@ async function renderProductsSection(container, ticket, client) {
       }
     });
   });
+}
+
+async function sendPdfToWaConversation(pdfUrl, fileName) {
+  try {
+    const resp = await fetch(pdfUrl);
+    if (!resp.ok) throw new Error('Falha ao baixar PDF');
+    const blob = await resp.blob();
+    const file = new File([blob], fileName, { type: 'application/pdf' });
+
+    // Estratégia 1: injetar via DataTransfer no input de arquivo do WA Web
+    const fileInputs = Array.from(document.querySelectorAll('input[type="file"]'));
+    // Prefere o input que aceita documentos (accept="*" ou sem restrição de imagem)
+    const docInput = fileInputs.find(i => !i.accept.includes('image') && !i.accept.includes('video'))
+      || fileInputs[0];
+
+    if (docInput) {
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      Object.defineProperty(docInput, 'files', { value: dt.files, configurable: true });
+      docInput.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    }
+
+    // Estratégia 2: colar via ClipboardItem (funciona em alguns browsers)
+    if (navigator.clipboard?.write && window.ClipboardItem) {
+      await navigator.clipboard.write([new ClipboardItem({ 'application/pdf': blob })]);
+      const input = document.querySelector('footer [contenteditable="true"], [data-testid="conversation-compose-box-input"]');
+      if (input) { input.focus(); document.execCommand('paste'); return true; }
+    }
+
+    return false;
+  } catch (e) {
+    console.warn('[LiveCRM CS] sendPdfToWaConversation error:', e.message);
+    return false;
+  }
 }
 
 async function renderSidebarNotFound(phone) {

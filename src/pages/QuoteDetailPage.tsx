@@ -282,6 +282,24 @@ const QuoteDetailPage = () => {
     }
   };
 
+  const uploadPdfToStorage = async (): Promise<string | null> => {
+    if (!quote) return null;
+    try {
+      const doc = generateQuotePdf(buildPdfPayload());
+      const blob = doc.output("blob");
+      const path = `quote-pdfs/${quote.id}/${quote.quote_number}.pdf`;
+      const { error } = await supabase.storage
+        .from("posvenda-evidencias")
+        .upload(path, blob, { contentType: "application/pdf", upsert: true });
+      if (error) throw error;
+      const { data } = supabase.storage.from("posvenda-evidencias").getPublicUrl(path);
+      return data.publicUrl;
+    } catch (e) {
+      console.error("[QuotePage] Erro ao subir PDF:", e);
+      return null;
+    }
+  };
+
   const handleExportExcel = () => {
     if (!quote) return;
     exportDocumentToExcel(buildExcelPayload());
@@ -911,7 +929,19 @@ const QuoteDetailPage = () => {
         </Button>
         <div className="flex-1" />
         {quote.status === "rascunho" && (
-          <Button onClick={() => updateQuote.mutateAsync({ id: id!, status: "aguardando_aprovacao", subtotal: totals.subtotalPecas + totals.subtotalServicos, total: totals.charged, freight: totals.frete, discount: totals.desconto })}>
+          <Button onClick={async () => {
+            const pdfUrl = await uploadPdfToStorage();
+            await updateQuote.mutateAsync({
+              id: id!,
+              status: "aguardando_aprovacao",
+              subtotal: totals.subtotalPecas + totals.subtotalServicos,
+              total: totals.charged,
+              freight: totals.frete,
+              discount: totals.desconto,
+              ...(pdfUrl ? { pdf_url: pdfUrl } : {}),
+            });
+            if (pdfUrl) toast.success("PDF disponível na extensão WhatsApp para envio.");
+          }}>
             Enviar para Aprovação
           </Button>
         )}

@@ -985,6 +985,20 @@ async function handleGetClientData(phone) {
     .or(orParts).limit(1).maybeSingle();
   if (!client) return { client: null, ticket: null };
 
+  // Orçamento pendente com PDF (aguardando aprovação)
+  let pendingQuotePdf = null;
+  if (client.id) {
+    const { data: q } = await sb
+      .from('quotes')
+      .select('id, quote_number, pdf_url')
+      .eq('client_id', client.id)
+      .eq('status', 'aguardando_aprovacao')
+      .not('pdf_url', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(1).maybeSingle();
+    if (q?.pdf_url) pendingQuotePdf = { quoteId: q.id, quoteNumber: q.quote_number, pdfUrl: q.pdf_url };
+  }
+
   const { data: ticket } = await sb
     .from('tickets')
     .select('id, pipeline_stage, pipeline_id, pipelines(name)')
@@ -1008,7 +1022,7 @@ async function handleGetClientData(phone) {
     pipeline_id: ticket.pipeline_id,
     pipeline_name: ticket.pipelines?.name || null,
   } : null;
-  return { client, ticket: ticketOut, stageLabel };
+  return { client, ticket: ticketOut, stageLabel, pendingQuotePdf };
 }
 
 async function handleCreateCrmContact(phone) {
