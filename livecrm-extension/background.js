@@ -1099,8 +1099,8 @@ async function handleCreateTicket(phone, name, pipelineId) {
   const digits = phone.replace(/\D/g, '');
   const phoneLocal = digits.startsWith('55') ? digits.slice(2) : digits;
 
-  // Responsável = usuário logado na extensão (vínculo direto via JWT)
   const assignedTo = currentUserId || null;
+  console.log('[LiveCRM] CREATE_TICKET phone:', digits, 'pipeline:', pipelineId);
 
   // Encontra ou cria cliente
   const { data: existing } = await sb
@@ -1109,21 +1109,25 @@ async function handleCreateTicket(phone, name, pipelineId) {
   let clientId;
   if (existing) {
     clientId = existing.id;
+    console.log('[LiveCRM] cliente existente:', clientId);
     if (name && name !== phone) await sb.from('clients').update({ name }).eq('id', clientId);
   } else {
+    console.log('[LiveCRM] inserindo novo cliente...');
     const { data: newClient, error } = await sb
       .from('clients').insert({ name: name || phone, phone: phoneLocal, whatsapp: digits })
       .select('id').single();
-    if (error) throw new Error(error.message);
+    if (error) { console.error('[LiveCRM] ERRO insert cliente:', error.message, error.code); throw new Error(error.message); }
     clientId = newClient.id;
+    console.log('[LiveCRM] novo cliente criado:', clientId);
   }
 
-  // Busca primeira etapa do funil (coluna 'position', não 'order')
+  // Busca primeira etapa do funil
   const { data: firstStage } = await sb
     .from('pipeline_stages').select('key, label')
     .eq('pipeline_id', pipelineId)
     .order('position', { ascending: true })
     .limit(1).maybeSingle();
+  console.log('[LiveCRM] firstStage:', firstStage?.key || 'nenhuma (usando novo)');
 
   // Cria ticket
   const insertPayload = {
@@ -1136,15 +1140,17 @@ async function handleCreateTicket(phone, name, pipelineId) {
   };
   if (assignedTo) insertPayload.assigned_to = assignedTo;
 
+  console.log('[LiveCRM] inserindo ticket payload:', JSON.stringify(insertPayload));
   const { error: ticketErr } = await sb.from('tickets').insert(insertPayload);
-  if (ticketErr) throw new Error(ticketErr.message);
+  if (ticketErr) { console.error('[LiveCRM] ERRO insert ticket:', ticketErr.message, ticketErr.code); throw new Error(ticketErr.message); }
+  console.log('[LiveCRM] ticket inserido com sucesso');
 
-  // SELECT separado — RLS pode bloquear o returning do insert
   const { data: created } = await sb
     .from('tickets').select('id')
     .eq('client_id', clientId).eq('pipeline_id', pipelineId)
     .order('created_at', { ascending: false }).limit(1).maybeSingle();
 
+  console.log('[LiveCRM] CREATE_TICKET concluído — ticketId:', created?.id || 'null');
   return { clientId, ticketId: created?.id || null };
 }
 
