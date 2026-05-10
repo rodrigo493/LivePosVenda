@@ -408,8 +408,17 @@ export function generateContractPdf(data: ContractPdfData) {
     bodyStyles: { fontSize: 8 },
     columnStyles: {
       0: { cellWidth: 22, halign: "center" },
-      1: { cellWidth: 32, halign: "center" },
-      2: { cellWidth: 38, halign: "right" },
+      1: { cellWidth: 42, halign: "center" },
+      2: { cellWidth: 42, halign: "right" },
+      3: { cellWidth: 76, halign: "left" },
+    },
+    didParseCell: (hookData) => {
+      if (hookData.section === "head") {
+        if (hookData.column.index === 0) hookData.cell.styles.halign = "center";
+        if (hookData.column.index === 1) hookData.cell.styles.halign = "center";
+        if (hookData.column.index === 2) hookData.cell.styles.halign = "right";
+        if (hookData.column.index === 3) hookData.cell.styles.halign = "left";
+      }
     },
   });
 
