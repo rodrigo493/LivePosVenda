@@ -638,6 +638,52 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   } else if (msg.type === 'LOGIN') {
     handleLogin(msg.email, msg.password).then(sendResponse);
     return true;
+  } else if (msg.type === 'GET_CONTACT_LABEL') {
+    const s = await getStored([`label_${msg.phone}`]);
+    sendResponse(s[`label_${msg.phone}`] || null);
+    return true;
+  } else if (msg.type === 'SET_CONTACT_LABEL') {
+    if (msg.label) {
+      await setStored({ [`label_${msg.phone}`]: msg.label });
+    } else {
+      await new Promise(r => chrome.storage.local.remove([`label_${msg.phone}`], r));
+    }
+    sendResponse({ ok: true });
+    return true;
+  } else if (msg.type === 'GET_CUSTOM_LABELS') {
+    const s = await getStored(['custom_labels']);
+    sendResponse(s.custom_labels || []);
+    return true;
+  } else if (msg.type === 'SAVE_CUSTOM_LABEL') {
+    const s = await getStored(['custom_labels']);
+    const labels = s.custom_labels || [];
+    const newLabel = { id: Date.now().toString(), name: msg.name, color: msg.color, bg: msg.bg };
+    await setStored({ custom_labels: [...labels, newLabel] });
+    sendResponse(newLabel);
+    return true;
+  } else if (msg.type === 'DELETE_CUSTOM_LABEL') {
+    const s = await getStored(['custom_labels']);
+    const labels = (s.custom_labels || []).filter(l => l.id !== msg.id);
+    await setStored({ custom_labels: labels });
+    sendResponse({ ok: true });
+    return true;
+  } else if (msg.type === 'GET_QUICK_REPLIES') {
+    const s = await getStored(['quick_replies']);
+    sendResponse(s.quick_replies || []);
+    return true;
+  } else if (msg.type === 'SAVE_QUICK_REPLY') {
+    const s = await getStored(['quick_replies']);
+    const replies = s.quick_replies || [];
+    const newReply = { id: Date.now().toString(), title: msg.title, body: msg.body };
+    await setStored({ quick_replies: [...replies, newReply] });
+    sendResponse(newReply);
+    return true;
+  } else if (msg.type === 'DELETE_QUICK_REPLY') {
+    const s = await getStored(['quick_replies']);
+    const replies = (s.quick_replies || []).filter(r => r.id !== msg.id);
+    await setStored({ quick_replies: replies });
+    sendResponse({ ok: true });
+    return true;
   } else if (msg.type === 'LOGOUT') {
     if (rtChannel && sb) sb.removeChannel(rtChannel);
     chrome.storage.local.clear();
