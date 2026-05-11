@@ -1253,6 +1253,14 @@ function renderSidebarData(phone, { client, ticket, stageLabel, pendingQuotePdf,
     finally { noteSaveBtn.disabled = false; noteSaveBtn.textContent = 'Salvar nota'; }
   });
 
+  // ── Equipamentos ──────────────────────────────────────────────────────────
+  if (client?.id) {
+    const sepEq = document.createElement('hr');
+    Object.assign(sepEq.style, { border: 'none', borderTop: '1px solid #e5e7eb', margin: '10px 0' });
+    body.appendChild(sepEq);
+    renderEquipmentsSection(body, client);
+  }
+
   // ── Produtos / Negociação ──────────────────────────────────────────────────
   if (ticket) {
     const sep2 = document.createElement('hr');
@@ -1294,6 +1302,64 @@ function renderSidebarData(phone, { client, ticket, stageLabel, pendingQuotePdf,
     Object.assign(ctInfo.style, { fontSize: '12px', color: '#374151', marginBottom: '8px', fontWeight: '600' });
     body.appendChild(ctInfo);
   }
+}
+
+async function renderEquipmentsSection(container, client) {
+  const wrap = document.createElement('div');
+  container.appendChild(wrap);
+
+  const lbl = document.createElement('div');
+  lbl.textContent = 'EQUIPAMENTOS';
+  Object.assign(lbl.style, { fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.5px', color: '#6b7280', marginBottom: '6px' });
+  wrap.appendChild(lbl);
+
+  const listEl = document.createElement('div');
+  listEl.style.marginBottom = '6px';
+  wrap.appendChild(listEl);
+
+  try {
+    const resp = await sendToBackground({ type: 'GET_CLIENT_EQUIPMENTS', clientId: client.id });
+    const equipments = resp.equipments || [];
+
+    if (!equipments.length) {
+      const empty = document.createElement('p');
+      empty.textContent = 'Nenhum equipamento registrado.';
+      Object.assign(empty.style, { color: '#9ca3af', fontSize: '11px', margin: '0 0 6px' });
+      listEl.appendChild(empty);
+    } else {
+      equipments.forEach(eq => {
+        const modelName = eq.equipment_models?.name || 'Modelo não identificado';
+        const serial = eq.serial_number ? ` · ${eq.serial_number}` : '';
+        const row = document.createElement('div');
+        Object.assign(row.style, { padding: '4px 0', fontSize: '11px', borderBottom: '1px solid #f3f4f6', color: '#374151' });
+        const info = document.createElement('span');
+        info.textContent = modelName + serial;
+        Object.assign(info.style, { flex: '1' });
+
+        const statusBadge = document.createElement('span');
+        statusBadge.textContent = eq.status || '';
+        Object.assign(statusBadge.style, {
+          marginLeft: '6px', fontSize: '10px', fontWeight: '600',
+          color: eq.status === 'ativo' ? '#065f46' : '#6b7280',
+        });
+
+        row.appendChild(info);
+        if (eq.status) row.appendChild(statusBadge);
+        listEl.appendChild(row);
+      });
+    }
+  } catch {
+    const err = document.createElement('p');
+    err.textContent = 'Erro ao carregar equipamentos.';
+    Object.assign(err.style, { color: '#dc2626', fontSize: '11px', margin: '0 0 6px' });
+    listEl.appendChild(err);
+  }
+
+  const openBtn = styledBtn('↗ Ver Equipamentos', false);
+  openBtn.addEventListener('click', () => {
+    chrome.runtime.sendMessage({ type: 'OPEN_CRM_EQUIPAMENTOS' }, () => void chrome.runtime.lastError);
+  });
+  wrap.appendChild(openBtn);
 }
 
 async function renderProductsSection(container, ticket, client) {

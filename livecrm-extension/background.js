@@ -621,6 +621,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   } else if (msg.type === 'DELETE_TICKET_PRODUCT') {
     handleDeleteTicketProduct(msg.productId).then(sendResponse).catch(e => sendResponse({ error: e.message }));
     return true;
+  } else if (msg.type === 'GET_CLIENT_EQUIPMENTS') {
+    handleGetClientEquipments(msg.clientId).then(sendResponse).catch(e => sendResponse({ error: e.message }));
+    return true;
+  } else if (msg.type === 'OPEN_CRM_EQUIPAMENTOS') {
+    handleOpenCrmEquipamentos(_sender.tab?.id).then(sendResponse).catch(e => sendResponse({ error: e.message }));
+    return true;
   } else if (msg.type === 'OPEN_CRM_TICKET') {
     handleOpenCrmTicket(msg.ticketId, _sender.tab?.id).then(sendResponse).catch(e => sendResponse({ error: e.message }));
     return true;
@@ -745,35 +751,38 @@ async function handleInbound({ phone, text, mediaUrl, mimetype, waMessageId }) {
     .maybeSingle();
   if (existing) return;
 
-  // Gera variações de formato: com/sem DDI 55, com/sem +, sem 9 extra
   const digits = phone.replace(/\D/g, '');
-  const variants = new Set([
-    digits,
-    '+' + digits,
-    digits.startsWith('55') ? digits.slice(2) : digits,     // sem DDI
-    digits.startsWith('55') ? '+' + digits : '+55' + digits, // normalizado com +
-  ]);
-  if (digits.startsWith('55') && digits.length === 13) {
-    // Remove o 9 extra de celular brasileiro: 55 + DDD(2) + 9 + 8 → 55 + DDD(2) + 8
-    variants.add('55' + digits[2] + digits[3] + digits.slice(5));
-    variants.add(digits[2] + digits[3] + digits.slice(5)); // sem DDI e sem 9
+  const jid = digits + '@s.whatsapp.net';
+  const phoneLocal = digits.startsWith('55') ? digits.slice(2) : digits;
+
+  // Busca por wa_jid primeiro — identificador permanente, independe de nome ou formato
+  let { data: client } = await sb.from('clients').select('id').eq('wa_jid', jid).maybeSingle();
+
+  // Fallback: busca por variantes de telefone
+  if (!client) {
+    const variants = new Set([
+      digits, '+' + digits,
+      digits.startsWith('55') ? digits.slice(2) : digits,
+      digits.startsWith('55') ? '+' + digits : '+55' + digits,
+    ]);
+    if (digits.startsWith('55') && digits.length === 13) {
+      variants.add('55' + digits[2] + digits[3] + digits.slice(5));
+      variants.add(digits[2] + digits[3] + digits.slice(5));
+    }
+    const orParts = [...variants].flatMap(v => [`phone.eq.${v}`, `whatsapp.eq.${v}`]).join(',');
+    const { data: byPhone } = await sb.from('clients').select('id').or(orParts).maybeSingle();
+    client = byPhone;
+    // Grava wa_jid para que lookups futuros sejam diretos
+    if (client?.id) sb.from('clients').update({ wa_jid: jid }).eq('id', client.id).then(() => {});
   }
-  const orParts = [...variants].flatMap(v => [`phone.eq.${v}`, `whatsapp.eq.${v}`]).join(',');
 
-  const { data: client } = await sb
-    .from('clients')
-    .select('id')
-    .or(orParts)
-    .maybeSingle();
-
-  // Se não encontrou cliente, tenta criar; em race condition re-busca pelo whatsapp
   let clientId = client?.id || null;
   if (!clientId) {
-    const phoneLocal = digits.startsWith('55') ? digits.slice(2) : digits;
     const { data: newClient } = await sb.from('clients').insert({
       name: phone,
       phone: phoneLocal,
       whatsapp: digits,
+      wa_jid: jid,
     }).select('id').maybeSingle();
     if (newClient?.id) {
       clientId = newClient.id;
@@ -988,16 +997,28 @@ async function handleGetClientData(phone) {
   if (!sb) return { client: null, ticket: null };
   const digits = phone.replace(/\D/g, '');
   const jid = digits + '@s.whatsapp.net';
-  const variants = phoneVariants(phone);
-  const orParts = [
-    `wa_jid.eq.${jid}`,
-    ...variants.flatMap(v => [`phone.eq.${v}`, `whatsapp.eq.${v}`]),
-  ].join(',');
-  const { data: client } = await sb
+
+  // Busca prioritária por wa_jid — identificador permanente do WhatsApp,
+  // independente do nome salvo no contato ou do formato do número
+  let client = null;
+  const { data: byJid } = await sb
     .from('clients').select('id, name, whatsapp, phone, wa_jid')
-    .or(orParts).order('created_at', { ascending: false }).limit(1).maybeSingle();
+    .eq('wa_jid', jid).limit(1).maybeSingle();
+
+  if (byJid) {
+    client = byJid;
+  } else {
+    // Fallback: variantes de telefone (antes do wa_jid ser gravado)
+    const variants = phoneVariants(phone);
+    const orParts = variants.flatMap(v => [`phone.eq.${v}`, `whatsapp.eq.${v}`]).join(',');
+    const { data: byPhone } = await sb
+      .from('clients').select('id, name, whatsapp, phone, wa_jid')
+      .or(orParts).order('created_at', { ascending: false }).limit(1).maybeSingle();
+    client = byPhone;
+  }
+
   if (!client) return { client: null, ticket: null };
-  // Salva wa_jid se ainda não está registrado — garante lookup direto futuro
+  // Grava wa_jid para que a próxima busca seja direta por JID
   if (!client.wa_jid) {
     sb.from('clients').update({ wa_jid: jid }).eq('id', client.id).then(() => {});
   }
@@ -1331,6 +1352,34 @@ async function handleOpenWaTab(phone) {
 
 async function handleOpenCrmTicket(ticketId, senderTabId) {
   const url = 'https://posvenda.liveuni.com.br/crm?open_ticket=' + ticketId;
+  const tabs = await chrome.tabs.query({ url: 'https://posvenda.liveuni.com.br/*' });
+  if (tabs.length > 0) {
+    const tab = tabs[0];
+    await chrome.windows.update(tab.windowId, { focused: true });
+    await chrome.tabs.update(tab.id, { active: true, url });
+    return { ok: true };
+  } else if (senderTabId) {
+    await chrome.tabs.update(senderTabId, { url });
+    return { ok: true, navigated: true };
+  } else {
+    await chrome.tabs.create({ url });
+    return { ok: true, opened: true };
+  }
+}
+
+async function handleGetClientEquipments(clientId) {
+  if (!sb) throw new Error('Extensão não autenticada');
+  const { data, error } = await sb
+    .from('equipments')
+    .select('id, serial_number, status, warranty_status, equipment_models(name)')
+    .eq('client_id', clientId)
+    .order('created_at', { ascending: false });
+  if (error) throw new Error(error.message);
+  return { equipments: data || [] };
+}
+
+async function handleOpenCrmEquipamentos(senderTabId) {
+  const url = 'https://posvenda.liveuni.com.br/equipamentos';
   const tabs = await chrome.tabs.query({ url: 'https://posvenda.liveuni.com.br/*' });
   if (tabs.length > 0) {
     const tab = tabs[0];

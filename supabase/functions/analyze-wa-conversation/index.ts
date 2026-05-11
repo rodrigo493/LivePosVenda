@@ -4,10 +4,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANON_KEY     = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-const OPENCLAW_URL          = Deno.env.get("OPENCLAW_URL")!;
-const OPENCLAW_TOKEN        = Deno.env.get("OPENCLAW_HOOKS_TOKEN")!;
-const OPENCLAW_GATEWAY_TOKEN = Deno.env.get("OPENCLAW_GATEWAY_TOKEN")!;
-const WEBHOOK_SECRET        = Deno.env.get("OPENCLAW_WEBHOOK_SECRET") ?? "";
+const OPENCLAW_URL   = Deno.env.get("OPENCLAW_URL")!;
+const OPENCLAW_TOKEN = Deno.env.get("OPENCLAW_HOOKS_TOKEN")!;
+const WEBHOOK_SECRET = Deno.env.get("OPENCLAW_WEBHOOK_SECRET") ?? "";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -34,9 +33,9 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
   // Validação de env vars obrigatórias
-  if (!OPENCLAW_URL || !OPENCLAW_TOKEN || !OPENCLAW_GATEWAY_TOKEN) {
-    console.error("[analyze-wa] OPENCLAW_URL, OPENCLAW_HOOKS_TOKEN ou OPENCLAW_GATEWAY_TOKEN não configurados");
-    return json({ error: "Configuração incompleta: OPENCLAW_URL, OPENCLAW_HOOKS_TOKEN ou OPENCLAW_GATEWAY_TOKEN ausente" }, 500);
+  if (!OPENCLAW_URL || !OPENCLAW_TOKEN) {
+    console.error("[analyze-wa] OPENCLAW_URL ou OPENCLAW_HOOKS_TOKEN não configurados");
+    return json({ error: "Configuração incompleta: OPENCLAW_URL ou OPENCLAW_HOOKS_TOKEN ausente" }, 500);
   }
   console.log("[analyze-wa] OPENCLAW_URL:", OPENCLAW_URL.slice(0, 30) + "...");
 
@@ -140,8 +139,7 @@ ${thread}`;
     hookRes = await fetch(`${OPENCLAW_URL}/hooks/agent`, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${OPENCLAW_GATEWAY_TOKEN}`,
-        "x-openclaw-token": OPENCLAW_TOKEN,
+        "Authorization": `Bearer ${OPENCLAW_TOKEN}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
