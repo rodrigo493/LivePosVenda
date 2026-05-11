@@ -640,6 +640,7 @@ async function main() {
   }
   startObserver();
   injectSidebar();
+  injectLabelBadges();
   startSidebarWatcher();
 }
 
@@ -1294,6 +1295,157 @@ function renderNotesSection(body, ticket, client) {
   });
   wrap.appendChild(hdr); wrap.appendChild(noteArea);
   body.appendChild(wrap);
+}
+
+const PRESET_LABELS = [
+  { id: 'preset_red',    name: 'Urgente',   color: '#991b1b', bg: '#fee2e2' },
+  { id: 'preset_yellow', name: 'Follow-up', color: '#92400e', bg: '#fef3c7' },
+  { id: 'preset_green',  name: 'Fechado',   color: '#065f46', bg: '#d1fae5' },
+  { id: 'preset_blue',   name: 'VIP',       color: '#1e40af', bg: '#dbeafe' },
+];
+
+async function renderEtiquetaPanel(container, phone) {
+  container.textContent = '';
+  const wrap = mkEl('div', 'lcrm-action-panel');
+  const panelHdr = mkEl('div', 'lcrm-action-panel-header', 'ETIQUETA');
+  const panelBody = mkEl('div', 'lcrm-action-panel-body');
+  wrap.appendChild(panelHdr); wrap.appendChild(panelBody);
+  container.appendChild(wrap);
+
+  const applyLabel = async (lbl) => {
+    const isSame = sidebarCurrentLabel?.id === lbl?.id;
+    if (isSame || !lbl) {
+      await sendToBackground({ type: 'SET_CONTACT_LABEL', phone, label: null });
+      sidebarCurrentLabel = null;
+    } else {
+      await sendToBackground({ type: 'SET_CONTACT_LABEL', phone, label: lbl });
+      sidebarCurrentLabel = lbl;
+    }
+    updateHeaderLabelBadge();
+    renderEtiquetaPanel(container, phone);
+  };
+
+  panelBody.appendChild(mkEl('div', 'lcrm-sub-label', 'PADROES'));
+  const presetChips = mkEl('div', 'lcrm-chips');
+  PRESET_LABELS.forEach(lbl => {
+    const chip = mkEl('span', 'lcrm-chip', lbl.name);
+    Object.assign(chip.style, { background: lbl.bg, color: lbl.color });
+    if (sidebarCurrentLabel?.id === lbl.id) chip.classList.add('selected');
+    chip.addEventListener('click', () => applyLabel(lbl));
+    presetChips.appendChild(chip);
+  });
+  panelBody.appendChild(presetChips);
+
+  const customSub = mkEl('div', 'lcrm-sub-label', 'PERSONALIZADAS');
+  customSub.style.marginTop = '8px';
+  panelBody.appendChild(customSub);
+  const customChips = mkEl('div', 'lcrm-chips');
+  const customs = await sendToBackground({ type: 'GET_CUSTOM_LABELS' });
+  (customs || []).forEach(lbl => {
+    const chip = mkEl('span', 'lcrm-chip', lbl.name);
+    Object.assign(chip.style, { background: lbl.bg, color: lbl.color });
+    if (sidebarCurrentLabel?.id === lbl.id) chip.classList.add('selected');
+    chip.addEventListener('click', () => applyLabel(lbl));
+    customChips.appendChild(chip);
+  });
+  const novaChip = mkEl('span', 'lcrm-chip', '+ Nova');
+  Object.assign(novaChip.style, { border: '1px dashed #fed7aa', color: '#f97316', background: '#fff' });
+  customChips.appendChild(novaChip);
+  panelBody.appendChild(customChips);
+
+  const newForm = mkEl('div');
+  newForm.style.display = 'none';
+  Object.assign(newForm.style, { marginTop: '8px', padding: '8px', background: '#f9fafb', borderRadius: '6px', border: '1px solid #e5e7eb' });
+  const nameInp = document.createElement('input');
+  nameInp.type = 'text'; nameInp.placeholder = 'Nome da etiqueta...'; nameInp.className = 'lcrm-input';
+  const COLOR_OPTS = ['#ef4444','#f97316','#10b981','#3b82f6','#8b5cf6','#ec4899'];
+  let selectedColor = COLOR_OPTS[0];
+  const colorRow = mkEl('div');
+  Object.assign(colorRow.style, { display: 'flex', gap: '5px', marginBottom: '6px' });
+  COLOR_OPTS.forEach(c => {
+    const dot = mkEl('div');
+    Object.assign(dot.style, { width: '16px', height: '16px', borderRadius: '50%', background: c, cursor: 'pointer', border: c === selectedColor ? '2px solid #111827' : '2px solid transparent' });
+    dot.addEventListener('click', () => {
+      selectedColor = c;
+      colorRow.querySelectorAll('div').forEach((d, i) => {
+        d.style.border = COLOR_OPTS[i] === selectedColor ? '2px solid #111827' : '2px solid transparent';
+      });
+    });
+    colorRow.appendChild(dot);
+  });
+  const criarBtn = mkEl('button', 'lcrm-btn lcrm-btn-primary', '+ Criar');
+  criarBtn.addEventListener('click', async () => {
+    const name = nameInp.value.trim();
+    if (!name) return;
+    const hex = selectedColor.replace('#', '');
+    const r = parseInt(hex.slice(0,2),16), g = parseInt(hex.slice(2,4),16), b = parseInt(hex.slice(4,6),16);
+    const bg = 'rgba(' + r + ',' + g + ',' + b + ',0.15)';
+    await sendToBackground({ type: 'SAVE_CUSTOM_LABEL', name, color: selectedColor, bg });
+    renderEtiquetaPanel(container, phone);
+  });
+  newForm.appendChild(nameInp); newForm.appendChild(colorRow); newForm.appendChild(criarBtn);
+  panelBody.appendChild(newForm);
+  novaChip.addEventListener('click', () => {
+    newForm.style.display = newForm.style.display === 'none' ? 'block' : 'none';
+  });
+
+  if (sidebarCurrentLabel) {
+    const selBar = mkEl('div', 'lcrm-selected-bar');
+    selBar.appendChild(mkEl('span', null, sidebarCurrentLabel.name + ' selecionado'));
+    const remBtn = mkEl('button', null, 'remover');
+    remBtn.addEventListener('click', () => applyLabel(null));
+    selBar.appendChild(remBtn);
+    panelBody.appendChild(selBar);
+  }
+}
+
+function updateHeaderLabelBadge() {
+  const badgeEl = document.getElementById('livecrm-header-label-badge');
+  if (!badgeEl) return;
+  if (sidebarCurrentLabel) {
+    badgeEl.textContent = sidebarCurrentLabel.name;
+    Object.assign(badgeEl.style, {
+      display: 'inline-flex', alignItems: 'center', borderRadius: '20px',
+      padding: '2px 7px', fontSize: '10px', fontWeight: '600',
+      background: sidebarCurrentLabel.bg, color: sidebarCurrentLabel.color,
+    });
+  } else {
+    badgeEl.style.display = 'none';
+  }
+}
+
+let labelBadgeObserver = null;
+function injectLabelBadges() {
+  if (labelBadgeObserver) return;
+  const chatList = document.querySelector('#pane-side');
+  if (!chatList) return;
+
+  const applyBadge = async (row) => {
+    if (row.dataset.lcrmlabeled) return;
+    row.dataset.lcrmlabeled = '1';
+    const jidAttr = row.getAttribute('data-id') || '';
+    const phone = jidAttr.replace(/@c\.us|@s\.whatsapp\.net/, '').replace(/[^0-9]/g, '');
+    if (!phone) return;
+    const stored = await new Promise(r => chrome.storage.local.get(['label_' + phone], r));
+    const lbl = stored['label_' + phone];
+    if (!lbl) return;
+    const titleEl = row.querySelector('[data-testid="cell-frame-title"]') || row.querySelector('span[dir="auto"][title]');
+    if (!titleEl || titleEl.querySelector('.lcrm-dot')) return;
+    const dot = document.createElement('span');
+    dot.className = 'lcrm-dot';
+    dot.style.cssText = 'display:inline-block;width:7px;height:7px;border-radius:50%;background:' + lbl.color + ';margin-left:5px;vertical-align:middle;flex-shrink:0';
+    titleEl.parentElement?.appendChild(dot);
+  };
+
+  chatList.querySelectorAll('[data-id]').forEach(applyBadge);
+  labelBadgeObserver = new MutationObserver(mutations => {
+    mutations.forEach(m => m.addedNodes.forEach(n => {
+      if (n.nodeType !== 1) return;
+      if (n.dataset?.id) applyBadge(n);
+      n.querySelectorAll?.('[data-id]').forEach(applyBadge);
+    }));
+  });
+  labelBadgeObserver.observe(chatList, { childList: true, subtree: true });
 }
 
 async function renderProductsSection(container, ticket, client) {
