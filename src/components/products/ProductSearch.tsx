@@ -1,5 +1,5 @@
-import { useState, useMemo, useRef, useEffect } from "react";
-import { Search, Plus, Package, CheckCircle2, Circle, Minus } from "lucide-react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { Search, Plus, Package, CheckCircle2, Circle, Minus, Zap } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useProducts } from "@/hooks/useProducts";
@@ -19,6 +19,7 @@ interface ProductSearchProps {
 }
 
 type StockEntry = { loading: boolean; qty: number | null; custoMedio: number | null; preco: number | null };
+type NomusProduct = { id: number; nome: string; codigo: string; preco: number; unidade: string; ativo: boolean };
 
 // Fila global: serializa chamadas à edge function nomus-search com 400ms de intervalo
 let _nomusQueue: Promise<void> = Promise.resolve();
@@ -55,6 +56,9 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
   const ref = useRef<HTMLDivElement>(null);
   const [stockMap, setStockMap] = useState<Record<string, StockEntry>>({});
   const fetchedRef = useRef<Set<string>>(new Set());
+  const [nomusHits, setNomusHits] = useState<NomusProduct[]>([]);
+  const [nomusLoading, setNomusLoading] = useState(false);
+  const nomusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -63,6 +67,32 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
+
+  // Busca produtos no Nomus com debounce de 500ms
+  useEffect(() => {
+    if (nomusTimerRef.current) clearTimeout(nomusTimerRef.current);
+    const q = query.trim();
+    if (!q || q.length < 2) { setNomusHits([]); return; }
+    nomusTimerRef.current = setTimeout(async () => {
+      setNomusLoading(true);
+      try {
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/nomus-search`, {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${ANON_KEY}`, "apikey": ANON_KEY, "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "produtos", query: q }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const hits: NomusProduct[] = Array.isArray(data?.results) ? data.results.filter((r: any) => r.ativo !== false) : [];
+        setNomusHits(hits);
+      } catch {
+        setNomusHits([]);
+      } finally {
+        setNomusLoading(false);
+      }
+    }, 500);
+    return () => { if (nomusTimerRef.current) clearTimeout(nomusTimerRef.current); };
+  }, [query]);
 
   const filtered = useMemo(() => {
     if (!products || !query.trim()) return [];
@@ -171,7 +201,34 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
     onSelect(product, itemType);
     setQuery("");
     setOpen(false);
+    setNomusHits([]);
   };
+
+  // Produtos do Nomus que não existem localmente (filtro por código)
+  const localCodes = useMemo(() => new Set((products || []).map((p) => p.code?.toLowerCase())), [products]);
+  const nomusOnlyHits = useMemo(
+    () => nomusHits.filter((nr) => !localCodes.has((nr.codigo || '').toLowerCase())),
+    [nomusHits, localCodes]
+  );
+
+  const handleAddNomus = useCallback((nr: NomusProduct, itemType: string) => {
+    const synthetic = {
+      id: null,
+      name: nr.nome,
+      code: nr.codigo,
+      base_cost: nr.preco,
+      margin_percent: 0,
+      ipi_percent: 0,
+      unit: nr.unidade || 'un',
+      status: 'ativo',
+      product_type: 'peca',
+      _fromNomus: true,
+    };
+    onSelect(synthetic, itemType);
+    setQuery("");
+    setOpen(false);
+    setNomusHits([]);
+  }, [onSelect]);
 
   return (
     <div ref={ref} className="relative">
@@ -185,7 +242,7 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
           className="pl-9"
         />
       </div>
-      {open && filtered.length > 0 && (
+      {open && (filtered.length > 0 || nomusOnlyHits.length > 0 || nomusLoading) && (
         <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-popover border rounded-lg shadow-lg max-h-96 overflow-y-auto">
           {filtered.map((p) => {
             const compat = getCompatLabel(p.id);
@@ -269,12 +326,59 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
               </div>
             );
           })}
-          <div className="px-3 py-1.5 bg-muted/30 text-[10px] text-muted-foreground text-center">
-            {filtered.length} resultado{filtered.length !== 1 ? "s" : ""} encontrado{filtered.length !== 1 ? "s" : ""}
-          </div>
+          {filtered.length > 0 && (
+            <div className="px-3 py-1.5 bg-muted/30 text-[10px] text-muted-foreground text-center border-b">
+              {filtered.length} resultado{filtered.length !== 1 ? "s" : ""} no cadastro local
+            </div>
+          )}
+
+          {/* Seção Nomus — produtos não cadastrados localmente */}
+          {(nomusLoading || nomusOnlyHits.length > 0) && (
+            <>
+              <div className="px-3 py-1.5 flex items-center gap-1.5 bg-blue-50 dark:bg-blue-950/30 border-b">
+                <Zap className="h-3 w-3 text-blue-500" />
+                <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400">Disponível no Nomus</span>
+                {nomusLoading && <span className="text-[10px] text-blue-400 animate-pulse ml-1">buscando…</span>}
+              </div>
+              {nomusOnlyHits.map((nr) => (
+                <div key={nr.id} className="px-3 py-2.5 hover:bg-blue-50/50 dark:hover:bg-blue-950/20 border-b last:border-0 transition-colors">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <Zap className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                        <p className="text-sm font-medium truncate">{nr.nome}</p>
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5 ml-5.5">
+                        <span className="text-xs font-mono text-primary">{nr.codigo}</span>
+                        <span className="text-[10px] bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded">Nomus</span>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0 mr-1">
+                      <p className="text-xs font-mono font-medium">R$ {(nr.preco || 0).toFixed(2)}</p>
+                      <p className="text-[10px] text-muted-foreground">{nr.unidade || "un"}</p>
+                    </div>
+                    <div className="flex gap-1 shrink-0 flex-wrap max-w-[220px]">
+                      {itemTypes.slice(0, 4).map((t) => (
+                        <Button
+                          key={t.value}
+                          size="sm"
+                          variant={t.value.includes("garantia") ? "secondary" : "default"}
+                          className="h-6 text-[10px] px-1.5"
+                          onClick={() => handleAddNomus(nr, t.value)}
+                        >
+                          <Plus className="h-3 w-3 mr-0.5" />
+                          {t.label.replace("Peça (", "").replace("Serviço (", "").replace(")", "")}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
         </div>
       )}
-      {open && query.trim() && filtered.length === 0 && (
+      {open && query.trim() && filtered.length === 0 && nomusOnlyHits.length === 0 && !nomusLoading && (
         <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-popover border rounded-lg shadow-lg p-4 text-center text-sm text-muted-foreground">
           Nenhuma peça encontrada para "{query}"
         </div>

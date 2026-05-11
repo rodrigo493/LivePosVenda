@@ -24,7 +24,9 @@ Deno.serve(async (req) => {
       const term = encodeURIComponent(query.trim());
       url = `${NOMUS_API_URL}/rest/pessoas?query=nomeFantasia==*${term}*,razaoSocial==*${term}*,nome==*${term}*`;
     } else if (type === 'produtos') {
-      url = `${NOMUS_API_URL}/rest/produtos?query=codigo==*${encodeURIComponent(query)}*`;
+      const term = encodeURIComponent(query.trim());
+      // Busca por código OU nome/descrição, retorna até 50 resultados
+      url = `${NOMUS_API_URL}/rest/produtos?query=codigo==*${term}*,descricao==*${term}*&size=50`;
     } else if (type === 'estoque') {
       // Proxy nginx já adiciona Authorization — não enviar header aqui (TLS Deno/Rustls incompatível com Nomus direto)
       const nomusHeaders = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
@@ -75,11 +77,24 @@ Deno.serve(async (req) => {
     let data: any;
     try { data = JSON.parse(rawText); } catch { data = rawText; }
 
-    const results = Array.isArray(data) ? data.slice(0, 20).map((item: any) => ({
-      id: type === 'clientes' ? item.id : item.id,
-      nome: item.nomeFantasia || item.razaoSocial || item.nome || item.descricao || '',
-      codigo: item.codigo || '',
-    })) : [];
+    const toNum = (v: any) => typeof v === 'number' ? v : parseFloat(String(v ?? '0').replace(/\./g, '').replace(',', '.')) || 0;
+    const results = Array.isArray(data) ? data.slice(0, 50).map((item: any) => {
+      if (type === 'produtos') {
+        return {
+          id: item.id,
+          nome: item.descricao || item.nome || '',
+          codigo: item.codigo || '',
+          preco: toNum(item.preco),
+          unidade: item.unidade || 'un',
+          ativo: item.ativo !== false,
+        };
+      }
+      return {
+        id: item.id,
+        nome: item.nomeFantasia || item.razaoSocial || item.nome || item.descricao || '',
+        codigo: item.codigo || '',
+      };
+    }) : [];
 
     return new Response(JSON.stringify({ results, _debug: { status: res.status, url, dataType: typeof data, isArray: Array.isArray(data), sample: Array.isArray(data) ? data[0] : data } }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
