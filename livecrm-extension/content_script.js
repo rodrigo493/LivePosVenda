@@ -1523,6 +1523,93 @@ async function renderRespostaPanel(container, phone, client, ticket) {
   addBtn.addEventListener('click', () => { addForm.style.display = 'block'; addBtn.style.display = 'none'; });
 }
 
+async function renderFollowUpPanel(container, phone, client) {
+  container.textContent = '';
+  const wrap = mkEl('div', 'lcrm-action-panel');
+  const panelHdr = mkEl('div', 'lcrm-action-panel-header', 'FOLLOW-UP');
+  const panelBody = mkEl('div', 'lcrm-action-panel-body');
+  wrap.appendChild(panelHdr); wrap.appendChild(panelBody);
+  container.appendChild(wrap);
+
+  const contactName = client?.name || phone;
+
+  const activeSection = mkEl('div'); panelBody.appendChild(activeSection);
+  const loadActive = async () => {
+    activeSection.textContent = '';
+    const reminders = await sendToBackground({ type: 'GET_FOLLOWUP_REMINDERS', phone });
+    if (reminders?.length) {
+      activeSection.appendChild(mkEl('div', 'lcrm-sub-label', 'AGENDADOS'));
+      reminders.forEach(r => {
+        const row = mkEl('div');
+        Object.assign(row.style, { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #f3f4f6', gap: '6px' });
+        const info = mkEl('div');
+        const dt = new Date(r.dueAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+        const dtEl = mkEl('div', null, dt); dtEl.style.cssText = 'font-size:11px;font-weight:600;color:#374151';
+        info.appendChild(dtEl);
+        if (r.note) { const n = mkEl('div', null, r.note); n.style.cssText = 'font-size:10px;color:#6b7280'; info.appendChild(n); }
+        const delBtn = mkEl('button', null, 'X');
+        Object.assign(delBtn.style, { background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: '12px', padding: '0', flexShrink: '0' });
+        delBtn.addEventListener('click', async () => {
+          await sendToBackground({ type: 'DELETE_FOLLOWUP_REMINDER', id: r.id });
+          loadActive();
+        });
+        row.appendChild(info); row.appendChild(delBtn);
+        activeSection.appendChild(row);
+      });
+    }
+  };
+  await loadActive();
+
+  const sep = mkEl('div');
+  Object.assign(sep.style, { borderTop: '1px solid #e5e7eb', margin: '8px -10px', padding: '0' });
+  panelBody.appendChild(sep);
+  panelBody.appendChild(mkEl('div', 'lcrm-sub-label', 'NOVO LEMBRETE'));
+
+  const pickers = mkEl('div', 'lcrm-fp-pickers');
+  const timeInput = document.createElement('input');
+  timeInput.type = 'time'; timeInput.className = 'lcrm-input';
+  const oneH = new Date(Date.now() + 3600000);
+  timeInput.value = oneH.toTimeString().slice(0, 5);
+  timeInput.dataset.baseDate = oneH.toISOString().slice(0, 10);
+
+  [
+    { label: 'Em 1h',       ms: 3600000 },
+    { label: 'Hoje',        ms: 0 },
+    { label: 'Amanha',      ms: 86400000 },
+    { label: 'Prox. semana', ms: 7 * 86400000 },
+  ].forEach(({ label, ms }) => {
+    const btn = mkEl('button', 'lcrm-fp-picker', label);
+    btn.addEventListener('click', () => {
+      pickers.querySelectorAll('.lcrm-fp-picker').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const d = new Date(Date.now() + ms);
+      timeInput.value = d.toTimeString().slice(0, 5);
+      timeInput.dataset.baseDate = d.toISOString().slice(0, 10);
+    });
+    pickers.appendChild(btn);
+  });
+  pickers.firstElementChild?.classList.add('active');
+  panelBody.appendChild(pickers);
+  panelBody.appendChild(timeInput);
+
+  const noteInp = document.createElement('input');
+  noteInp.type = 'text'; noteInp.placeholder = 'Nota (opcional)'; noteInp.className = 'lcrm-input';
+  panelBody.appendChild(noteInp);
+
+  const setBtn = mkEl('button', 'lcrm-btn lcrm-btn-primary', 'Definir lembrete');
+  setBtn.addEventListener('click', async () => {
+    const baseDate = timeInput.dataset.baseDate || new Date().toISOString().slice(0, 10);
+    const dueAt = new Date(baseDate + 'T' + timeInput.value + ':00').toISOString();
+    if (new Date(dueAt) <= new Date()) { alert('A data do lembrete deve ser no futuro.'); return; }
+    setBtn.disabled = true;
+    try {
+      await sendToBackground({ type: 'SET_FOLLOWUP_REMINDER', phone, contactName, dueAt, note: noteInp.value.trim() });
+      noteInp.value = ''; await loadActive();
+    } finally { setBtn.disabled = false; }
+  });
+  panelBody.appendChild(setBtn);
+}
+
 async function renderProductsSection(container, ticket, client) {
   const wrap = document.createElement('div');
   container.appendChild(wrap);
