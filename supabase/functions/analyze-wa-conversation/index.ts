@@ -34,9 +34,9 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
   // Validação de env vars obrigatórias
-  if (!OPENCLAW_URL || !OPENCLAW_TOKEN) {
-    console.error("[analyze-wa] OPENCLAW_URL ou OPENCLAW_TOKEN não configurados");
-    return json({ error: "Configuração incompleta: OPENCLAW_URL ou OPENCLAW_TOKEN ausente" }, 500);
+  if (!OPENCLAW_URL || !OPENCLAW_TOKEN || !OPENCLAW_GATEWAY_TOKEN) {
+    console.error("[analyze-wa] OPENCLAW_URL, OPENCLAW_HOOKS_TOKEN ou OPENCLAW_GATEWAY_TOKEN não configurados");
+    return json({ error: "Configuração incompleta: OPENCLAW_URL, OPENCLAW_HOOKS_TOKEN ou OPENCLAW_GATEWAY_TOKEN ausente" }, 500);
   }
   console.log("[analyze-wa] OPENCLAW_URL:", OPENCLAW_URL.slice(0, 30) + "...");
 
@@ -140,7 +140,8 @@ ${thread}`;
     hookRes = await fetch(`${OPENCLAW_URL}/hooks/agent`, {
       method: "POST",
       headers: {
-        "Authorization": OPENCLAW_TOKEN,
+        "Authorization": `Bearer ${OPENCLAW_GATEWAY_TOKEN}`,
+        "x-openclaw-token": OPENCLAW_TOKEN,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({

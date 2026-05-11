@@ -80,7 +80,8 @@ ${inbound_text}`;
   const hookRes = await fetch(`${OPENCLAW_URL}/hooks/agent`, {
     method: "POST",
     headers: {
-      "Authorization": OPENCLAW_TOKEN,
+      "Authorization": `Bearer ${OPENCLAW_GATEWAY_TOKEN}`,
+      "x-openclaw-token": OPENCLAW_TOKEN,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
