@@ -1610,6 +1610,76 @@ async function renderFollowUpPanel(container, phone, client) {
   panelBody.appendChild(setBtn);
 }
 
+async function renderAgendarPanel(container, phone) {
+  container.textContent = '';
+  const wrap = mkEl('div', 'lcrm-action-panel');
+  const panelHdr = mkEl('div', 'lcrm-action-panel-header', 'AGENDAR MENSAGEM');
+  const panelBody = mkEl('div', 'lcrm-action-panel-body');
+  wrap.appendChild(panelHdr); wrap.appendChild(panelBody);
+  container.appendChild(wrap);
+
+  const listSection = mkEl('div'); panelBody.appendChild(listSection);
+  const loadScheduled = async () => {
+    listSection.textContent = '';
+    const result = await sendToBackground({ type: 'GET_SCHEDULED_MESSAGES', phone });
+    const items = result?.data || [];
+    if (items.length) {
+      listSection.appendChild(mkEl('div', 'lcrm-sub-label', 'AGENDADAS'));
+      items.forEach(item => {
+        const row = mkEl('div');
+        Object.assign(row.style, { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #f3f4f6', gap: '6px' });
+        const info = mkEl('div'); info.style.flex = '1'; info.style.minWidth = '0';
+        const dt = new Date(item.scheduled_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+        const dtEl = mkEl('div', null, dt); dtEl.style.cssText = 'font-size:10px;font-weight:600;color:#374151';
+        const msgEl = mkEl('div', null, item.message);
+        msgEl.style.cssText = 'font-size:10px;color:#6b7280;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+        info.appendChild(dtEl); info.appendChild(msgEl);
+        const delBtn = mkEl('button', null, 'X');
+        Object.assign(delBtn.style, { background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: '12px', padding: '0', flexShrink: '0' });
+        delBtn.addEventListener('click', async () => {
+          await sendToBackground({ type: 'CANCEL_SCHEDULED_MESSAGE', id: item.id });
+          loadScheduled();
+        });
+        row.appendChild(info); row.appendChild(delBtn);
+        listSection.appendChild(row);
+      });
+    }
+  };
+  await loadScheduled();
+
+  const sep = mkEl('div');
+  Object.assign(sep.style, { borderTop: '1px solid #e5e7eb', margin: '8px -10px', padding: '0' });
+  panelBody.appendChild(sep);
+  panelBody.appendChild(mkEl('div', 'lcrm-sub-label', 'NOVA MENSAGEM AGENDADA'));
+
+  const msgArea = document.createElement('textarea');
+  msgArea.placeholder = 'Mensagem a enviar...'; msgArea.className = 'lcrm-textarea'; msgArea.rows = 3;
+  panelBody.appendChild(msgArea);
+
+  const dtInp = document.createElement('input');
+  dtInp.type = 'datetime-local'; dtInp.className = 'lcrm-input';
+  dtInp.value = new Date(Date.now() + 3600000).toISOString().slice(0, 16);
+  panelBody.appendChild(dtInp);
+
+  const schedBtn = mkEl('button', 'lcrm-btn lcrm-btn-primary', 'Agendar envio');
+  schedBtn.addEventListener('click', async () => {
+    const msg = msgArea.value.trim();
+    if (!msg) { alert('Digite a mensagem.'); return; }
+    if (!dtInp.value) { alert('Selecione data e hora.'); return; }
+    const scheduledAt = new Date(dtInp.value).toISOString();
+    if (new Date(scheduledAt) <= new Date()) { alert('A data deve ser no futuro.'); return; }
+    schedBtn.disabled = true;
+    try {
+      const result = await sendToBackground({ type: 'SCHEDULE_MESSAGE', phone, message: msg, scheduledAt });
+      if (result.error) { alert('Erro: ' + result.error); return; }
+      msgArea.value = '';
+      dtInp.value = new Date(Date.now() + 3600000).toISOString().slice(0, 16);
+      await loadScheduled();
+    } finally { schedBtn.disabled = false; }
+  });
+  panelBody.appendChild(schedBtn);
+}
+
 async function renderProductsSection(container, ticket, client) {
   const wrap = document.createElement('div');
   container.appendChild(wrap);
