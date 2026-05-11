@@ -687,39 +687,42 @@ function injectSidebar() {
     boxSizing: 'border-box',
   });
 
+  // ── Header escuro: só logo + fechar ──────────────────────────────────────────
   const hdr = document.createElement('div');
   hdr.id = 'livecrm-panel-header';
   Object.assign(hdr.style, {
-    background: '#111827', color: '#fff', padding: '12px 14px', flexShrink: '0',
-  });
-
-  const hdrTop = document.createElement('div');
-  Object.assign(hdrTop.style, {
-    display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px',
+    background: '#111827', color: '#fff', padding: '10px 14px',
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: '0',
   });
 
   const logo = document.createElement('img');
   logo.src = chrome.runtime.getURL('icon128.png');
-  logo.alt = 'Live';
+  logo.alt = 'LiveCRM';
   Object.assign(logo.style, { height: '22px', objectFit: 'contain' });
 
   const closeBtn = document.createElement('button');
-  closeBtn.id = 'livecrm-close'; closeBtn.title = 'Fechar'; closeBtn.textContent = 'x';
+  closeBtn.id = 'livecrm-close'; closeBtn.title = 'Fechar'; closeBtn.textContent = '✕';
   Object.assign(closeBtn.style, {
     background: 'none', border: 'none', color: '#fff', cursor: 'pointer',
-    fontSize: '16px', padding: '0', lineHeight: '1', opacity: '.7',
+    fontSize: '16px', padding: '0', lineHeight: '1', opacity: '.5',
   });
-  hdrTop.appendChild(logo);
-  hdrTop.appendChild(closeBtn);
+  hdr.appendChild(logo);
+  hdr.appendChild(closeBtn);
 
-  const contactRow = document.createElement('div');
-  contactRow.id = 'livecrm-header-contact';
-  Object.assign(contactRow.style, { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' });
+  // ── Seção contato: nome + badge + telefone (fundo branco, abaixo do header) ──
+  const contactSection = document.createElement('div');
+  contactSection.id = 'livecrm-contact-section';
+  Object.assign(contactSection.style, {
+    padding: '12px 14px', borderBottom: '1px solid #f3f4f6', flexShrink: '0', background: '#fff',
+  });
+
+  const contactNameRow = document.createElement('div');
+  Object.assign(contactNameRow.style, { display: 'flex', alignItems: 'center', gap: '7px', marginBottom: '3px', flexWrap: 'wrap' });
 
   const nameEl = document.createElement('span');
   nameEl.id = 'livecrm-header-name';
-  Object.assign(nameEl.style, { fontWeight: '700', fontSize: '14px', color: '#fff' });
-  nameEl.textContent = '...';
+  Object.assign(nameEl.style, { fontWeight: '700', fontSize: '15px', color: '#111827' });
+  nameEl.textContent = '—';
 
   const labelBadgeEl = document.createElement('span');
   labelBadgeEl.id = 'livecrm-header-label-badge';
@@ -727,22 +730,23 @@ function injectSidebar() {
 
   const phoneEl = document.createElement('div');
   phoneEl.id = 'livecrm-header-phone';
-  Object.assign(phoneEl.style, { fontSize: '11px', color: '#9ca3af', width: '100%', marginTop: '1px' });
+  Object.assign(phoneEl.style, { fontSize: '12px', color: '#6b7280' });
 
-  contactRow.appendChild(nameEl);
-  contactRow.appendChild(labelBadgeEl);
-  contactRow.appendChild(phoneEl);
-  hdr.appendChild(hdrTop);
-  hdr.appendChild(contactRow);
+  contactNameRow.appendChild(nameEl);
+  contactNameRow.appendChild(labelBadgeEl);
+  contactSection.appendChild(contactNameRow);
+  contactSection.appendChild(phoneEl);
 
+  // ── Body: seções sem padding global (cada seção tem o seu) ───────────────────
   const body = document.createElement('div');
   body.id = 'livecrm-panel-body';
   Object.assign(body.style, {
-    flex: '1', overflowY: 'auto', padding: '12px',
-    display: 'flex', flexDirection: 'column', gap: '10px',
+    flex: '1', overflowY: 'auto', padding: '0',
+    display: 'flex', flexDirection: 'column',
   });
 
   panel.appendChild(hdr);
+  panel.appendChild(contactSection);
   panel.appendChild(body);
   document.documentElement.appendChild(panel);
 
@@ -976,51 +980,6 @@ function renderSidebarData(phone, { client, ticket, stageLabel, pendingQuotePdf,
   if (!body) return;
   body.textContent = '';
 
-  const nameWrap = mkEl('div'); nameWrap.style.marginBottom = '10px';
-  nameWrap.appendChild(mkEl('div', 'lcrm-label', 'CONTATO'));
-  const nameRow = mkEl('div');
-  Object.assign(nameRow.style, { display: 'flex', alignItems: 'center', gap: '6px' });
-  const nameVal = mkEl('div');
-  nameVal.textContent = displayName;
-  Object.assign(nameVal.style, { fontWeight: '600', color: '#111827', fontSize: '14px', flex: '1' });
-  const editBtn = mkEl('button');
-  editBtn.title = 'Editar nome'; editBtn.textContent = 'Editar';
-  Object.assign(editBtn.style, { background: 'none', border: 'none', cursor: 'pointer', fontSize: '11px', color: '#6b7280', padding: '0', lineHeight: '1', flexShrink: '0' });
-  nameRow.appendChild(nameVal); nameRow.appendChild(editBtn);
-  nameWrap.appendChild(nameRow);
-
-  const nameEditRow = mkEl('div');
-  Object.assign(nameEditRow.style, { display: 'none', gap: '4px', marginTop: '4px' });
-  const nameInput = document.createElement('input');
-  nameInput.type = 'text'; nameInput.value = validWaName || validDbName || '';
-  nameInput.className = 'lcrm-input'; nameInput.style.marginBottom = '0'; nameInput.style.flex = '1';
-  const saveNameBtn = mkEl('button', 'lcrm-btn lcrm-btn-primary', 'Ok');
-  Object.assign(saveNameBtn.style, { width: 'auto', padding: '5px 10px', fontSize: '13px' });
-  const cancelNameBtn = mkEl('button', 'lcrm-btn lcrm-btn-secondary', 'X');
-  Object.assign(cancelNameBtn.style, { width: 'auto', padding: '5px 8px', fontSize: '13px' });
-  nameEditRow.appendChild(nameInput); nameEditRow.appendChild(saveNameBtn); nameEditRow.appendChild(cancelNameBtn);
-  nameWrap.appendChild(nameEditRow);
-  body.appendChild(nameWrap);
-
-  editBtn.addEventListener('click', () => { nameRow.style.display = 'none'; nameEditRow.style.display = 'flex'; nameInput.focus(); nameInput.select(); });
-  const cancelEdit = () => { nameEditRow.style.display = 'none'; nameRow.style.display = 'flex'; };
-  cancelNameBtn.addEventListener('click', cancelEdit);
-  const saveName = async () => {
-    const newName = nameInput.value.trim();
-    if (!newName || newName === nameVal.textContent) { cancelEdit(); return; }
-    saveNameBtn.disabled = true;
-    try {
-      await sendToBackground({ type: 'UPDATE_CLIENT_NAME', clientId: client.id, name: newName });
-      nameVal.textContent = newName; client.name = newName; cancelEdit();
-    } catch (e) { alert('Erro ao salvar: ' + e.message); }
-    finally { saveNameBtn.disabled = false; }
-  };
-  saveNameBtn.addEventListener('click', saveName);
-  nameInput.addEventListener('keydown', e => {
-    if (e.key === 'Enter') saveName();
-    if (e.key === 'Escape') cancelEdit();
-  });
-
   renderFunilSection(body, ticket, stageLabel, phone, displayName, client);
   renderOrcPdSection(body, phone);
   renderActionGrid(body, phone, client, ticket);
@@ -1031,7 +990,8 @@ function renderSidebarData(phone, { client, ticket, stageLabel, pendingQuotePdf,
 
 function renderFunilSection(body, ticket, stageLabel, phone, displayName, client) {
   if (ticket) {
-    const stageWrap = mkEl('div'); stageWrap.style.marginBottom = '10px';
+    const stageWrap = mkEl('div');
+    Object.assign(stageWrap.style, { padding: '10px 14px', borderBottom: '1px solid #f3f4f6' });
     stageWrap.appendChild(mkEl('div', 'lcrm-label', 'FUNIL / ETAPA'));
     const pname = mkEl('div');
     pname.textContent = ticket.pipeline_name || '';
@@ -1068,24 +1028,27 @@ function renderFunilSection(body, ticket, stageLabel, phone, displayName, client
         setTimeout(() => { stageFeedback.textContent = ''; }, 2000);
       } finally { stageSelect.disabled = false; }
     });
-    body.appendChild(stageWrap);
     const openBtn = styledBtn('Abrir no CRM', true);
+    Object.assign(openBtn.style, { marginTop: '8px' });
     openBtn.addEventListener('click', () => {
       chrome.runtime.sendMessage({ type: 'OPEN_CRM_TICKET', ticketId: ticket.id }, () => void chrome.runtime.lastError);
     });
-    body.appendChild(openBtn);
+    stageWrap.appendChild(openBtn);
+    body.appendChild(stageWrap);
   } else {
+    const noTicketWrap = mkEl('div');
+    Object.assign(noTicketWrap.style, { padding: '10px 14px', borderBottom: '1px solid #f3f4f6' });
     const noTicket = mkEl('div');
     noTicket.textContent = 'Sem card ativo. Crie um novo:';
     Object.assign(noTicket.style, { color: '#6b7280', fontSize: '12px', margin: '0 0 8px' });
-    body.appendChild(noTicket);
+    noTicketWrap.appendChild(noTicket);
     const pipelineLbl = mkEl('div');
     pipelineLbl.textContent = 'Funil';
     Object.assign(pipelineLbl.style, { fontSize: '11px', color: '#374151', fontWeight: '600', marginBottom: '2px' });
-    body.appendChild(pipelineLbl);
+    noTicketWrap.appendChild(pipelineLbl);
     const pipelineSelect = styledSelect([{ value: '', label: 'Carregando funis...' }]);
     pipelineSelect.style.marginBottom = '10px';
-    body.appendChild(pipelineSelect);
+    noTicketWrap.appendChild(pipelineSelect);
     sendToBackground({ type: 'GET_PIPELINES' }).then(resp => {
       pipelineSelect.textContent = '';
       (resp.pipelines || []).forEach(p => {
@@ -1105,13 +1068,15 @@ function renderFunilSection(body, ticket, stageLabel, phone, displayName, client
         createCardBtn.disabled = false; createCardBtn.textContent = '+ Criar Card'; alert('Erro: ' + e.message);
       }
     });
-    body.appendChild(createCardBtn);
+    noTicketWrap.appendChild(createCardBtn);
+    body.appendChild(noTicketWrap);
   }
 }
 
 function renderOrcPdSection(body, phone) {
   const wrap = mkEl('div');
   wrap.id = 'lcrm-orc-pd-section';
+  Object.assign(wrap.style, { padding: '10px 14px', borderBottom: '1px solid #f3f4f6' });
   body.appendChild(wrap);
   loadAndRenderOrcPd(wrap, phone);
 }
@@ -1183,6 +1148,8 @@ function renderActionGrid(body, phone, client, ticket) {
     { key: 'agendar',  label: 'Agendar' },
     { key: 'etiqueta', label: 'Etiqueta' },
   ];
+  const section = mkEl('div');
+  Object.assign(section.style, { padding: '10px 14px', borderBottom: '1px solid #f3f4f6' });
   const grid = mkEl('div', 'lcrm-action-grid');
   const panelContainer = mkEl('div');
   panelContainer.id = 'lcrm-active-panel';
@@ -1206,8 +1173,9 @@ function renderActionGrid(body, phone, client, ticket) {
     });
     grid.appendChild(btn);
   });
-  body.appendChild(grid);
-  body.appendChild(panelContainer);
+  section.appendChild(grid);
+  section.appendChild(panelContainer);
+  body.appendChild(section);
 
   if (currentPanelActive) {
     renderActivePanel(panelContainer, currentPanelActive, phone, client, ticket);
@@ -1224,7 +1192,8 @@ function renderActivePanel(container, key, phone, client, ticket) {
 }
 
 function renderNotesSection(body, ticket, client) {
-  const wrap = mkEl('div', 'lcrm-card');
+  const wrap = mkEl('div');
+  Object.assign(wrap.style, { padding: '10px 14px' });
   const hdr = mkEl('div');
   Object.assign(hdr.style, { display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' });
   const lbl = mkEl('div', 'lcrm-label', 'NOTAS'); lbl.style.marginBottom = '0';

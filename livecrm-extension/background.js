@@ -1148,7 +1148,7 @@ init().catch(console.error);
 
 function phoneVariants(phone) {
   const digits = phone.replace(/\D/g, '');
-  const variants = new Set([digits, '+' + digits]);
+  const variants = new Set([digits]);
   if (digits.startsWith('55') && digits.length >= 12) {
     variants.add(digits.slice(2));
     if (digits.length === 13) {
@@ -1168,9 +1168,10 @@ async function handleGetClientData(phone) {
     `wa_jid.eq.${jid}`,
     ...variants.flatMap(v => [`phone.eq.${v}`, `whatsapp.eq.${v}`]),
   ].join(',');
-  const { data: client } = await sb
+  const { data: client, error: clientErr } = await sb
     .from('clients').select('id, name, whatsapp, phone, wa_jid')
     .or(orParts).order('created_at', { ascending: false }).limit(1).maybeSingle();
+  if (clientErr) console.error('[LiveCRM] GET_CLIENT_DATA client err:', clientErr.message, '| phone:', phone, '| orParts:', orParts);
   if (!client) return { client: null, ticket: null };
   // Salva wa_jid se ainda não está registrado — garante lookup direto futuro
   if (!client.wa_jid) {
