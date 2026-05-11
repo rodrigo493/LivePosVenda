@@ -1315,6 +1315,10 @@ const CrmPipelinePage = () => {
 
           if (!client) {
             client = await createClient.mutateAsync({ ...clientData, created_by: user?.id } as any);
+          } else if (clientData.name && client.name !== clientData.name) {
+            // Atualiza nome se o cliente existe mas tem nome diferente (ex: criado pelo extension com telefone como nome)
+            await (supabase as any).from("clients").update({ name: clientData.name }).eq("id", client.id);
+            client = { ...client, name: clientData.name };
           }
 
           const { data: newEquipment, error: eqError } = await supabase
@@ -1328,10 +1332,11 @@ const CrmPipelinePage = () => {
             client_id: client.id,
             equipment_id: newEquipment.id,
             ticket_type: "chamado_tecnico",
-            title: title || `Atendimento - ${clientData.name}`,
+            title: title || `Atendimento - ${client.name}`,
             ticket_number: "",
             pipeline_id: currentPipeline?.id,
-            pipeline_stage: pipeline_stage || "sem_atendimento",
+            pipeline_stage: pipeline_stage || stages[0]?.key || "sem_atendimento",
+            assigned_to: user?.id,
             created_by: user?.id,
           } as any);
 
