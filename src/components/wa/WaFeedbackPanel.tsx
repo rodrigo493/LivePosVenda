@@ -117,8 +117,12 @@ export function WaFeedbackPanel({ clientId, canAnalyze = true }: WaFeedbackPanel
     },
   });
 
-  const showAnalyzeBtn = canAnalyze && (!feedback || feedback.status === "error");
   const isPending = feedback?.status === "pending";
+  // Pending travado: criado há mais de 2 minutos sem resposta do webhook
+  const isStuckPending = isPending &&
+    feedback?.created_at != null &&
+    Date.now() - new Date(feedback.created_at).getTime() > 2 * 60 * 1000;
+  const showAnalyzeBtn = canAnalyze && (!feedback || feedback.status === "error" || isStuckPending);
 
   return (
     <div className="border-t bg-white">
@@ -205,6 +209,8 @@ export function WaFeedbackPanel({ clientId, canAnalyze = true }: WaFeedbackPanel
             >
               {analyze.isPending
                 ? <><Loader2 className="h-3 w-3 animate-spin" /> Iniciando...</>
+                : isStuckPending
+                ? <><Brain className="h-3 w-3" /> Re-analisar</>
                 : <><Brain className="h-3 w-3" /> Analisar agora</>}
             </Button>
           )}

@@ -6,8 +6,11 @@ import { supabase } from "@/integrations/supabase/client";
 export function useWhatsAppRealtimeSync() {
   const qc = useQueryClient();
   useEffect(() => {
-    const invalidateConvs = () =>
+    const invalidateConvs = () => {
       qc.invalidateQueries({ queryKey: ["whatsapp-conversations"] });
+      qc.invalidateQueries({ queryKey: ["admin-conversas-list"] });
+      qc.invalidateQueries({ queryKey: ["admin-thread"] });
+    };
 
     const wppChannel = supabase
       .channel("whatsapp-messages-realtime")
