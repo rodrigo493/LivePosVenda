@@ -529,7 +529,7 @@ function fiberExtractPhone() {
   return '__debug:fiber_not_found';
 }
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener(async (msg, _sender, sendResponse) => {
   if (msg.type === 'GET_ACTIVE_PHONE') {
     findWaTab().then(async (tab) => {
       if (!tab) { sendResponse({ phone: null }); return; }
