@@ -1160,7 +1160,7 @@ function phoneVariants(phone) {
 }
 
 async function handleGetClientData(phone) {
-  if (!sb) return { client: null, ticket: null };
+  if (!sb) return { notLoggedIn: true, client: null, ticket: null };
   const digits = phone.replace(/\D/g, '');
   const jid = digits + '@s.whatsapp.net';
   const variants = phoneVariants(phone);

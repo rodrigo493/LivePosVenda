@@ -1903,6 +1903,13 @@ async function renderSidebarNotFound(phone) {
   body.textContent = '';
 
   const waName = getContactName();
+
+  // Atualiza header com nome/telefone mesmo sem card no CRM
+  const headerNameEl = document.getElementById('livecrm-header-name');
+  const headerPhoneEl = document.getElementById('livecrm-header-phone');
+  if (headerNameEl) headerNameEl.textContent = waName || phone;
+  if (headerPhoneEl) headerPhoneEl.textContent = phone;
+
   body.appendChild(infoRow('Telefone', phone));
   if (waName) body.appendChild(infoRow('Nome no WhatsApp', waName));
 
@@ -1977,6 +1984,10 @@ async function refreshSidebar(phone) {
   sidebarMsg('Carregando...');
   try {
     const resp = await sendToBackground({ type: 'GET_CLIENT_DATA', phone });
+    if (resp?.notLoggedIn) {
+      sidebarMsg('Faça login no popup da extensão (ícone LiveCRM).', true);
+      return;
+    }
     if (!resp?.client) await renderSidebarNotFound(phone);
     else renderSidebarData(phone, resp);
   } catch (e) { sidebarMsg('Erro: ' + e.message, true); }
