@@ -19,10 +19,8 @@ export function useResetMyAlerts() {
       if (error) throw error;
 
       await Promise.all([
-        qc.invalidateQueries({ queryKey: ["unanswered-ack"] }),
         qc.invalidateQueries({ queryKey: ["overdue-tasks-count"] }),
         qc.invalidateQueries({ queryKey: ["new-leads"] }),
-        qc.invalidateQueries({ queryKey: ["whatsapp-conversations"] }),
       ]);
     } finally {
       setIsResetting(false);

@@ -62,8 +62,6 @@ import { PipelineEditMode } from "@/components/crm/PipelineEditMode";
 import { usePipelineAutomations, type AutomationActionType } from "@/hooks/useStageAutomations";
 import { useUpdatePipeline } from "@/hooks/useManagePipelines";
 import { useCreateStage, useUpdateStage, useDeleteStage, useReorderStages } from "@/hooks/useManageStages";
-import { useWhatsAppConversations, useMarkConversationRead } from "@/hooks/useWhatsAppConversations";
-import { useInstagramConversations, useMarkInstagramConversationRead } from "@/hooks/useInstagramConversations";
 import { useAuth } from "@/hooks/useAuth";
 import { useCreateClient } from "@/hooks/useClients";
 import { useCreateTicket } from "@/hooks/useTickets";
@@ -145,28 +143,6 @@ const CrmPipelinePage = () => {
 
   const ticketFilterUserId = filterBy === "all" ? undefined : filterBy === "mine" ? user?.id : filterBy;
   const { data: tickets, isLoading } = usePipelineTickets(currentPipeline?.id, ticketFilterUserId, isAdmin);
-  const { data: conversations } = useWhatsAppConversations();
-  const whatsappUnread = useMemo(() => {
-    const map = new Map<string, number>();
-    conversations?.forEach((c) => { if (c.unread_count > 0) map.set(c.client_id, c.unread_count); });
-    return map;
-  }, [conversations]);
-  const whatsappLastActivity = useMemo(() => {
-    const map = new Map<string, string>();
-    conversations?.forEach((c) => { map.set(c.client_id, c.last_message_at); });
-    return map;
-  }, [conversations]);
-  const { data: igConversations } = useInstagramConversations();
-  const instagramUnread = useMemo(() => {
-    const map = new Map<string, number>();
-    igConversations?.forEach((c) => { if (c.unread_count > 0 && c.client_id) map.set(c.client_id, c.unread_count); });
-    return map;
-  }, [igConversations]);
-  const instagramLastActivity = useMemo(() => {
-    const map = new Map<string, string>();
-    igConversations?.forEach((c) => { if (c.client_id) map.set(c.client_id, c.last_message_at); });
-    return map;
-  }, [igConversations]);
   const moveStage = useMovePipelineStage();
   const createClient = useCreateClient();
   const createTicket = useCreateTicket();
@@ -181,21 +157,11 @@ const CrmPipelinePage = () => {
   const [detailTicket, setDetailTicket] = useState<any>(null);
   const [detailInitialTab, setDetailInitialTab] = useState("info");
   const clearNewLead = useClearNewLead();
-  const markWppRead = useMarkConversationRead();
-  const markIgRead = useMarkInstagramConversationRead();
   const handleOpenTicket = useCallback((ticket: any, tab = "info") => {
     setDetailInitialTab(tab);
     setDetailTicket(ticket);
     if (ticket?.new_lead) clearNewLead(ticket.id);
-    // Limpa destaque de não-lido ao abrir o card
-    if (ticket?.client_id) {
-      if (ticket._unreadWhatsapp > 0) markWppRead.mutate(ticket.client_id);
-      if (ticket._unreadInstagram > 0) {
-        const igConv = igConversations?.find((c) => c.client_id === ticket.client_id);
-        if (igConv) markIgRead.mutate(igConv.id);
-      }
-    }
-  }, [clearNewLead, markWppRead, markIgRead, igConversations]);
+  }, [clearNewLead]);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [filterSource, setFilterSource] = useState<string>("all");
@@ -334,10 +300,6 @@ const CrmPipelinePage = () => {
         _daysSinceInteraction: days,
         _isDelayed: days >= stageDelay,
         _isNoContact: t.pipeline_stage === "sem_atendimento",
-        _unreadWhatsapp: whatsappUnread.get(t.client_id) || 0,
-        _lastWhatsappAt: whatsappLastActivity.get(t.client_id) || null,
-        _unreadInstagram: instagramUnread.get(t.client_id) || 0,
-        _lastInstagramAt: instagramLastActivity.get(t.client_id) || null,
         _stageColor: stageColor,
         _isNewLead: !!t.new_lead,
       };
@@ -348,23 +310,13 @@ const CrmPipelinePage = () => {
     Object.values(map).forEach((arr) =>
       arr.sort((a: any, b: any) => {
         if (a._isNewLead !== b._isNewLead) return a._isNewLead ? -1 : 1;
-        const aUnread = (a._unreadWhatsapp > 0) || (a._unreadInstagram > 0);
-        const bUnread = (b._unreadWhatsapp > 0) || (b._unreadInstagram > 0);
-        if (aUnread !== bUnread) return aUnread ? -1 : 1;
-        const aLast = a._lastInstagramAt && (!a._lastWhatsappAt || a._lastInstagramAt > a._lastWhatsappAt) ? a._lastInstagramAt : a._lastWhatsappAt;
-        const bLast = b._lastInstagramAt && (!b._lastWhatsappAt || b._lastInstagramAt > b._lastWhatsappAt) ? b._lastInstagramAt : b._lastWhatsappAt;
-        if (aLast || bLast) {
-          if (!aLast) return 1;
-          if (!bLast) return -1;
-          return new Date(bLast).getTime() - new Date(aLast).getTime();
-        }
         if (a._isDelayed !== b._isDelayed) return a._isDelayed ? -1 : 1;
         return (priorityOrder[a.priority] ?? 2) - (priorityOrder[b.priority] ?? 2);
       })
     );
 
     return map;
-  }, [tickets, delayMap, searchTerm, stages, whatsappUnread, whatsappLastActivity, statusFilter, filterSource]);
+  }, [tickets, delayMap, searchTerm, stages, statusFilter, filterSource]);
 
   // Sync columns from grouped when not dragging and not mutating
   useEffect(() => {
@@ -1632,8 +1584,6 @@ function formatTaskDateTime(due_date: string | null, due_time: string | null): s
 function PipelineCard({ ticket, pipelineName, stageKey, onQuickTask, onClick, onTaskClick, isAdmin }: { ticket: any; pipelineName: string; stageKey: string; onQuickTask: () => void; onClick: () => void; onTaskClick: () => void; isAdmin: boolean }) {
   const navigate = useNavigate();
   const typeInfo = TICKET_TYPE_LABELS[ticket.ticket_type] || { label: ticket.ticket_type, color: "bg-zinc-700 text-zinc-300" };
-  const unreadWpp = ticket._unreadWhatsapp || 0;
-  const unreadIg = ticket._unreadInstagram || 0;
   const isNewLead = ticket._isNewLead || false;
   const lastOrderTag = getLastOrderTag(ticket.quotes || []);
   const hasContract = (ticket.quotes || []).some(
@@ -1669,8 +1619,6 @@ function PipelineCard({ ticket, pipelineName, stageKey, onQuickTask, onClick, on
       className={`rounded-lg border cursor-pointer transition-all overflow-hidden hover:brightness-110 ${
         isNewLead
           ? "bg-[#0b1a12] border-[#166534]"
-          : unreadWpp > 0
-          ? "bg-[#1f1208] border-[#7c2d12]"
           : "bg-zinc-800 border-zinc-700"
       }`}
       style={{ borderLeft: `3px solid ${stageColor}` }}
@@ -1683,23 +1631,6 @@ function PipelineCard({ ticket, pipelineName, stageKey, onQuickTask, onClick, on
           </span>
         </div>
       )}
-      {unreadWpp > 0 && (
-        <div className="flex items-center gap-1.5 px-2.5 py-1 border-b border-[#7c2d12]/50">
-          <span className="h-1.5 w-1.5 rounded-full bg-orange-500 animate-dot-pulse" />
-          <span className="text-[9px] font-bold text-orange-400 uppercase tracking-wide">
-            {unreadWpp} msg não {unreadWpp === 1 ? "lida" : "lidas"}
-          </span>
-        </div>
-      )}
-      {unreadIg > 0 && (
-        <div className="flex items-center gap-1.5 px-2.5 py-1 border-b border-purple-900/50">
-          <span className="h-1.5 w-1.5 rounded-full bg-purple-500 animate-dot-pulse" />
-          <span className="text-[9px] font-bold text-purple-400 uppercase tracking-wide">
-            {unreadIg} msg Instagram não {unreadIg === 1 ? "lida" : "lidas"}
-          </span>
-        </div>
-      )}
-
       <div className="p-2.5 space-y-1">
         {/* Linha 1: tipo + tags + status + prioridade */}
         <div className="flex items-center gap-1 flex-wrap">
