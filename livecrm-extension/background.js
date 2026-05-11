@@ -710,6 +710,94 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     chrome.alarms.clear('followup_' + msg.id);
     sendResponse({ ok: true });
     return true;
+  } else if (msg.type === 'SCHEDULE_MESSAGE') {
+    if (!sb) { sendResponse({ error: 'not_connected' }); return true; }
+    const { data, error } = await sb.from('whatsapp_pending_sends').insert({
+      instance_id: instanceId,
+      phone: msg.phone,
+      message: msg.message,
+      scheduled_at: msg.scheduledAt,
+      status: 'pending',
+      created_at: new Date().toISOString(),
+    }).select('id, scheduled_at').single();
+    sendResponse(error ? { error: error.message } : { ok: true, id: data.id });
+    return true;
+  } else if (msg.type === 'GET_SCHEDULED_MESSAGES') {
+    if (!sb) { sendResponse({ data: [] }); return true; }
+    const nowStr = new Date().toISOString();
+    const { data } = await sb.from('whatsapp_pending_sends')
+      .select('id, message, scheduled_at')
+      .eq('instance_id', instanceId)
+      .eq('phone', msg.phone)
+      .eq('status', 'pending')
+      .not('scheduled_at', 'is', null)
+      .gt('scheduled_at', nowStr)
+      .order('scheduled_at', { ascending: true });
+    sendResponse({ data: data || [] });
+    return true;
+  } else if (msg.type === 'CANCEL_SCHEDULED_MESSAGE') {
+    if (!sb) { sendResponse({ error: 'not_connected' }); return true; }
+    await sb.from('whatsapp_pending_sends').update({ status: 'cancelled' }).eq('id', msg.id);
+    sendResponse({ ok: true });
+    return true;
+  } else if (msg.type === 'GET_ORC_PD') {
+    if (!sb) { sendResponse({ quotes: [], proposals: [] }); return true; }
+    const jid = msg.phone + '@s.whatsapp.net';
+    const { data: client } = await sb.from('clients')
+      .select('id')
+      .or(`wa_jid.eq.${jid},phone.eq.${msg.phone}`)
+      .maybeSingle();
+    if (!client) { sendResponse({ quotes: [], proposals: [] }); return true; }
+    const [qRes, pRes] = await Promise.all([
+      sb.from('quotes')
+        .select('id, name, total_value, status')
+        .eq('client_id', client.id)
+        .is('document_type', null)
+        .not('status', 'eq', 'cancelled')
+        .order('created_at', { ascending: false })
+        .limit(3),
+      sb.from('quotes')
+        .select('id, name, total_value, status')
+        .eq('client_id', client.id)
+        .eq('document_type', 'PD')
+        .not('status', 'eq', 'cancelled')
+        .order('created_at', { ascending: false })
+        .limit(3),
+    ]);
+    sendResponse({ quotes: qRes.data || [], proposals: pRes.data || [] });
+    return true;
+  } else if (msg.type === 'REQUEST_SUGGESTION') {
+    if (msg.clientId) {
+      requestSuggestion(msg.clientId, '', msg.phone, null).catch(console.error);
+    }
+    return false;
+  } else if (msg.type === 'TRANSLATE_TEXT') {
+    const stored = await getStored(['deepl_key']);
+    const apiKey = stored.deepl_key;
+    if (!apiKey) { sendResponse({ error: 'no_api_key' }); return true; }
+    try {
+      const res = await fetch('https://api-free.deepl.com/v2/translate', {
+        method: 'POST',
+        headers: {
+          'Authorization': `DeepL-Auth-Key ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ text: [msg.text], target_lang: msg.targetLang || 'PT' }),
+      });
+      const json = await res.json();
+      sendResponse({ translated: json.translations?.[0]?.text || '' });
+    } catch (e) {
+      sendResponse({ error: e.message });
+    }
+    return true;
+  } else if (msg.type === 'SAVE_DEEPL_KEY') {
+    await setStored({ deepl_key: msg.key });
+    sendResponse({ ok: true });
+    return true;
+  } else if (msg.type === 'GET_DEEPL_KEY') {
+    const s = await getStored(['deepl_key']);
+    sendResponse({ key: s.deepl_key || '' });
+    return true;
   } else if (msg.type === 'LOGOUT') {
     if (rtChannel && sb) sb.removeChannel(rtChannel);
     chrome.storage.local.clear();
