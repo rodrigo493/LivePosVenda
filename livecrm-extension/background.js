@@ -684,6 +684,32 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     await setStored({ quick_replies: replies });
     sendResponse({ ok: true });
     return true;
+  } else if (msg.type === 'SET_FOLLOWUP_REMINDER') {
+    const s = await getStored(['followups']);
+    const followups = s.followups || [];
+    const fu = {
+      id: Date.now().toString(),
+      phone: msg.phone,
+      contactName: msg.contactName,
+      dueAt: msg.dueAt,
+      note: msg.note || '',
+    };
+    await setStored({ followups: [...followups, fu] });
+    chrome.alarms.create('followup_' + fu.id, { when: Date.parse(msg.dueAt) });
+    sendResponse(fu);
+    return true;
+  } else if (msg.type === 'GET_FOLLOWUP_REMINDERS') {
+    const s = await getStored(['followups']);
+    const all = s.followups || [];
+    sendResponse(all.filter(f => f.phone === msg.phone));
+    return true;
+  } else if (msg.type === 'DELETE_FOLLOWUP_REMINDER') {
+    const s = await getStored(['followups']);
+    const followups = (s.followups || []).filter(f => f.id !== msg.id);
+    await setStored({ followups });
+    chrome.alarms.clear('followup_' + msg.id);
+    sendResponse({ ok: true });
+    return true;
   } else if (msg.type === 'LOGOUT') {
     if (rtChannel && sb) sb.removeChannel(rtChannel);
     chrome.storage.local.clear();
@@ -987,7 +1013,7 @@ async function handleLogin(email, password) {
 }
 
 chrome.alarms.create('keepalive', { periodInMinutes: 4 });
-chrome.alarms.onAlarm.addListener((alarm) => {
+chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === 'keepalive') {
     if (!sb) {
       init().catch(console.error);
@@ -997,6 +1023,19 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     }
   } else if (alarm.name === 'token-refresh') {
     refreshToken().catch(console.error);
+  } else if (alarm.name.startsWith('followup_')) {
+    const id = alarm.name.replace('followup_', '');
+    const s = await getStored(['followups']);
+    const fu = (s.followups || []).find(f => f.id === id);
+    if (fu) {
+      chrome.notifications.create('followup_notif_' + id, {
+        type: 'basic',
+        iconUrl: 'icon128.png',
+        title: 'Follow-up: ' + fu.contactName,
+        message: fu.note || 'Hora de retornar a conversa!',
+        buttons: [{ title: 'Abrir WhatsApp' }],
+      });
+    }
   }
 });
 
