@@ -57,3 +57,18 @@ document.getElementById('btn-logout').addEventListener('click', () => {
   chrome.runtime.sendMessage({ type: 'LOGOUT' });
   showLogin();
 });
+
+// DeepL key
+chrome.runtime.sendMessage({ type: 'GET_DEEPL_KEY' }, res => {
+  const el = document.getElementById('deepl-key');
+  if (el && res?.key) el.value = res.key;
+});
+
+document.getElementById('btn-save-deepl')?.addEventListener('click', () => {
+  const key = document.getElementById('deepl-key')?.value?.trim();
+  if (!key) return;
+  chrome.runtime.sendMessage({ type: 'SAVE_DEEPL_KEY', key }, () => {
+    const msg = document.getElementById('deepl-msg');
+    if (msg) { msg.style.display = 'block'; setTimeout(() => { msg.style.display = 'none'; }, 2000); }
+  });
+});

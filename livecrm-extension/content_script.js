@@ -641,6 +641,7 @@ async function main() {
   startObserver();
   injectSidebar();
   injectLabelBadges();
+  injectTranslateButtons();
   startSidebarWatcher();
 }
 
@@ -1678,6 +1679,48 @@ async function renderAgendarPanel(container, phone) {
     } finally { schedBtn.disabled = false; }
   });
   panelBody.appendChild(schedBtn);
+}
+
+let translateObserver = null;
+function injectTranslateButtons() {
+  if (translateObserver) return;
+  const main = document.querySelector('#main');
+  if (!main) return;
+
+  const addBtn = (msgRow) => {
+    if (msgRow.dataset.lcrmt) return;
+    const textEl = msgRow.querySelector('span.selectable-text') || msgRow.querySelector('[data-testid="msg-plaintext-container"]');
+    if (!textEl || !textEl.textContent?.trim()) return;
+    if (msgRow.closest('[data-testid="msg-container"]')?.parentElement?.classList.contains('message-out')) return;
+    msgRow.dataset.lcrmt = '1';
+
+    const btn = mkEl('button', 'lcrm-translate-btn', 'Traduzir');
+    let resultEl = null;
+
+    btn.addEventListener('click', async () => {
+      if (resultEl) { resultEl.remove(); resultEl = null; btn.textContent = 'Traduzir'; return; }
+      btn.textContent = '...';
+      const text = textEl.textContent.trim();
+      const res = await sendToBackground({ type: 'TRANSLATE_TEXT', text, targetLang: 'PT' });
+      if (res.error === 'no_api_key') { btn.textContent = '(sem chave)'; return; }
+      if (res.error) { btn.textContent = '!'; return; }
+      btn.textContent = 'Fechar';
+      resultEl = mkEl('div', 'lcrm-translate-result', res.translated);
+      msgRow.appendChild(resultEl);
+    });
+
+    textEl.parentElement?.appendChild(btn);
+  };
+
+  main.querySelectorAll('[data-id]').forEach(addBtn);
+  translateObserver = new MutationObserver(mutations => {
+    mutations.forEach(m => m.addedNodes.forEach(n => {
+      if (n.nodeType !== 1) return;
+      if (n.dataset?.id) addBtn(n);
+      n.querySelectorAll?.('[data-id]').forEach(addBtn);
+    }));
+  });
+  translateObserver.observe(main, { childList: true, subtree: true });
 }
 
 async function renderProductsSection(container, ticket, client) {
