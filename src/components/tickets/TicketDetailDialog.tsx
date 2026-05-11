@@ -1518,8 +1518,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
               <TabsTrigger value="info" className="text-xs rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-3 pb-2">
                 Detalhes
               </TabsTrigger>
-              <TabsTrigger value="history" className="text-xs rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-3 pb-2">
-                Histórico Técnico
+              <TabsTrigger value="client-history" className="text-xs rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-3 pb-2 gap-1">
+                <History className="h-3 w-3" /> Histórico ({clientHistory?.length || 0})
               </TabsTrigger>
 
               {/* Separator */}
@@ -1549,9 +1549,6 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
               </TabsTrigger>
                <TabsTrigger value="client-tasks" className="text-xs rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-3 pb-2 gap-1">
                 <Tag className="h-3 w-3" /> Tarefas ({clientTasks?.length || 0})
-              </TabsTrigger>
-              <TabsTrigger value="client-history" className="text-xs rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-3 pb-2 gap-1">
-                <History className="h-3 w-3" /> Histórico ({clientHistory?.length || 0})
               </TabsTrigger>
               <TabsTrigger value="activity" className="text-xs rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-3 pb-2">
                 Atividades
@@ -2030,26 +2027,6 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
                     <SummaryPill label="Ped. Garantia" count={clientWarrantyClaims?.length || 0} onClick={() => setActiveTab("client-warranties")} />
                     <SummaryPill label="Tarefas" count={clientTasks?.length || 0} onClick={() => setActiveTab("client-tasks")} />
                   </div>
-                </TabsContent>
-
-                {/* ── Tab: Histórico Técnico ─────────────── */}
-                <TabsContent value="history" className="mt-0 space-y-4">
-                  <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
-                    <p className="text-xs font-semibold">Adicionar registro ao histórico</p>
-                    <Textarea value={newNote} onChange={(e) => setNewNote(e.target.value)} placeholder="Descreva a interação, decisão tomada, peça solicitada, contato realizado..." rows={3} className="text-sm" />
-                    <div className="flex justify-end">
-                      <Button size="sm" onClick={handleAddNote} disabled={!newNote.trim() || addHistoryEntry.isPending}>
-                        <Send className="h-3.5 w-3.5 mr-1.5" /> {addHistoryEntry.isPending ? "Salvando..." : "Registrar"}
-                      </Button>
-                    </div>
-                    {!ticket.equipment_id && (
-                      <p className="text-[11px] text-muted-foreground">Sem equipamento vinculado: o registro será salvo no histórico do cliente.</p>
-                    )}
-                  </div>
-                  <Separator />
-                  {ticket.equipment_id ? <TechnicalTimeline equipmentId={ticket.equipment_id} /> : (
-                    <p className="text-sm text-muted-foreground py-4">Nenhum equipamento vinculado.</p>
-                  )}
                 </TabsContent>
 
                 {/* ── Tab: Client Equipments ─────────────── */}
