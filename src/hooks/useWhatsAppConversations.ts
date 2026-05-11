@@ -31,7 +31,7 @@ export function useWhatsAppConversations(
     queryKey: ["whatsapp-conversations", userId, isAdmin, filterUserId ?? "all", instanceId ?? "all", strictOwnership ?? false],
     staleTime: 0,
     refetchOnMount: "always",
-    refetchInterval: 15_000,
+    refetchInterval: 8_000,
     enabled: !!userId,
     queryFn: async () => {
       const targetUserId: string | null = isAdmin
