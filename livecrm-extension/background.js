@@ -89,7 +89,7 @@ async function processPendingSends() {
     .select('id, phone, message')
     .eq('instance_id', instanceId)
     .eq('status', 'pending')
-    .or(`scheduled_at.is.null,scheduled_at.lte.${now}`)
+    .or(`scheduled_at.is.null,scheduled_at.lte."${now}"`)
     .order('created_at', { ascending: true })
     .limit(5);
 
