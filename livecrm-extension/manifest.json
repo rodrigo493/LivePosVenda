@@ -2,11 +2,9 @@
   "manifest_version": 3,
   "name": "LiveCRM WhatsApp",
   "version": "1.1.0",
-  "version_name": "1.1.0",
   "description": "Integra o WhatsApp Web com o LiveCRM — captura mensagens e envia pelo painel.",
-  "minimum_chrome_version": "95",
-  "permissions": ["storage", "alarms", "scripting", "tabs", "windows", "notifications"],
-  "host_permissions": ["https://web.whatsapp.com/*", "https://posvenda.liveuni.com.br/*", "https://api-free.deepl.com/*"],
+  "permissions": ["storage", "alarms", "scripting", "tabs", "windows"],
+  "host_permissions": ["https://web.whatsapp.com/*", "https://posvenda.liveuni.com.br/*"],
   "externally_connectable": {
     "matches": ["https://posvenda.liveuni.com.br/*"]
   },
@@ -45,12 +43,5 @@
     "16": "icon16.png",
     "48": "icon48.png",
     "128": "icon128.png"
-  },
-  "content_security_policy": {
-    "extension_pages": "default-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api-free.deepl.com"
-  },
-  "web_accessible_resources": [{
-    "resources": ["icon16.png", "icon48.png", "icon128.png"],
-    "matches": ["https://web.whatsapp.com/*"]
-  }]
+  }
 }

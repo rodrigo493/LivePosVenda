@@ -83,13 +83,11 @@ async function processPendingSends() {
   const tab = await findWaTab();
   if (!tab) return;
 
-  const now = new Date().toISOString();
   const { data: pending } = await sb
     .from('whatsapp_pending_sends')
     .select('id, phone, message')
     .eq('instance_id', instanceId)
     .eq('status', 'pending')
-    .or(`scheduled_at.is.null,scheduled_at.lte."${now}"`)
     .order('created_at', { ascending: true })
     .limit(5);
 
@@ -529,7 +527,7 @@ function fiberExtractPhone() {
   return '__debug:fiber_not_found';
 }
 
-chrome.runtime.onMessage.addListener(async (msg, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'GET_ACTIVE_PHONE') {
     findWaTab().then(async (tab) => {
       if (!tab) { sendResponse({ phone: null }); return; }
@@ -609,7 +607,7 @@ chrome.runtime.onMessage.addListener(async (msg, _sender, sendResponse) => {
     handleMoveStage(msg.ticketId, msg.pipelineId, msg.newStage, msg.previousStage).then(sendResponse).catch(e => sendResponse({ error: e.message }));
     return true;
   } else if (msg.type === 'UPLOAD_AUDIO') {
-    handleUploadAudio(msg.clientId, msg.base64, msg.mimeType, msg.phone, msg.instanceId).then(sendResponse).catch(e => sendResponse({ error: e.message }));
+    handleUploadAudio(msg.clientId, msg.base64, msg.mimeType).then(sendResponse).catch(e => sendResponse({ error: e.message }));
     return true;
   } else if (msg.type === 'GET_CATALOG_PRODUCTS') {
     handleGetCatalogProducts().then(sendResponse).catch(e => sendResponse({ error: e.message }));
@@ -637,166 +635,6 @@ chrome.runtime.onMessage.addListener(async (msg, _sender, sendResponse) => {
     return true;
   } else if (msg.type === 'LOGIN') {
     handleLogin(msg.email, msg.password).then(sendResponse);
-    return true;
-  } else if (msg.type === 'GET_CONTACT_LABEL') {
-    const s = await getStored([`label_${msg.phone}`]);
-    sendResponse(s[`label_${msg.phone}`] || null);
-    return true;
-  } else if (msg.type === 'SET_CONTACT_LABEL') {
-    if (msg.label) {
-      await setStored({ [`label_${msg.phone}`]: msg.label });
-    } else {
-      await new Promise(r => chrome.storage.local.remove([`label_${msg.phone}`], r));
-    }
-    sendResponse({ ok: true });
-    return true;
-  } else if (msg.type === 'GET_CUSTOM_LABELS') {
-    const s = await getStored(['custom_labels']);
-    sendResponse(s.custom_labels || []);
-    return true;
-  } else if (msg.type === 'SAVE_CUSTOM_LABEL') {
-    const s = await getStored(['custom_labels']);
-    const labels = s.custom_labels || [];
-    const newLabel = { id: Date.now().toString(), name: msg.name, color: msg.color, bg: msg.bg };
-    await setStored({ custom_labels: [...labels, newLabel] });
-    sendResponse(newLabel);
-    return true;
-  } else if (msg.type === 'DELETE_CUSTOM_LABEL') {
-    const s = await getStored(['custom_labels']);
-    const labels = (s.custom_labels || []).filter(l => l.id !== msg.id);
-    await setStored({ custom_labels: labels });
-    sendResponse({ ok: true });
-    return true;
-  } else if (msg.type === 'GET_QUICK_REPLIES') {
-    const s = await getStored(['quick_replies']);
-    sendResponse(s.quick_replies || []);
-    return true;
-  } else if (msg.type === 'SAVE_QUICK_REPLY') {
-    const s = await getStored(['quick_replies']);
-    const replies = s.quick_replies || [];
-    const newReply = { id: Date.now().toString(), title: msg.title, body: msg.body };
-    await setStored({ quick_replies: [...replies, newReply] });
-    sendResponse(newReply);
-    return true;
-  } else if (msg.type === 'DELETE_QUICK_REPLY') {
-    const s = await getStored(['quick_replies']);
-    const replies = (s.quick_replies || []).filter(r => r.id !== msg.id);
-    await setStored({ quick_replies: replies });
-    sendResponse({ ok: true });
-    return true;
-  } else if (msg.type === 'SET_FOLLOWUP_REMINDER') {
-    const s = await getStored(['followups']);
-    const followups = s.followups || [];
-    const fu = {
-      id: Date.now().toString(),
-      phone: msg.phone,
-      contactName: msg.contactName,
-      dueAt: msg.dueAt,
-      note: msg.note || '',
-    };
-    await setStored({ followups: [...followups, fu] });
-    chrome.alarms.create('followup_' + fu.id, { when: Date.parse(msg.dueAt) });
-    sendResponse(fu);
-    return true;
-  } else if (msg.type === 'GET_FOLLOWUP_REMINDERS') {
-    const s = await getStored(['followups']);
-    const all = s.followups || [];
-    sendResponse(all.filter(f => f.phone === msg.phone));
-    return true;
-  } else if (msg.type === 'DELETE_FOLLOWUP_REMINDER') {
-    const s = await getStored(['followups']);
-    const followups = (s.followups || []).filter(f => f.id !== msg.id);
-    await setStored({ followups });
-    chrome.alarms.clear('followup_' + msg.id);
-    sendResponse({ ok: true });
-    return true;
-  } else if (msg.type === 'SCHEDULE_MESSAGE') {
-    if (!sb) { sendResponse({ error: 'not_connected' }); return true; }
-    const { data, error } = await sb.from('whatsapp_pending_sends').insert({
-      instance_id: instanceId,
-      phone: msg.phone,
-      message: msg.message,
-      scheduled_at: msg.scheduledAt,
-      status: 'pending',
-      created_at: new Date().toISOString(),
-    }).select('id, scheduled_at').single();
-    sendResponse(error ? { error: error.message } : { ok: true, id: data.id });
-    return true;
-  } else if (msg.type === 'GET_SCHEDULED_MESSAGES') {
-    if (!sb) { sendResponse({ data: [] }); return true; }
-    const nowStr = new Date().toISOString();
-    const { data } = await sb.from('whatsapp_pending_sends')
-      .select('id, message, scheduled_at')
-      .eq('instance_id', instanceId)
-      .eq('phone', msg.phone)
-      .eq('status', 'pending')
-      .not('scheduled_at', 'is', null)
-      .gt('scheduled_at', nowStr)
-      .order('scheduled_at', { ascending: true });
-    sendResponse({ data: data || [] });
-    return true;
-  } else if (msg.type === 'CANCEL_SCHEDULED_MESSAGE') {
-    if (!sb) { sendResponse({ error: 'not_connected' }); return true; }
-    await sb.from('whatsapp_pending_sends').update({ status: 'cancelled' }).eq('id', msg.id);
-    sendResponse({ ok: true });
-    return true;
-  } else if (msg.type === 'GET_ORC_PD') {
-    if (!sb) { sendResponse({ quotes: [], proposals: [] }); return true; }
-    const jid = msg.phone + '@s.whatsapp.net';
-    const { data: client } = await sb.from('clients')
-      .select('id')
-      .or(`wa_jid.eq.${jid},phone.eq.${msg.phone}`)
-      .maybeSingle();
-    if (!client) { sendResponse({ quotes: [], proposals: [] }); return true; }
-    const [qRes, pRes] = await Promise.all([
-      sb.from('quotes')
-        .select('id, name, total_value, status')
-        .eq('client_id', client.id)
-        .is('document_type', null)
-        .not('status', 'eq', 'cancelled')
-        .order('created_at', { ascending: false })
-        .limit(3),
-      sb.from('quotes')
-        .select('id, name, total_value, status')
-        .eq('client_id', client.id)
-        .eq('document_type', 'PD')
-        .not('status', 'eq', 'cancelled')
-        .order('created_at', { ascending: false })
-        .limit(3),
-    ]);
-    sendResponse({ quotes: qRes.data || [], proposals: pRes.data || [] });
-    return true;
-  } else if (msg.type === 'REQUEST_SUGGESTION') {
-    if (msg.clientId) {
-      requestSuggestion(msg.clientId, '', msg.phone, null).catch(console.error);
-    }
-    return false;
-  } else if (msg.type === 'TRANSLATE_TEXT') {
-    const stored = await getStored(['deepl_key']);
-    const apiKey = stored.deepl_key;
-    if (!apiKey) { sendResponse({ error: 'no_api_key' }); return true; }
-    try {
-      const res = await fetch('https://api-free.deepl.com/v2/translate', {
-        method: 'POST',
-        headers: {
-          'Authorization': `DeepL-Auth-Key ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ text: [msg.text], target_lang: msg.targetLang || 'PT' }),
-      });
-      const json = await res.json();
-      sendResponse({ translated: json.translations?.[0]?.text || '' });
-    } catch (e) {
-      sendResponse({ error: e.message });
-    }
-    return true;
-  } else if (msg.type === 'SAVE_DEEPL_KEY') {
-    await setStored({ deepl_key: msg.key });
-    sendResponse({ ok: true });
-    return true;
-  } else if (msg.type === 'GET_DEEPL_KEY') {
-    const s = await getStored(['deepl_key']);
-    sendResponse({ key: s.deepl_key || '' });
     return true;
   } else if (msg.type === 'LOGOUT') {
     if (rtChannel && sb) sb.removeChannel(rtChannel);
@@ -1101,7 +939,7 @@ async function handleLogin(email, password) {
 }
 
 chrome.alarms.create('keepalive', { periodInMinutes: 4 });
-chrome.alarms.onAlarm.addListener(async (alarm) => {
+chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'keepalive') {
     if (!sb) {
       init().catch(console.error);
@@ -1111,19 +949,6 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     }
   } else if (alarm.name === 'token-refresh') {
     refreshToken().catch(console.error);
-  } else if (alarm.name.startsWith('followup_')) {
-    const id = alarm.name.replace('followup_', '');
-    const s = await getStored(['followups']);
-    const fu = (s.followups || []).find(f => f.id === id);
-    if (fu) {
-      chrome.notifications.create('followup_notif_' + id, {
-        type: 'basic',
-        iconUrl: 'icon128.png',
-        title: 'Follow-up: ' + fu.contactName,
-        message: fu.note || 'Hora de retornar a conversa!',
-        buttons: [{ title: 'Abrir WhatsApp' }],
-      });
-    }
   }
 });
 
@@ -1148,7 +973,7 @@ init().catch(console.error);
 
 function phoneVariants(phone) {
   const digits = phone.replace(/\D/g, '');
-  const variants = new Set([digits]);
+  const variants = new Set([digits, '+' + digits]);
   if (digits.startsWith('55') && digits.length >= 12) {
     variants.add(digits.slice(2));
     if (digits.length === 13) {
@@ -1160,7 +985,7 @@ function phoneVariants(phone) {
 }
 
 async function handleGetClientData(phone) {
-  if (!sb) return { notLoggedIn: true, client: null, ticket: null };
+  if (!sb) return { client: null, ticket: null };
   const digits = phone.replace(/\D/g, '');
   const jid = digits + '@s.whatsapp.net';
   const variants = phoneVariants(phone);
@@ -1168,10 +993,9 @@ async function handleGetClientData(phone) {
     `wa_jid.eq.${jid}`,
     ...variants.flatMap(v => [`phone.eq.${v}`, `whatsapp.eq.${v}`]),
   ].join(',');
-  const { data: client, error: clientErr } = await sb
+  const { data: client } = await sb
     .from('clients').select('id, name, whatsapp, phone, wa_jid')
     .or(orParts).order('created_at', { ascending: false }).limit(1).maybeSingle();
-  if (clientErr) console.error('[LiveCRM] GET_CLIENT_DATA client err:', clientErr.message, '| phone:', phone, '| orParts:', orParts);
   if (!client) return { client: null, ticket: null };
   // Salva wa_jid se ainda não está registrado — garante lookup direto futuro
   if (!client.wa_jid) {
@@ -1420,22 +1244,18 @@ async function handleMoveStage(ticketId, pipelineId, newStage, previousStage) {
   return { ok: true };
 }
 
-async function handleUploadAudio(clientId, base64, mimeType, phone, instanceId) {
+async function handleUploadAudio(clientId, base64, mimeType) {
   if (!sb) throw new Error('Extensão não autenticada');
   const extMap = { 'audio/ogg': 'ogg', 'audio/webm': 'webm', 'audio/mp4': 'm4a', 'audio/mpeg': 'mp3' };
   const ext = extMap[mimeType] || 'ogg';
-  // clientId → bucket whatsapp-audio (sidebar); phone+instanceId → bucket whatsapp-media (mensagens inbound)
-  const bucket = clientId ? 'whatsapp-audio' : 'whatsapp-media';
-  const path = clientId
-    ? `${clientId}/${Date.now()}.${ext}`
-    : `${instanceId}/${phone}/${Date.now()}.${ext}`;
+  const path = `${clientId}/${Date.now()}.${ext}`;
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   const blob = new Blob([bytes], { type: mimeType || 'audio/ogg' });
-  const { error } = await sb.storage.from(bucket).upload(path, blob, { contentType: mimeType || 'audio/ogg' });
+  const { error } = await sb.storage.from('whatsapp-audio').upload(path, blob, { contentType: mimeType || 'audio/ogg' });
   if (error) throw new Error(error.message);
-  const { data: urlData } = sb.storage.from(bucket).getPublicUrl(path);
+  const { data: urlData } = sb.storage.from('whatsapp-audio').getPublicUrl(path);
   return { ok: true, url: urlData.publicUrl };
 }
 
