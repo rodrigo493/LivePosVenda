@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useMyProfile } from "@/hooks/useMyProfile";
-import { ArrowLeft, Package, Save, Loader2, Send, CalendarIcon, Pencil, X, Wrench, Plus, Trash2, Factory, Truck, QrCode, Building2, CreditCard } from "lucide-react";
+import { ArrowLeft, Package, Save, Loader2, Send, CalendarIcon, Pencil, X, Wrench, Plus, Trash2, Factory, Truck, QrCode, Building2, CreditCard, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -29,6 +29,7 @@ import { useAllUsers } from "@/hooks/useUserAccess";
 import { serviceRequestStatusLabels as statusLabels, itemTypeLabels } from "@/constants/statusLabels";
 import { ExternalLink } from "lucide-react";
 import { formatCurrency as fmtCurrency } from "@/lib/formatters";
+import { CreateNomusClientDialog } from "@/components/nomus/CreateNomusClientDialog";
 
 const partTypes = [
   { value: "peca_cobrada", label: "Peça (Cobrada)" },
@@ -176,6 +177,7 @@ const PADetailPage = () => {
   const [nomusClientResults, setNomusClientResults] = useState<{ id: number; nome: string }[]>([]);
   const [nomusClientLoading, setNomusClientLoading] = useState(false);
   const [nomusClientOpen, setNomusClientOpen] = useState(false);
+  const [createClientOpen, setCreateClientOpen] = useState(false);
   const nomusSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [nomusCondicaoId, setNomusCondicaoId] = useState<number | null>(null);
   const [nomusCondicaoResults, setNomusCondicaoResults] = useState<{ id: number; nome: string }[]>([]);
@@ -334,7 +336,7 @@ const PADetailPage = () => {
         }
       }
       setNomusClientResults(results);
-      setNomusClientOpen(results.length > 0);
+      setNomusClientOpen(true);
       setNomusClientLoading(false);
     }, 500);
   };
@@ -1389,17 +1391,22 @@ const PADetailPage = () => {
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
                   Cliente (ERP Nomus){nomusClientId ? <span className="ml-2 text-success font-normal">✓ ID {nomusClientId}</span> : null}
                 </Label>
-                <div className="relative mt-1">
-                  <Input
-                    value={nomusFields.cliente}
-                    onChange={e => searchNomusClients(e.target.value)}
-                    onBlur={() => setTimeout(() => setNomusClientOpen(false), 200)}
-                    placeholder="Digite o nome para buscar..."
-                    className="h-9 text-xs pr-7"
-                  />
-                  {nomusClientLoading && <Loader2 className="absolute right-2 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />}
+                <div className="flex gap-1 mt-1">
+                  <div className="relative flex-1">
+                    <Input
+                      value={nomusFields.cliente}
+                      onChange={e => searchNomusClients(e.target.value)}
+                      onBlur={() => setTimeout(() => setNomusClientOpen(false), 200)}
+                      placeholder="Digite o nome para buscar..."
+                      className="h-9 text-xs pr-7"
+                    />
+                    {nomusClientLoading && <Loader2 className="absolute right-2 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />}
+                  </div>
+                  <Button type="button" variant="outline" size="icon" className="h-9 w-9 shrink-0" title="Criar cliente no Nomus" onClick={() => setCreateClientOpen(true)}>
+                    <UserPlus className="h-4 w-4" />
+                  </Button>
                 </div>
-                {nomusClientOpen && nomusClientResults.length > 0 && (
+                {nomusClientOpen && (
                   <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-md max-h-48 overflow-y-auto">
                     {nomusClientResults.map(c => (
                       <button
@@ -1412,9 +1419,25 @@ const PADetailPage = () => {
                         <span className="ml-2 text-muted-foreground">#{c.id}</span>
                       </button>
                     ))}
+                    <button
+                      type="button"
+                      onMouseDown={() => { setNomusClientOpen(false); setCreateClientOpen(true); }}
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-accent transition-colors border-t flex items-center gap-2 text-primary"
+                    >
+                      <UserPlus className="h-3.5 w-3.5" />
+                      Criar "{nomusFields.cliente}" no Nomus
+                    </button>
                   </div>
                 )}
               </div>
+              <CreateNomusClientDialog
+                open={createClientOpen}
+                onOpenChange={setCreateClientOpen}
+                defaultName={nomusFields.cliente}
+                crmClient={{ name: sr?.tickets?.clients?.name }}
+                vendedorOptions={nomusVendedorAll}
+                onCreated={(id, nome) => { setNomusClientId(id); updateNomusField("cliente", nome); }}
+              />
               <div>
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Tipo de Movimentação</Label>
                 <Select value={nomusFields.tipoMovimentacao} onValueChange={v => updateNomusField("tipoMovimentacao", v)}>
