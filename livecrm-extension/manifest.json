@@ -2,9 +2,11 @@
   "manifest_version": 3,
   "name": "LiveCRM WhatsApp",
   "version": "1.1.0",
+  "version_name": "1.1.0",
   "description": "Integra o WhatsApp Web com o LiveCRM — captura mensagens e envia pelo painel.",
-  "permissions": ["storage", "alarms", "scripting", "tabs", "windows"],
-  "host_permissions": ["https://web.whatsapp.com/*", "https://posvenda.liveuni.com.br/*"],
+  "minimum_chrome_version": "95",
+  "permissions": ["storage", "alarms", "scripting", "tabs", "windows", "notifications"],
+  "host_permissions": ["https://web.whatsapp.com/*", "https://posvenda.liveuni.com.br/*", "https://api-free.deepl.com/*"],
   "externally_connectable": {
     "matches": ["https://posvenda.liveuni.com.br/*"]
   },
@@ -43,5 +45,8 @@
     "16": "icon16.png",
     "48": "icon48.png",
     "128": "icon128.png"
+  },
+  "content_security_policy": {
+    "extension_pages": "default-src 'self'"
   }
 }

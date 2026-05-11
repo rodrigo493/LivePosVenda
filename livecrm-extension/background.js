@@ -83,11 +83,13 @@ async function processPendingSends() {
   const tab = await findWaTab();
   if (!tab) return;
 
+  const now = new Date().toISOString();
   const { data: pending } = await sb
     .from('whatsapp_pending_sends')
     .select('id, phone, message')
     .eq('instance_id', instanceId)
     .eq('status', 'pending')
+    .or(`scheduled_at.is.null,scheduled_at.lte.${now}`)
     .order('created_at', { ascending: true })
     .limit(5);
 
@@ -607,7 +609,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     handleMoveStage(msg.ticketId, msg.pipelineId, msg.newStage, msg.previousStage).then(sendResponse).catch(e => sendResponse({ error: e.message }));
     return true;
   } else if (msg.type === 'UPLOAD_AUDIO') {
-    handleUploadAudio(msg.clientId, msg.base64, msg.mimeType).then(sendResponse).catch(e => sendResponse({ error: e.message }));
+    handleUploadAudio(msg.clientId, msg.base64, msg.mimeType, msg.phone, msg.instanceId).then(sendResponse).catch(e => sendResponse({ error: e.message }));
     return true;
   } else if (msg.type === 'GET_CATALOG_PRODUCTS') {
     handleGetCatalogProducts().then(sendResponse).catch(e => sendResponse({ error: e.message }));
@@ -1244,18 +1246,22 @@ async function handleMoveStage(ticketId, pipelineId, newStage, previousStage) {
   return { ok: true };
 }
 
-async function handleUploadAudio(clientId, base64, mimeType) {
+async function handleUploadAudio(clientId, base64, mimeType, phone, instanceId) {
   if (!sb) throw new Error('Extensão não autenticada');
   const extMap = { 'audio/ogg': 'ogg', 'audio/webm': 'webm', 'audio/mp4': 'm4a', 'audio/mpeg': 'mp3' };
   const ext = extMap[mimeType] || 'ogg';
-  const path = `${clientId}/${Date.now()}.${ext}`;
+  // clientId → bucket whatsapp-audio (sidebar); phone+instanceId → bucket whatsapp-media (mensagens inbound)
+  const bucket = clientId ? 'whatsapp-audio' : 'whatsapp-media';
+  const path = clientId
+    ? `${clientId}/${Date.now()}.${ext}`
+    : `${instanceId}/${phone}/${Date.now()}.${ext}`;
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   const blob = new Blob([bytes], { type: mimeType || 'audio/ogg' });
-  const { error } = await sb.storage.from('whatsapp-audio').upload(path, blob, { contentType: mimeType || 'audio/ogg' });
+  const { error } = await sb.storage.from(bucket).upload(path, blob, { contentType: mimeType || 'audio/ogg' });
   if (error) throw new Error(error.message);
-  const { data: urlData } = sb.storage.from('whatsapp-audio').getPublicUrl(path);
+  const { data: urlData } = sb.storage.from(bucket).getPublicUrl(path);
   return { ok: true, url: urlData.publicUrl };
 }
 
