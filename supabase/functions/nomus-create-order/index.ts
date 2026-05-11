@@ -113,7 +113,7 @@ Deno.serve(async (req) => {
         idProduto,
         item: String(idx + 1),
         quantidade: String(item.quantity || 1),
-        valorUnitario: String(Number(item.unit_price || 0).toFixed(2)),
+        valorUnitario: parseFloat(Number(item.unit_price || 0).toFixed(4)),
         observacoes: item.description || "",
         informacoesAdicionaisProduto: "",
         percentualAcrescimo: "0", percentualDesconto: "0",

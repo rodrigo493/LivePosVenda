@@ -756,7 +756,7 @@ const PDDetailPage = () => {
           idProduto,
           item: String(idx + 1),
           quantidade: String(Number(erpData?.quantidade || 1)),
-          valorUnitario: String(Number(erpData?.valorUnitario || 0).toFixed(2)),
+          valorUnitario: parseFloat(Number(erpData?.valorUnitario || 0).toFixed(4)),
           observacoes: row.description || "",
           informacoesAdicionaisProduto: "",
           percentualAcrescimo: "0", percentualDesconto: "0",

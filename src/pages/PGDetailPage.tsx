@@ -673,7 +673,7 @@ const PGDetailPage = () => {
           idProduto,
           item: String(idx + 1),
           quantidade: String(Number(erpData?.quantidade || item.quantity || 1)),
-          valorUnitario: String(Number(erpData?.valorUnitario || item.unit_price || 0).toFixed(2)),
+          valorUnitario: parseFloat(Number(erpData?.valorUnitario || item.unit_price || 0).toFixed(4)),
           observacoes: item.description || "",
           informacoesAdicionaisProduto: "",
           percentualAcrescimo: "0", percentualDesconto: "0",
