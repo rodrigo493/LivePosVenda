@@ -751,7 +751,10 @@ function injectSidebar() {
     panel.style.transform = isOpen ? 'translateX(100%)' : 'translateX(0)';
     if (!isOpen) {
       sidebarCurrentPhone = null;
-      const phone = await getPhoneFromBackground();
+      // Tenta leitura direta do DOM primeiro (wa_hook.js anota data-livecrm-phone),
+      // só vai ao background se o DOM não tiver o telefone ainda
+      let phone = getActiveChatPhone();
+      if (!phone) phone = await getPhoneFromBackground();
       sidebarCurrentPhone = phone;
       refreshSidebar(phone);
     }
@@ -1984,7 +1987,8 @@ function startSidebarWatcher() {
   setInterval(async () => {
     const panel = document.getElementById('livecrm-panel');
     if (!panel || (panel.style.transform !== 'translateX(0px)' && panel.style.transform !== 'translateX(0)')) return;
-    const phone = await getPhoneFromBackground();
+    let phone = getActiveChatPhone();
+    if (!phone) phone = await getPhoneFromBackground();
     if (phone === sidebarCurrentPhone) { nullCount = 0; return; }
     // Só reseta para null após 3 ticks consecutivos sem telefone (6s),
     // evitando que detecção temporária falha apague o sidebar após criar card
