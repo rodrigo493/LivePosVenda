@@ -989,36 +989,20 @@ function renderSidebarData(phone, { client, ticket, stageLabel, pendingQuotePdf,
 }
 
 function renderFunilSection(body, ticket, stageLabel, phone, displayName, client) {
-  const section = mkEl('div');
-  section.style.borderBottom = '1px solid #f3f4f6';
-
-  const secHead = mkEl('div');
-  Object.assign(secHead.style, { padding: '9px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' });
-  secHead.onmouseover = () => { secHead.style.background = '#fafafa'; };
-  secHead.onmouseout  = () => { secHead.style.background = ''; };
-  const secTitle = mkEl('span');
-  Object.assign(secTitle.style, { fontSize: '10px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '.5px' });
-  secTitle.textContent = 'FUNIL / ETAPA';
-  const secArrow = mkEl('span');
-  secArrow.textContent = '▲';
-  Object.assign(secArrow.style, { fontSize: '10px', color: '#9ca3af' });
-  secHead.appendChild(secTitle);
-  secHead.appendChild(secArrow);
-
-  const secBody = mkEl('div');
-  Object.assign(secBody.style, { padding: '0 14px 11px' });
-
   if (ticket) {
+    const stageWrap = mkEl('div');
+    Object.assign(stageWrap.style, { padding: '10px 14px', borderBottom: '1px solid #f3f4f6' });
+    stageWrap.appendChild(mkEl('div', 'lcrm-label', 'FUNIL / ETAPA'));
     const pname = mkEl('div');
     pname.textContent = ticket.pipeline_name || '';
     Object.assign(pname.style, { fontSize: '11px', color: '#6b7280', marginBottom: '4px' });
-    secBody.appendChild(pname);
+    stageWrap.appendChild(pname);
     const stageSelect = styledSelect([{ value: ticket.pipeline_stage, label: stageLabel || ticket.pipeline_stage }]);
     stageSelect.style.marginBottom = '4px';
-    secBody.appendChild(stageSelect);
+    stageWrap.appendChild(stageSelect);
     const stageFeedback = mkEl('div');
     Object.assign(stageFeedback.style, { fontSize: '11px', minHeight: '16px', color: '#065f46' });
-    secBody.appendChild(stageFeedback);
+    stageWrap.appendChild(stageFeedback);
     sendToBackground({ type: 'GET_PIPELINE_STAGES', pipelineId: ticket.pipeline_id }).then(resp => {
       stageSelect.textContent = '';
       (resp.stages || []).forEach(s => {
@@ -1027,7 +1011,7 @@ function renderFunilSection(body, ticket, stageLabel, phone, displayName, client
         if (s.key === ticket.pipeline_stage) opt.selected = true;
         stageSelect.appendChild(opt);
       });
-    }).catch(e => console.warn('[LiveCRM CS] GET_PIPELINE_STAGES err:', e.message));
+    }).catch(() => {});
     stageSelect.addEventListener('change', async () => {
       const newStage = stageSelect.value;
       if (newStage === ticket.pipeline_stage) return;
@@ -1044,48 +1028,34 @@ function renderFunilSection(body, ticket, stageLabel, phone, displayName, client
         setTimeout(() => { stageFeedback.textContent = ''; }, 2000);
       } finally { stageSelect.disabled = false; }
     });
-    const openBtn = mkEl('button');
-    openBtn.textContent = '↗ Abrir no CRM';
-    Object.assign(openBtn.style, {
-      width: '100%', marginTop: '8px', background: '#111827', color: '#fff',
-      border: 'none', borderRadius: '6px', padding: '8px', fontSize: '13px',
-      cursor: 'pointer', fontWeight: '500', fontFamily: 'inherit',
-    });
-    openBtn.onmouseover = () => { openBtn.style.opacity = '.85'; };
-    openBtn.onmouseout  = () => { openBtn.style.opacity = '1'; };
+    const openBtn = styledBtn('Abrir no CRM', true);
+    Object.assign(openBtn.style, { marginTop: '8px' });
     openBtn.addEventListener('click', () => {
       chrome.runtime.sendMessage({ type: 'OPEN_CRM_TICKET', ticketId: ticket.id }, () => void chrome.runtime.lastError);
     });
-    secBody.appendChild(openBtn);
+    stageWrap.appendChild(openBtn);
+    body.appendChild(stageWrap);
   } else {
+    const noTicketWrap = mkEl('div');
+    Object.assign(noTicketWrap.style, { padding: '10px 14px', borderBottom: '1px solid #f3f4f6' });
     const noTicket = mkEl('div');
     noTicket.textContent = 'Sem card ativo. Crie um novo:';
     Object.assign(noTicket.style, { color: '#6b7280', fontSize: '12px', margin: '0 0 8px' });
-    secBody.appendChild(noTicket);
+    noTicketWrap.appendChild(noTicket);
     const pipelineLbl = mkEl('div');
     pipelineLbl.textContent = 'Funil';
     Object.assign(pipelineLbl.style, { fontSize: '11px', color: '#374151', fontWeight: '600', marginBottom: '2px' });
-    secBody.appendChild(pipelineLbl);
+    noTicketWrap.appendChild(pipelineLbl);
     const pipelineSelect = styledSelect([{ value: '', label: 'Carregando funis...' }]);
     pipelineSelect.style.marginBottom = '10px';
-    secBody.appendChild(pipelineSelect);
+    noTicketWrap.appendChild(pipelineSelect);
     sendToBackground({ type: 'GET_PIPELINES' }).then(resp => {
       pipelineSelect.textContent = '';
-      if (!resp?.pipelines?.length) {
-        const opt = document.createElement('option'); opt.value = ''; opt.textContent = 'Nenhum funil encontrado';
-        pipelineSelect.appendChild(opt);
-        return;
-      }
       (resp.pipelines || []).forEach(p => {
         const opt = document.createElement('option'); opt.value = p.id; opt.textContent = p.name;
         pipelineSelect.appendChild(opt);
       });
-    }).catch(e => {
-      console.warn('[LiveCRM CS] GET_PIPELINES err:', e.message);
-      pipelineSelect.textContent = '';
-      const opt = document.createElement('option'); opt.value = ''; opt.textContent = 'Erro ao carregar funis';
-      pipelineSelect.appendChild(opt);
-    });
+    }).catch(() => {});
     const createCardBtn = styledBtn('+ Criar Card', true);
     createCardBtn.addEventListener('click', async () => {
       const pipelineId = pipelineSelect.value;
@@ -1098,52 +1068,39 @@ function renderFunilSection(body, ticket, stageLabel, phone, displayName, client
         createCardBtn.disabled = false; createCardBtn.textContent = '+ Criar Card'; alert('Erro: ' + e.message);
       }
     });
-    secBody.appendChild(createCardBtn);
+    noTicketWrap.appendChild(createCardBtn);
+    body.appendChild(noTicketWrap);
   }
-
-  let secOpen = true;
-  secHead.addEventListener('click', () => {
-    secOpen = !secOpen;
-    secBody.style.display = secOpen ? '' : 'none';
-    secArrow.textContent = secOpen ? '▲' : '▼';
-  });
-
-  section.appendChild(secHead);
-  section.appendChild(secBody);
-  body.appendChild(section);
 }
 
 function renderOrcPdSection(body, phone) {
   const wrap = mkEl('div');
   wrap.id = 'lcrm-orc-pd-section';
-  wrap.style.borderBottom = '1px solid #f3f4f6';
+  Object.assign(wrap.style, { padding: '10px 14px', borderBottom: '1px solid #f3f4f6' });
   body.appendChild(wrap);
   loadAndRenderOrcPd(wrap, phone);
 }
 
 async function loadAndRenderOrcPd(wrap, phone) {
   wrap.textContent = '';
-  const titleRow = mkEl('div');
-  titleRow.style.cssText = 'padding:7px 14px 2px';
-  const titleLbl = mkEl('span');
-  titleLbl.style.cssText = 'font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.5px';
-  titleLbl.textContent = 'Orçamento / PD';
-  titleRow.appendChild(titleLbl);
-  wrap.appendChild(titleRow);
+  const lbl = mkEl('div', 'lcrm-label', 'ORCAMENTO / PD');
+  lbl.style.marginBottom = '4px';
+  wrap.appendChild(lbl);
+  const loadingEl = mkEl('div', null, '...');
+  Object.assign(loadingEl.style, { fontSize: '11px', color: '#9ca3af', padding: '4px 0' });
+  wrap.appendChild(loadingEl);
   try {
     const result = await sendToBackground({ type: 'GET_ORC_PD', phone });
+    wrap.textContent = '';
+    wrap.appendChild(lbl);
     if (!result.quotes.length && !result.proposals.length) {
-      wrap.textContent = '';
       const emptyRow = mkEl('div');
-      emptyRow.style.cssText = 'padding:10px 14px;display:flex;align-items:center;justify-content:space-between';
-      const emptyText = mkEl('span');
-      emptyText.style.cssText = 'font-size:11px;color:#9ca3af';
-      emptyText.textContent = 'Sem orçamento ou PD';
-      const criarBtn = mkEl('button');
-      criarBtn.style.cssText = 'background:none;border:1px solid #e5e7eb;border-radius:5px;padding:3px 10px;font-size:11px;color:#6b7280;cursor:pointer';
-      criarBtn.textContent = '+ Criar';
+      Object.assign(emptyRow.style, { display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11px', color: '#6b7280' });
+      emptyRow.appendChild(mkEl('span', null, 'Sem orcamento ou PD'));
+      const criarBtn = mkEl('button', 'lcrm-btn lcrm-btn-secondary', '+ Criar');
+      Object.assign(criarBtn.style, { width: 'auto', padding: '2px 10px', fontSize: '10px' });
       criarBtn.addEventListener('click', () => chrome.tabs.create({ url: CRM_BASE_URL + '/orcamentos/novo' }));
-      emptyRow.appendChild(emptyText); emptyRow.appendChild(criarBtn);
+      emptyRow.appendChild(criarBtn);
       wrap.appendChild(emptyRow);
       return;
     }
@@ -1153,37 +1110,26 @@ async function loadAndRenderOrcPd(wrap, phone) {
       'Em andamento': { bg: '#ede9fe', color: '#5b21b6' },
       'Recusado':     { bg: '#fee2e2', color: '#991b1b' },
     };
-    const makeCard = (item, type, urlSuffix) => {
-      const card = mkEl('div');
-      card.style.cssText = 'display:flex;align-items:flex-start;gap:10px;padding:9px 14px;border-bottom:1px solid #f9fafb;cursor:pointer;transition:background .12s';
-      card.addEventListener('mouseenter', () => { card.style.background = '#fffbf7'; });
-      card.addEventListener('mouseleave', () => { card.style.background = ''; });
-      const iconEl = mkEl('div');
-      iconEl.style.cssText = `width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;background:${type === 'ORC' ? '#fff7ed' : '#eff6ff'}`;
-      iconEl.textContent = type === 'ORC' ? '📋' : '📄';
-      const info = mkEl('div');
-      info.style.cssText = 'flex:1;min-width:0';
-      const typeLabel = mkEl('div');
-      typeLabel.style.cssText = `font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px;color:${type === 'ORC' ? '#f97316' : '#3b82f6'}`;
-      typeLabel.textContent = type === 'ORC' ? 'Orçamento' : 'PD — Proposta';
-      const nameEl = mkEl('div');
-      nameEl.style.cssText = 'font-size:12px;font-weight:600;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
-      nameEl.textContent = item.name || 'Sem nome';
-      const meta = mkEl('div');
-      meta.style.cssText = 'font-size:11px;color:#6b7280;margin-top:2px;display:flex;gap:8px;align-items:center';
+    const makeCard = (item, icon, urlSuffix) => {
+      const card = mkEl('div', 'lcrm-orc-card');
+      card.style.background = icon === 'ORC' ? '#fff7ed' : '#eff6ff';
+      card.style.borderColor = icon === 'ORC' ? '#fed7aa' : '#bfdbfe';
+      const iconEl = mkEl('span', null, icon === 'ORC' ? 'Orc' : 'PD');
+      iconEl.style.cssText = 'font-size:11px;font-weight:700;flex-shrink:0;color:#6b7280';
+      const info = mkEl('div', 'lcrm-orc-card-info');
+      const nameEl = mkEl('div', 'lcrm-orc-card-name', item.name || 'Sem nome');
+      const valueRow = mkEl('div', 'lcrm-orc-card-value');
       const formatted = item.total_value != null
         ? 'R$ ' + Number(item.total_value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })
         : '--';
-      meta.appendChild(document.createTextNode(formatted));
       const sc = STATUS_COLORS[item.status] || { bg: '#f3f4f6', color: '#374151' };
-      const statusBadge = mkEl('span');
-      statusBadge.style.cssText = `display:inline-flex;border-radius:20px;padding:1px 7px;font-size:10px;font-weight:500;background:${sc.bg};color:${sc.color}`;
-      statusBadge.textContent = item.status || '--';
-      meta.appendChild(statusBadge);
-      info.appendChild(typeLabel); info.appendChild(nameEl); info.appendChild(meta);
-      const arrow = mkEl('span');
-      arrow.style.cssText = 'color:#d1d5db;font-size:12px;flex-shrink:0;margin-top:7px';
-      arrow.textContent = '›';
+      const statusBadge = mkEl('span', 'lcrm-orc-status', item.status || '--');
+      Object.assign(statusBadge.style, { background: sc.bg, color: sc.color });
+      valueRow.appendChild(document.createTextNode(formatted + '  '));
+      valueRow.appendChild(statusBadge);
+      info.appendChild(nameEl); info.appendChild(valueRow);
+      const arrow = mkEl('span', null, '>');
+      arrow.style.cssText = 'font-size:14px;color:#9ca3af;flex-shrink:0';
       card.appendChild(iconEl); card.appendChild(info); card.appendChild(arrow);
       card.addEventListener('click', () => chrome.tabs.create({ url: CRM_BASE_URL + urlSuffix + item.id }));
       return card;
@@ -1197,11 +1143,13 @@ async function loadAndRenderOrcPd(wrap, phone) {
 
 function renderActionGrid(body, phone, client, ticket) {
   const PANELS = [
-    { key: 'resposta', label: '📨 Resposta' },
-    { key: 'followup', label: '⏰ Follow-up' },
-    { key: 'agendar',  label: '📅 Agendar' },
-    { key: 'etiqueta', label: '🏷 Etiqueta' },
+    { key: 'resposta', label: 'Resposta' },
+    { key: 'followup', label: 'Follow-up' },
+    { key: 'agendar',  label: 'Agendar' },
+    { key: 'etiqueta', label: 'Etiqueta' },
   ];
+  const section = mkEl('div');
+  Object.assign(section.style, { padding: '10px 14px', borderBottom: '1px solid #f3f4f6' });
   const grid = mkEl('div', 'lcrm-action-grid');
   const panelContainer = mkEl('div');
   panelContainer.id = 'lcrm-active-panel';
@@ -1225,8 +1173,9 @@ function renderActionGrid(body, phone, client, ticket) {
     });
     grid.appendChild(btn);
   });
-  body.appendChild(grid);
-  body.appendChild(panelContainer);
+  section.appendChild(grid);
+  section.appendChild(panelContainer);
+  body.appendChild(section);
 
   if (currentPanelActive) {
     renderActivePanel(panelContainer, currentPanelActive, phone, client, ticket);
@@ -1243,28 +1192,24 @@ function renderActivePanel(container, key, phone, client, ticket) {
 }
 
 function renderNotesSection(body, ticket, client) {
-  const section = mkEl('div');
-  const secHead = mkEl('div');
-  secHead.style.cssText = 'padding:9px 14px;display:flex;justify-content:space-between;align-items:center;cursor:pointer';
-  secHead.addEventListener('mouseenter', () => { secHead.style.background = '#fafafa'; });
-  secHead.addEventListener('mouseleave', () => { secHead.style.background = ''; });
-  const secTitle = mkEl('span');
-  secTitle.style.cssText = 'font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.5px';
-  secTitle.textContent = 'Notas';
-  const secArrow = mkEl('span');
-  secArrow.style.cssText = 'font-size:10px;color:#d1d5db';
-  secArrow.textContent = '▼';
-  secHead.appendChild(secTitle); secHead.appendChild(secArrow);
-  const secBody = mkEl('div');
-  secBody.style.cssText = 'padding:0 14px 11px;display:none;flex-direction:column;gap:8px';
+  const wrap = mkEl('div');
+  Object.assign(wrap.style, { padding: '10px 14px' });
+  const hdr = mkEl('div');
+  Object.assign(hdr.style, { display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' });
+  const lbl = mkEl('div', 'lcrm-label', 'NOTAS'); lbl.style.marginBottom = '0';
+  const chevron = mkEl('span', null, 'v'); chevron.style.cssText = 'font-size:12px;color:#6b7280';
+  hdr.appendChild(lbl); hdr.appendChild(chevron);
+  const noteArea = mkEl('div');
+  noteArea.style.display = 'none';
+  Object.assign(noteArea.style, { flexDirection: 'column', gap: '8px', marginTop: '8px' });
   const textarea = document.createElement('textarea');
   textarea.className = 'lcrm-textarea'; textarea.placeholder = 'Adicionar nota...';
   const saveBtn = mkEl('button', 'lcrm-btn lcrm-btn-primary', 'Salvar nota');
-  secBody.appendChild(textarea); secBody.appendChild(saveBtn);
-  secHead.addEventListener('click', () => {
-    const open = secBody.style.display !== 'none';
-    secBody.style.display = open ? 'none' : 'flex';
-    secArrow.textContent = open ? '▼' : '▲';
+  noteArea.appendChild(textarea); noteArea.appendChild(saveBtn);
+  hdr.addEventListener('click', () => {
+    const open = noteArea.style.display !== 'none';
+    noteArea.style.display = open ? 'none' : 'flex';
+    chevron.textContent = open ? 'v' : '^';
   });
   saveBtn.addEventListener('click', async () => {
     const text = textarea.value.trim();
@@ -1277,8 +1222,8 @@ function renderNotesSection(body, ticket, client) {
     } catch (e) { alert('Erro: ' + e.message); }
     finally { saveBtn.disabled = false; }
   });
-  section.appendChild(secHead); section.appendChild(secBody);
-  body.appendChild(section);
+  wrap.appendChild(hdr); wrap.appendChild(noteArea);
+  body.appendChild(wrap);
 }
 
 const PRESET_LABELS = [
