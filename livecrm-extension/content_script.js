@@ -76,25 +76,20 @@ async function uploadAudio(blobUrl, instanceId, phone) {
   const response = await fetch(blobUrl);
   const buffer = await response.arrayBuffer();
   const bytes = new Uint8Array(buffer);
-  const filename = `${Date.now()}.ogg`;
-  const path = `${instanceId}/${phone}/${filename}`;
-
-  const uploadRes = await fetch(
-    `${SUPABASE_URL}/storage/v1/object/whatsapp-media/${path}`,
-    {
-      method: 'POST',
-      headers: {
-        'apikey': SUPABASE_ANON_KEY,
-        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-        'Content-Type': 'audio/ogg',
-        'x-upsert': 'true',
-      },
-      body: bytes,
-    }
-  );
-
-  if (!uploadRes.ok) throw new Error(`Storage upload failed: ${uploadRes.status}`);
-  return `${SUPABASE_URL}/storage/v1/object/public/whatsapp-media/${path}`;
+  // Converte para base64 para transferir ao background, que faz o upload com o JWT do usuário
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  const base64 = btoa(binary);
+  const resp = await sendToBackground({
+    type: 'UPLOAD_AUDIO',
+    clientId: null,
+    phone,
+    instanceId,
+    base64,
+    mimeType: 'audio/ogg',
+  });
+  if (resp?.url) return resp.url;
+  throw new Error(resp?.error || 'Upload falhou');
 }
 
 // ── Telefone da conversa ativa ────────────────────────────────────────────────
@@ -630,7 +625,7 @@ setInterval(() => {
       void chrome.runtime.lastError; // suprime erro se SW não respondeu
     });
   } catch { /* context invalidado — aba do WA Web precisa de F5 */ }
-}, 10000);
+}, 25000);
 
 // ── Aguarda WA Web carregar antes de iniciar ──────────────────────────────────
 
@@ -665,95 +660,84 @@ function mkEl(tag, cls, text) {
 
 function injectSidebar() {
   if (document.getElementById('livecrm-toggle')) return;
-  console.log('[LiveCRM CS] injectSidebar: criando botão CRM...');
 
   const toggle = document.createElement('button');
   toggle.id = 'livecrm-toggle';
   toggle.textContent = 'CRM';
   Object.assign(toggle.style, {
-    position: 'fixed',
-    bottom: '80px',
-    right: '0',
-    zIndex: '2147483647',
-    background: '#075e54',
-    color: '#fff',
-    border: 'none',
-    borderRadius: '8px 0 0 8px',
-    padding: '10px 8px',
-    fontSize: '11px',
-    fontWeight: '700',
-    cursor: 'pointer',
-    writingMode: 'vertical-rl',
-    letterSpacing: '1px',
-    boxShadow: '-2px 0 8px rgba(0,0,0,.25)',
-    fontFamily: 'sans-serif',
-    lineHeight: '1.2',
+    position: 'fixed', bottom: '80px', right: '0', zIndex: '2147483647',
+    background: '#f97316', color: '#fff', border: 'none',
+    borderRadius: '8px 0 0 8px', padding: '10px 8px', fontSize: '11px',
+    fontWeight: '700', cursor: 'pointer', writingMode: 'vertical-rl',
+    letterSpacing: '1px', boxShadow: '-2px 0 8px rgba(0,0,0,.25)',
+    fontFamily: 'sans-serif', lineHeight: '1.2',
   });
   document.documentElement.appendChild(toggle);
-  console.log('[LiveCRM CS] botão CRM criado, position:', toggle.style.position, 'zIndex:', toggle.style.zIndex);
 
   const panel = document.createElement('div');
   panel.id = 'livecrm-panel';
   Object.assign(panel.style, {
-    position: 'fixed',
-    top: '0',
-    right: '0',
-    width: '280px',
-    height: '100vh',
-    zIndex: '2147483646',
-    background: '#fff',
-    borderLeft: '1px solid #e5e7eb',
-    boxShadow: '-4px 0 16px rgba(0,0,0,.12)',
-    display: 'flex',
-    flexDirection: 'column',
+    position: 'fixed', top: '0', right: '0', width: '320px', height: '100vh',
+    zIndex: '2147483646', background: '#fff', borderLeft: '1px solid #e5e7eb',
+    boxShadow: '-4px 0 16px rgba(0,0,0,.12)', display: 'flex', flexDirection: 'column',
     fontFamily: '-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',
-    fontSize: '13px',
-    transform: 'translateX(100%)',
-    transition: 'transform .2s ease',
+    fontSize: '13px', transform: 'translateX(100%)', transition: 'transform .2s ease',
     boxSizing: 'border-box',
   });
 
   const hdr = document.createElement('div');
   hdr.id = 'livecrm-panel-header';
   Object.assign(hdr.style, {
-    background: '#075e54',
-    color: '#fff',
-    padding: '14px 16px',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    fontWeight: '700',
-    fontSize: '14px',
-    flexShrink: '0',
+    background: '#111827', color: '#fff', padding: '12px 14px', flexShrink: '0',
   });
-  const hdrTitle = document.createElement('span');
-  hdrTitle.textContent = 'LiveCRM';
+
+  const hdrTop = document.createElement('div');
+  Object.assign(hdrTop.style, {
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px',
+  });
+
+  const logo = document.createElement('img');
+  logo.src = chrome.runtime.getURL('icon128.png');
+  logo.alt = 'Live';
+  Object.assign(logo.style, { height: '22px', objectFit: 'contain' });
+
   const closeBtn = document.createElement('button');
-  closeBtn.id = 'livecrm-close';
-  closeBtn.title = 'Fechar';
-  closeBtn.textContent = '✕';
+  closeBtn.id = 'livecrm-close'; closeBtn.title = 'Fechar'; closeBtn.textContent = 'x';
   Object.assign(closeBtn.style, {
-    background: 'none',
-    border: 'none',
-    color: '#fff',
-    cursor: 'pointer',
-    fontSize: '18px',
-    padding: '0',
-    lineHeight: '1',
-    opacity: '.8',
+    background: 'none', border: 'none', color: '#fff', cursor: 'pointer',
+    fontSize: '16px', padding: '0', lineHeight: '1', opacity: '.7',
   });
-  hdr.appendChild(hdrTitle);
-  hdr.appendChild(closeBtn);
+  hdrTop.appendChild(logo);
+  hdrTop.appendChild(closeBtn);
+
+  const contactRow = document.createElement('div');
+  contactRow.id = 'livecrm-header-contact';
+  Object.assign(contactRow.style, { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' });
+
+  const nameEl = document.createElement('span');
+  nameEl.id = 'livecrm-header-name';
+  Object.assign(nameEl.style, { fontWeight: '700', fontSize: '14px', color: '#fff' });
+  nameEl.textContent = '...';
+
+  const labelBadgeEl = document.createElement('span');
+  labelBadgeEl.id = 'livecrm-header-label-badge';
+  labelBadgeEl.style.display = 'none';
+
+  const phoneEl = document.createElement('div');
+  phoneEl.id = 'livecrm-header-phone';
+  Object.assign(phoneEl.style, { fontSize: '11px', color: '#9ca3af', width: '100%', marginTop: '1px' });
+
+  contactRow.appendChild(nameEl);
+  contactRow.appendChild(labelBadgeEl);
+  contactRow.appendChild(phoneEl);
+  hdr.appendChild(hdrTop);
+  hdr.appendChild(contactRow);
 
   const body = document.createElement('div');
   body.id = 'livecrm-panel-body';
   Object.assign(body.style, {
-    flex: '1',
-    overflowY: 'auto',
-    padding: '14px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '10px',
+    flex: '1', overflowY: 'auto', padding: '12px',
+    display: 'flex', flexDirection: 'column', gap: '10px',
   });
 
   panel.appendChild(hdr);
@@ -1006,199 +990,148 @@ function renderSuggestionPanel() {
 }
 
 function renderSidebarData(phone, { client, ticket, stageLabel, pendingQuotePdf, pendingContract }) {
+  const waName = getContactName();
+  const validWaName = waName && !isStatusString(waName) && waName !== phone ? waName : null;
+  const validDbName = client.name && !isStatusString(client.name) && client.name !== phone ? client.name : null;
+  const displayName = validWaName || validDbName || phone;
+
+  const headerNameEl = document.getElementById('livecrm-header-name');
+  const headerPhoneEl = document.getElementById('livecrm-header-phone');
+  if (headerNameEl) headerNameEl.textContent = displayName;
+  if (headerPhoneEl) headerPhoneEl.textContent = phone;
+
+  if (phone !== currentSuggestionPhone) {
+    currentSuggestionState = 'idle';
+    currentSuggestionText = '';
+    currentPanelActive = null;
+    sidebarCurrentLabel = null;
+    sendToBackground({ type: 'GET_CONTACT_LABEL', phone }).then(label => {
+      sidebarCurrentLabel = label;
+      updateHeaderLabelBadge();
+    });
+  }
+
   const body = document.getElementById('livecrm-panel-body');
   if (!body) return;
   body.textContent = '';
 
-  // Reset sugestão quando muda de conversa
-  if (phone !== currentSuggestionPhone) {
-    currentSuggestionState = 'idle';
-    currentSuggestionText = '';
-  }
-
-  const waName = getContactName();
-  const validWaName = waName && !isStatusString(waName) && waName !== phone ? waName : null;
-  const validDbName = client.name && !isStatusString(client.name) && client.name !== phone ? client.name : null;
-  const displayName = validWaName || validDbName;
-
-  // Nome do contato com lápis para edição inline
-  const nameWrap = document.createElement('div');
-  Object.assign(nameWrap.style, { marginBottom: '10px' });
-  const nameLblEl = document.createElement('div');
-  nameLblEl.textContent = 'CONTATO';
-  Object.assign(nameLblEl.style, { fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.5px', color: '#6b7280', marginBottom: '2px' });
-  nameWrap.appendChild(nameLblEl);
-
-  const nameRow = document.createElement('div');
+  const nameWrap = mkEl('div'); nameWrap.style.marginBottom = '10px';
+  nameWrap.appendChild(mkEl('div', 'lcrm-label', 'CONTATO'));
+  const nameRow = mkEl('div');
   Object.assign(nameRow.style, { display: 'flex', alignItems: 'center', gap: '6px' });
-
-  const nameVal = document.createElement('div');
-  nameVal.textContent = displayName || phone;
+  const nameVal = mkEl('div');
+  nameVal.textContent = displayName;
   Object.assign(nameVal.style, { fontWeight: '600', color: '#111827', fontSize: '14px', flex: '1' });
-
-  const editBtn = document.createElement('button');
-  editBtn.title = 'Editar nome';
-  editBtn.textContent = '✏';
-  Object.assign(editBtn.style, { background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', color: '#6b7280', padding: '0', lineHeight: '1', flexShrink: '0' });
-
-  nameRow.appendChild(nameVal);
-  nameRow.appendChild(editBtn);
+  const editBtn = mkEl('button');
+  editBtn.title = 'Editar nome'; editBtn.textContent = 'Editar';
+  Object.assign(editBtn.style, { background: 'none', border: 'none', cursor: 'pointer', fontSize: '11px', color: '#6b7280', padding: '0', lineHeight: '1', flexShrink: '0' });
+  nameRow.appendChild(nameVal); nameRow.appendChild(editBtn);
   nameWrap.appendChild(nameRow);
 
-  // Campo de edição (oculto inicialmente)
-  const nameEditRow = document.createElement('div');
-  nameEditRow.style.display = 'none';
+  const nameEditRow = mkEl('div');
   Object.assign(nameEditRow.style, { display: 'none', gap: '4px', marginTop: '4px' });
-
   const nameInput = document.createElement('input');
-  nameInput.type = 'text';
-  nameInput.value = displayName || '';
-  Object.assign(nameInput.style, {
-    flex: '1', padding: '4px 6px', borderRadius: '4px', border: '1px solid #d1d5db',
-    fontSize: '13px', fontFamily: 'inherit',
-  });
-
-  const saveNameBtn = document.createElement('button');
-  saveNameBtn.textContent = '✓';
-  Object.assign(saveNameBtn.style, {
-    background: '#065f46', color: '#fff', border: 'none', borderRadius: '4px',
-    cursor: 'pointer', padding: '4px 8px', fontSize: '13px', flexShrink: '0',
-  });
-
-  const cancelNameBtn = document.createElement('button');
-  cancelNameBtn.textContent = '✕';
-  Object.assign(cancelNameBtn.style, {
-    background: '#6b7280', color: '#fff', border: 'none', borderRadius: '4px',
-    cursor: 'pointer', padding: '4px 6px', fontSize: '13px', flexShrink: '0',
-  });
-
-  nameEditRow.appendChild(nameInput);
-  nameEditRow.appendChild(saveNameBtn);
-  nameEditRow.appendChild(cancelNameBtn);
+  nameInput.type = 'text'; nameInput.value = validWaName || validDbName || '';
+  nameInput.className = 'lcrm-input'; nameInput.style.marginBottom = '0'; nameInput.style.flex = '1';
+  const saveNameBtn = mkEl('button', 'lcrm-btn lcrm-btn-primary', 'Ok');
+  Object.assign(saveNameBtn.style, { width: 'auto', padding: '5px 10px', fontSize: '13px' });
+  const cancelNameBtn = mkEl('button', 'lcrm-btn lcrm-btn-secondary', 'X');
+  Object.assign(cancelNameBtn.style, { width: 'auto', padding: '5px 8px', fontSize: '13px' });
+  nameEditRow.appendChild(nameInput); nameEditRow.appendChild(saveNameBtn); nameEditRow.appendChild(cancelNameBtn);
   nameWrap.appendChild(nameEditRow);
   body.appendChild(nameWrap);
 
-  editBtn.addEventListener('click', () => {
-    nameRow.style.display = 'none';
-    nameEditRow.style.display = 'flex';
-    nameInput.focus();
-    nameInput.select();
-  });
-
-  const cancelEdit = () => {
-    nameEditRow.style.display = 'none';
-    nameRow.style.display = 'flex';
-  };
-
+  editBtn.addEventListener('click', () => { nameRow.style.display = 'none'; nameEditRow.style.display = 'flex'; nameInput.focus(); nameInput.select(); });
+  const cancelEdit = () => { nameEditRow.style.display = 'none'; nameRow.style.display = 'flex'; };
   cancelNameBtn.addEventListener('click', cancelEdit);
-
   const saveName = async () => {
     const newName = nameInput.value.trim();
     if (!newName || newName === nameVal.textContent) { cancelEdit(); return; }
     saveNameBtn.disabled = true;
     try {
       await sendToBackground({ type: 'UPDATE_CLIENT_NAME', clientId: client.id, name: newName });
-      nameVal.textContent = newName;
-      client.name = newName;
-      cancelEdit();
-    } catch (e) {
-      alert('Erro ao salvar: ' + e.message);
-    } finally {
-      saveNameBtn.disabled = false;
-    }
+      nameVal.textContent = newName; client.name = newName; cancelEdit();
+    } catch (e) { alert('Erro ao salvar: ' + e.message); }
+    finally { saveNameBtn.disabled = false; }
   };
-
   saveNameBtn.addEventListener('click', saveName);
-  nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') saveName(); else if (e.key === 'Escape') cancelEdit(); });
+  nameInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') saveName();
+    if (e.key === 'Escape') cancelEdit();
+  });
 
-  body.appendChild(infoRow('Telefone', phone));
+  renderFunilSection(body, ticket, stageLabel, phone, displayName, client);
+  renderOrcPdSection(body, phone);
+  renderActionGrid(body, phone, client, ticket);
+  renderNotesSection(body, ticket, client);
 
+  renderSuggestionPanel();
+}
+
+function renderFunilSection(body, ticket, stageLabel, phone, displayName, client) {
   if (ticket) {
-    const stageWrap = document.createElement('div');
-    stageWrap.style.marginBottom = '10px';
-    const lbl = document.createElement('div');
-    lbl.textContent = 'FUNIL / ETAPA';
-    Object.assign(lbl.style, { fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.5px', color: '#6b7280', marginBottom: '4px' });
-    stageWrap.appendChild(lbl);
-
-    const pname = document.createElement('div');
+    const stageWrap = mkEl('div'); stageWrap.style.marginBottom = '10px';
+    stageWrap.appendChild(mkEl('div', 'lcrm-label', 'FUNIL / ETAPA'));
+    const pname = mkEl('div');
     pname.textContent = ticket.pipeline_name || '';
     Object.assign(pname.style, { fontSize: '11px', color: '#6b7280', marginBottom: '4px' });
     stageWrap.appendChild(pname);
-
     const stageSelect = styledSelect([{ value: ticket.pipeline_stage, label: stageLabel || ticket.pipeline_stage }]);
     stageSelect.style.marginBottom = '4px';
     stageWrap.appendChild(stageSelect);
-
-    const stageFeedback = document.createElement('div');
+    const stageFeedback = mkEl('div');
     Object.assign(stageFeedback.style, { fontSize: '11px', minHeight: '16px', color: '#065f46' });
     stageWrap.appendChild(stageFeedback);
-
     sendToBackground({ type: 'GET_PIPELINE_STAGES', pipelineId: ticket.pipeline_id }).then(resp => {
       stageSelect.textContent = '';
       (resp.stages || []).forEach(s => {
         const opt = document.createElement('option');
-        opt.value = s.key;
-        opt.textContent = s.label;
+        opt.value = s.key; opt.textContent = s.label;
         if (s.key === ticket.pipeline_stage) opt.selected = true;
         stageSelect.appendChild(opt);
       });
     }).catch(() => {});
-
     stageSelect.addEventListener('change', async () => {
       const newStage = stageSelect.value;
       if (newStage === ticket.pipeline_stage) return;
       stageSelect.disabled = true;
-      stageFeedback.textContent = 'Movendo...';
-      stageFeedback.style.color = '#6b7280';
+      stageFeedback.textContent = 'Movendo...'; stageFeedback.style.color = '#6b7280';
       try {
         await sendToBackground({ type: 'MOVE_STAGE', ticketId: ticket.id, pipelineId: ticket.pipeline_id, newStage, previousStage: ticket.pipeline_stage });
         ticket.pipeline_stage = newStage;
-        stageFeedback.textContent = '✓ Movido';
-        stageFeedback.style.color = '#065f46';
+        stageFeedback.textContent = 'Movido'; stageFeedback.style.color = '#065f46';
         setTimeout(() => { stageFeedback.textContent = ''; }, 2000);
-      } catch (e) {
+      } catch {
         stageSelect.value = ticket.pipeline_stage;
-        stageFeedback.textContent = '✗ Falha ao mover';
-        stageFeedback.style.color = '#dc2626';
+        stageFeedback.textContent = 'Falha ao mover'; stageFeedback.style.color = '#dc2626';
         setTimeout(() => { stageFeedback.textContent = ''; }, 2000);
-      } finally {
-        stageSelect.disabled = false;
-      }
+      } finally { stageSelect.disabled = false; }
     });
-
     body.appendChild(stageWrap);
-
-    const openBtn = styledBtn('↗ Abrir no CRM', true);
+    const openBtn = styledBtn('Abrir no CRM', true);
     openBtn.addEventListener('click', () => {
       chrome.runtime.sendMessage({ type: 'OPEN_CRM_TICKET', ticketId: ticket.id }, () => void chrome.runtime.lastError);
     });
     body.appendChild(openBtn);
   } else {
-    // Cliente existe mas sem ticket — mostra formulário de criação de card
-    const noTicket = document.createElement('p');
+    const noTicket = mkEl('div');
     noTicket.textContent = 'Sem card ativo. Crie um novo:';
     Object.assign(noTicket.style, { color: '#6b7280', fontSize: '12px', margin: '0 0 8px' });
     body.appendChild(noTicket);
-
-    const pipelineLbl = document.createElement('div');
+    const pipelineLbl = mkEl('div');
     pipelineLbl.textContent = 'Funil';
     Object.assign(pipelineLbl.style, { fontSize: '11px', color: '#374151', fontWeight: '600', marginBottom: '2px' });
     body.appendChild(pipelineLbl);
-
     const pipelineSelect = styledSelect([{ value: '', label: 'Carregando funis...' }]);
     pipelineSelect.style.marginBottom = '10px';
     body.appendChild(pipelineSelect);
-
     sendToBackground({ type: 'GET_PIPELINES' }).then(resp => {
       pipelineSelect.textContent = '';
       (resp.pipelines || []).forEach(p => {
-        const opt = document.createElement('option');
-        opt.value = p.id; opt.textContent = p.name;
+        const opt = document.createElement('option'); opt.value = p.id; opt.textContent = p.name;
         pipelineSelect.appendChild(opt);
       });
     }).catch(() => {});
-
     const createCardBtn = styledBtn('+ Criar Card', true);
     createCardBtn.addEventListener('click', async () => {
       const pipelineId = pipelineSelect.value;
@@ -1206,94 +1139,161 @@ function renderSidebarData(phone, { client, ticket, stageLabel, pendingQuotePdf,
       createCardBtn.disabled = true; createCardBtn.textContent = 'Criando...';
       try {
         await sendToBackground({ type: 'CREATE_TICKET', phone, name: displayName || phone, pipelineId });
-        sidebarCurrentPhone = null;
-        await refreshSidebar(phone);
+        sidebarCurrentPhone = null; await refreshSidebar(phone);
       } catch (e) {
-        createCardBtn.disabled = false; createCardBtn.textContent = '+ Criar Card';
-        alert('Erro: ' + e.message);
+        createCardBtn.disabled = false; createCardBtn.textContent = '+ Criar Card'; alert('Erro: ' + e.message);
       }
     });
     body.appendChild(createCardBtn);
   }
+}
 
-  const sep = document.createElement('hr');
-  Object.assign(sep.style, { border: 'none', borderTop: '1px solid #e5e7eb', margin: '10px 0' });
-  body.appendChild(sep);
+function renderOrcPdSection(body, phone) {
+  const wrap = mkEl('div');
+  wrap.id = 'lcrm-orc-pd-section';
+  body.appendChild(wrap);
+  loadAndRenderOrcPd(wrap, phone);
+}
 
-  const noteToggle = styledBtn('+ Adicionar nota', false);
-  body.appendChild(noteToggle);
+async function loadAndRenderOrcPd(wrap, phone) {
+  wrap.textContent = '';
+  const lbl = mkEl('div', 'lcrm-label', 'ORCAMENTO / PD');
+  lbl.style.marginBottom = '4px';
+  wrap.appendChild(lbl);
+  const loadingEl = mkEl('div', null, '...');
+  Object.assign(loadingEl.style, { fontSize: '11px', color: '#9ca3af', padding: '4px 0' });
+  wrap.appendChild(loadingEl);
+  try {
+    const result = await sendToBackground({ type: 'GET_ORC_PD', phone });
+    wrap.textContent = '';
+    wrap.appendChild(lbl);
+    if (!result.quotes.length && !result.proposals.length) {
+      const emptyRow = mkEl('div');
+      Object.assign(emptyRow.style, { display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11px', color: '#6b7280' });
+      emptyRow.appendChild(mkEl('span', null, 'Sem orcamento ou PD'));
+      const criarBtn = mkEl('button', 'lcrm-btn lcrm-btn-secondary', '+ Criar');
+      Object.assign(criarBtn.style, { width: 'auto', padding: '2px 10px', fontSize: '10px' });
+      criarBtn.addEventListener('click', () => chrome.tabs.create({ url: CRM_BASE_URL + '/orcamentos/novo' }));
+      emptyRow.appendChild(criarBtn);
+      wrap.appendChild(emptyRow);
+      return;
+    }
+    const STATUS_COLORS = {
+      'Em Analise':   { bg: '#fef3c7', color: '#92400e' },
+      'Aprovado':     { bg: '#d1fae5', color: '#065f46' },
+      'Em andamento': { bg: '#ede9fe', color: '#5b21b6' },
+      'Recusado':     { bg: '#fee2e2', color: '#991b1b' },
+    };
+    const makeCard = (item, icon, urlSuffix) => {
+      const card = mkEl('div', 'lcrm-orc-card');
+      card.style.background = icon === 'ORC' ? '#fff7ed' : '#eff6ff';
+      card.style.borderColor = icon === 'ORC' ? '#fed7aa' : '#bfdbfe';
+      const iconEl = mkEl('span', null, icon === 'ORC' ? 'Orc' : 'PD');
+      iconEl.style.cssText = 'font-size:11px;font-weight:700;flex-shrink:0;color:#6b7280';
+      const info = mkEl('div', 'lcrm-orc-card-info');
+      const nameEl = mkEl('div', 'lcrm-orc-card-name', item.name || 'Sem nome');
+      const valueRow = mkEl('div', 'lcrm-orc-card-value');
+      const formatted = item.total_value != null
+        ? 'R$ ' + Number(item.total_value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })
+        : '--';
+      const sc = STATUS_COLORS[item.status] || { bg: '#f3f4f6', color: '#374151' };
+      const statusBadge = mkEl('span', 'lcrm-orc-status', item.status || '--');
+      Object.assign(statusBadge.style, { background: sc.bg, color: sc.color });
+      valueRow.appendChild(document.createTextNode(formatted + '  '));
+      valueRow.appendChild(statusBadge);
+      info.appendChild(nameEl); info.appendChild(valueRow);
+      const arrow = mkEl('span', null, '>');
+      arrow.style.cssText = 'font-size:14px;color:#9ca3af;flex-shrink:0';
+      card.appendChild(iconEl); card.appendChild(info); card.appendChild(arrow);
+      card.addEventListener('click', () => chrome.tabs.create({ url: CRM_BASE_URL + urlSuffix + item.id }));
+      return card;
+    };
+    result.quotes.forEach(q => wrap.appendChild(makeCard(q, 'ORC', '/orcamentos/')));
+    result.proposals.forEach(p => wrap.appendChild(makeCard(p, 'PD', '/orcamentos/')));
+  } catch (e) {
+    console.warn('[LiveCRM CS] GET_ORC_PD error:', e.message);
+  }
+}
 
-  const noteArea = document.createElement('div');
+function renderActionGrid(body, phone, client, ticket) {
+  const PANELS = [
+    { key: 'resposta', label: 'Resposta' },
+    { key: 'followup', label: 'Follow-up' },
+    { key: 'agendar',  label: 'Agendar' },
+    { key: 'etiqueta', label: 'Etiqueta' },
+  ];
+  const grid = mkEl('div', 'lcrm-action-grid');
+  const panelContainer = mkEl('div');
+  panelContainer.id = 'lcrm-active-panel';
+
+  PANELS.forEach(({ key, label }) => {
+    const btn = mkEl('button', 'lcrm-action-btn', label);
+    btn.dataset.panelKey = key;
+    if (currentPanelActive === key) btn.classList.add('active');
+    btn.addEventListener('click', () => {
+      if (currentPanelActive === key) {
+        currentPanelActive = null;
+        panelContainer.textContent = '';
+        grid.querySelectorAll('.lcrm-action-btn').forEach(b => b.classList.remove('active'));
+      } else {
+        currentPanelActive = key;
+        grid.querySelectorAll('.lcrm-action-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        panelContainer.textContent = '';
+        renderActivePanel(panelContainer, key, phone, client, ticket);
+      }
+    });
+    grid.appendChild(btn);
+  });
+  body.appendChild(grid);
+  body.appendChild(panelContainer);
+
+  if (currentPanelActive) {
+    renderActivePanel(panelContainer, currentPanelActive, phone, client, ticket);
+  }
+}
+
+function renderActivePanel(container, key, phone, client, ticket) {
+  switch (key) {
+    case 'etiqueta': renderEtiquetaPanel(container, phone); break;
+    case 'resposta': renderRespostaPanel(container, phone, client, ticket); break;
+    case 'followup': renderFollowUpPanel(container, phone, client); break;
+    case 'agendar':  renderAgendarPanel(container, phone); break;
+  }
+}
+
+function renderNotesSection(body, ticket, client) {
+  const wrap = mkEl('div', 'lcrm-card');
+  const hdr = mkEl('div');
+  Object.assign(hdr.style, { display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' });
+  const lbl = mkEl('div', 'lcrm-label', 'NOTAS'); lbl.style.marginBottom = '0';
+  const chevron = mkEl('span', null, 'v'); chevron.style.cssText = 'font-size:12px;color:#6b7280';
+  hdr.appendChild(lbl); hdr.appendChild(chevron);
+  const noteArea = mkEl('div');
   noteArea.style.display = 'none';
+  Object.assign(noteArea.style, { flexDirection: 'column', gap: '8px', marginTop: '8px' });
   const textarea = document.createElement('textarea');
-  textarea.placeholder = 'Escreva uma observação...';
-  Object.assign(textarea.style, {
-    width: '100%', border: '1px solid #d1d5db', borderRadius: '6px',
-    padding: '8px', fontSize: '12px', resize: 'vertical', minHeight: '72px',
-    fontFamily: 'inherit', boxSizing: 'border-box', marginTop: '6px',
+  textarea.className = 'lcrm-textarea'; textarea.placeholder = 'Adicionar nota...';
+  const saveBtn = mkEl('button', 'lcrm-btn lcrm-btn-primary', 'Salvar nota');
+  noteArea.appendChild(textarea); noteArea.appendChild(saveBtn);
+  hdr.addEventListener('click', () => {
+    const open = noteArea.style.display !== 'none';
+    noteArea.style.display = open ? 'none' : 'flex';
+    chevron.textContent = open ? 'v' : '^';
   });
-  const noteSaveBtn = styledBtn('Salvar nota', true);
-  noteArea.appendChild(textarea); noteArea.appendChild(noteSaveBtn);
-  body.appendChild(noteArea);
-
-  noteToggle.addEventListener('click', () => {
-    noteArea.style.display = noteArea.style.display === 'none' ? 'block' : 'none';
-  });
-
-  noteSaveBtn.addEventListener('click', async () => {
+  saveBtn.addEventListener('click', async () => {
     const text = textarea.value.trim();
     if (!text) return;
-    noteSaveBtn.disabled = true; noteSaveBtn.textContent = 'Salvando...';
+    saveBtn.disabled = true; saveBtn.textContent = 'Salvando...';
     try {
       await sendToBackground({ type: 'SAVE_NOTE', ticketId: ticket?.id || null, clientId: client.id, text });
-      textarea.value = ''; noteArea.style.display = 'none';
-      noteToggle.textContent = '✓ Nota salva';
-      setTimeout(() => { noteToggle.textContent = '+ Adicionar nota'; }, 2000);
-    } catch (e) { alert('Erro ao salvar nota: ' + e.message); }
-    finally { noteSaveBtn.disabled = false; noteSaveBtn.textContent = 'Salvar nota'; }
+      textarea.value = ''; saveBtn.textContent = 'Salvo!';
+      setTimeout(() => { saveBtn.textContent = 'Salvar nota'; }, 2000);
+    } catch (e) { alert('Erro: ' + e.message); }
+    finally { saveBtn.disabled = false; }
   });
-
-  // ── Produtos / Negociação ──────────────────────────────────────────────────
-  if (ticket) {
-    const sep2 = document.createElement('hr');
-    Object.assign(sep2.style, { border: 'none', borderTop: '1px solid #e5e7eb', margin: '10px 0' });
-    body.appendChild(sep2);
-    renderProductsSection(body, ticket, client);
-  }
-
-  // ── PDF do Orçamento ──────────────────────────────────────────────────────
-  if (pendingQuotePdf) {
-    const sep3 = document.createElement('hr');
-    Object.assign(sep3.style, { border: 'none', borderTop: '1px solid #e5e7eb', margin: '10px 0' });
-    body.appendChild(sep3);
-
-    const pdfLbl = document.createElement('div');
-    pdfLbl.textContent = 'ORÇAMENTO AGUARDANDO APROVAÇÃO';
-    Object.assign(pdfLbl.style, { fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.5px', color: '#6b7280', marginBottom: '6px' });
-    body.appendChild(pdfLbl);
-
-    const pdfInfo = document.createElement('div');
-    pdfInfo.textContent = '📄 ' + pendingQuotePdf.quoteNumber;
-    Object.assign(pdfInfo.style, { fontSize: '12px', color: '#374151', marginBottom: '8px', fontWeight: '600' });
-    body.appendChild(pdfInfo);
-  }
-
-  // ── Contrato Gerado ───────────────────────────────────────────────────────
-  if (pendingContract) {
-    const sep4 = document.createElement('hr');
-    Object.assign(sep4.style, { border: 'none', borderTop: '1px solid #e5e7eb', margin: '10px 0' });
-    body.appendChild(sep4);
-
-    const ctLbl = document.createElement('div');
-    ctLbl.textContent = 'CONTRATO GERADO';
-    Object.assign(ctLbl.style, { fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.5px', color: '#6b7280', marginBottom: '6px' });
-    body.appendChild(ctLbl);
-
-    const ctInfo = document.createElement('div');
-    ctInfo.textContent = '📋 ' + pendingContract.contractNumber;
-    Object.assign(ctInfo.style, { fontSize: '12px', color: '#374151', marginBottom: '8px', fontWeight: '600' });
-    body.appendChild(ctInfo);
-  }
+  wrap.appendChild(hdr); wrap.appendChild(noteArea);
+  body.appendChild(wrap);
 }
 
 async function renderProductsSection(container, ticket, client) {
@@ -1539,6 +1539,8 @@ let sidebarCurrentPhone = null;
 let currentSuggestionPhone = null;
 let currentSuggestionState = 'idle'; // idle | pending | done | timeout | error
 let currentSuggestionText = '';
+let currentPanelActive = null;
+let sidebarCurrentLabel = null;
 
 async function refreshSidebar(phone) {
   if (!phone) { sidebarMsg('Abra uma conversa para ver dados do contato.'); return; }
