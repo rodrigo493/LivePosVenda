@@ -1085,7 +1085,7 @@ async function handleSaveNote(ticketId, clientId, text) {
   const { error } = await sb.from('client_service_history').insert({
     client_id: clientId,
     service_date: now.toISOString(),
-    problem_reported: `[Nota WA — ${dateLabel}]\n${text}`,
+    problem_reported: text,
     service_status: 'nota',
     created_by: currentUserId || null,
   });

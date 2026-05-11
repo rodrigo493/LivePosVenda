@@ -2416,13 +2416,21 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
                       </thead>
                       <tbody>
                         {clientHistory?.map((row: any) => (
-                          <tr key={row.id} className="border-b last:border-0 hover:bg-muted/30">
-                            <td className="px-4 py-2 whitespace-nowrap">{row.service_date ? new Date(row.service_date).toLocaleDateString("pt-BR") : "—"}</td>
-                            <td className="px-4 py-2">{row.device || "—"}</td>
-                            <td className="px-4 py-2 max-w-[250px] truncate" title={row.problem_reported || ""}>{row.problem_reported || "—"}</td>
-                            <td className="px-4 py-2 max-w-[250px] truncate" title={row.solution_provided || ""}>{row.solution_provided || "—"}</td>
-                            <td className="px-4 py-2"><StatusBadge status={row.service_status} /></td>
-                          </tr>
+                          row.service_status === 'nota' ? (
+                            <tr key={row.id} className="border-b last:border-0 hover:bg-muted/30">
+                              <td colSpan={5} className="px-4 py-2 text-sm whitespace-pre-wrap">
+                                {(row.problem_reported || "—").replace(/^\[Nota WA[^\]]*\]\n?/, "")}
+                              </td>
+                            </tr>
+                          ) : (
+                            <tr key={row.id} className="border-b last:border-0 hover:bg-muted/30">
+                              <td className="px-4 py-2 whitespace-nowrap">{row.service_date ? new Date(row.service_date).toLocaleDateString("pt-BR") : "—"}</td>
+                              <td className="px-4 py-2">{row.device || "—"}</td>
+                              <td className="px-4 py-2 max-w-[250px] truncate" title={row.problem_reported || ""}>{row.problem_reported || "—"}</td>
+                              <td className="px-4 py-2 max-w-[250px] truncate" title={row.solution_provided || ""}>{row.solution_provided || "—"}</td>
+                              <td className="px-4 py-2"><StatusBadge status={row.service_status} /></td>
+                            </tr>
+                          )
                         ))}
                       </tbody>
                     </table>
