@@ -921,73 +921,29 @@ function badge(text) {
 }
 
 function renderSuggestionPanel() {
-  const existing = document.getElementById('livecrm-suggestion-panel');
-  if (existing) existing.remove();
-  if (currentSuggestionState === 'idle') return;
-
-  const body = document.getElementById('livecrm-panel-body');
-  if (!body) return;
-
-  const panel = document.createElement('div');
-  panel.id = 'livecrm-suggestion-panel';
-  Object.assign(panel.style, {
-    marginTop: '10px',
-    border: '1px solid #e5e7eb',
-    borderRadius: '8px',
-    overflow: 'hidden',
-  });
-
-  const header = document.createElement('div');
-  header.textContent = '💬 Sugestão de resposta';
-  Object.assign(header.style, {
-    fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.5px',
-    color: '#6b7280', padding: '6px 10px', background: '#f9fafb',
-    borderBottom: '1px solid #e5e7eb',
-  });
-  panel.appendChild(header);
-
-  const content = document.createElement('div');
-  Object.assign(content.style, { padding: '8px 10px' });
-
-  if (currentSuggestionState === 'pending') {
-    const spinner = document.createElement('div');
-    spinner.textContent = '⟳ Gerando sugestão...';
-    Object.assign(spinner.style, { fontSize: '12px', color: '#6b7280', fontStyle: 'italic' });
-    content.appendChild(spinner);
-  } else if (currentSuggestionState === 'done' && currentSuggestionText) {
-    const textEl = document.createElement('p');
-    textEl.textContent = currentSuggestionText;
-    Object.assign(textEl.style, {
-      fontSize: '12px', color: '#111827', margin: '0 0 8px',
-      lineHeight: '1.5', wordBreak: 'break-word',
-    });
-    content.appendChild(textEl);
-
-    const copyBtn = document.createElement('button');
-    copyBtn.textContent = '📋 Copiar';
-    Object.assign(copyBtn.style, {
-      background: '#065f46', color: '#fff', border: 'none', borderRadius: '6px',
-      padding: '5px 10px', fontSize: '12px', cursor: 'pointer', width: '100%',
-    });
-    copyBtn.addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(currentSuggestionText);
-        copyBtn.textContent = '✓ Copiado!';
-        setTimeout(() => { copyBtn.textContent = '📋 Copiar'; }, 2000);
-      } catch {
-        copyBtn.textContent = 'Erro ao copiar';
-      }
-    });
-    content.appendChild(copyBtn);
-  } else if (currentSuggestionState === 'timeout' || currentSuggestionState === 'error') {
-    const msg = document.createElement('div');
-    msg.textContent = 'Não foi possível gerar sugestão.';
-    Object.assign(msg.style, { fontSize: '12px', color: '#9ca3af', fontStyle: 'italic' });
-    content.appendChild(msg);
+  if (currentPanelActive === 'resposta') {
+    const panelContainer = document.getElementById('lcrm-active-panel');
+    if (panelContainer) {
+      panelContainer.textContent = '';
+      renderRespostaPanel(panelContainer, currentSuggestionPhone || sidebarCurrentPhone, null, null);
+    }
+    return;
   }
-
-  panel.appendChild(content);
-  body.appendChild(panel);
+  if (currentSuggestionState === 'done') {
+    const panelEl = document.getElementById('livecrm-panel');
+    const isOpen = panelEl?.style.transform === 'translateX(0px)' || panelEl?.style.transform === 'translateX(0)';
+    if (isOpen) {
+      currentPanelActive = 'resposta';
+      document.querySelectorAll('.lcrm-action-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.panelKey === 'resposta');
+      });
+      const panelContainer = document.getElementById('lcrm-active-panel');
+      if (panelContainer) {
+        panelContainer.textContent = '';
+        renderRespostaPanel(panelContainer, currentSuggestionPhone || sidebarCurrentPhone, null, null);
+      }
+    }
+  }
 }
 
 function renderSidebarData(phone, { client, ticket, stageLabel, pendingQuotePdf, pendingContract }) {
@@ -1446,6 +1402,125 @@ function injectLabelBadges() {
     }));
   });
   labelBadgeObserver.observe(chatList, { childList: true, subtree: true });
+}
+
+async function renderRespostaPanel(container, phone, client, ticket) {
+  container.textContent = '';
+  const wrap = mkEl('div', 'lcrm-action-panel');
+  const panelHdr = mkEl('div', 'lcrm-action-panel-header', 'RESPOSTAS');
+  const panelBody = mkEl('div', 'lcrm-action-panel-body');
+  wrap.appendChild(panelHdr); wrap.appendChild(panelBody);
+  container.appendChild(wrap);
+
+  const getInput = () => document.querySelector(COMPOSE_SEL);
+
+  panelBody.appendChild(mkEl('div', 'lcrm-sub-label', 'SUGESTOES DA IA'));
+  const aiArea = mkEl('div'); panelBody.appendChild(aiArea);
+
+  const renderAiState = () => {
+    aiArea.textContent = '';
+    if (currentSuggestionState === 'pending') {
+      const spin = mkEl('div', null, 'Gerando sugestoes...');
+      Object.assign(spin.style, { fontSize: '11px', color: '#6b7280', fontStyle: 'italic', padding: '4px 0' });
+      aiArea.appendChild(spin);
+    } else if (currentSuggestionState === 'done' && currentSuggestionText) {
+      const suggestions = typeof currentSuggestionText === 'string' ? [currentSuggestionText] : currentSuggestionText;
+      suggestions.forEach(text => {
+        const card = mkEl('div', 'lcrm-ai-card');
+        const p = mkEl('p', null, text);
+        const useBtn = mkEl('button', 'lcrm-ai-use-btn', 'Usar');
+        useBtn.addEventListener('click', async () => {
+          const input = getInput();
+          if (!input) { alert('Campo de texto nao encontrado no WhatsApp.'); return; }
+          await insertTextReact(input, text);
+          useBtn.textContent = 'Inserido!';
+          setTimeout(() => { useBtn.textContent = 'Usar'; }, 2000);
+        });
+        card.appendChild(p); card.appendChild(useBtn);
+        aiArea.appendChild(card);
+      });
+      const regenBtn = mkEl('button', 'lcrm-btn lcrm-btn-secondary', 'Gerar novas');
+      regenBtn.style.marginTop = '4px';
+      regenBtn.addEventListener('click', () => {
+        currentSuggestionState = 'pending';
+        renderAiState();
+        sendToBackground({ type: 'REQUEST_SUGGESTION', clientId: client?.id, phone });
+      });
+      aiArea.appendChild(regenBtn);
+    } else if (currentSuggestionState === 'timeout' || currentSuggestionState === 'error') {
+      const err = mkEl('div', null, 'Nao foi possivel gerar sugestao.');
+      Object.assign(err.style, { fontSize: '11px', color: '#9ca3af', fontStyle: 'italic' });
+      aiArea.appendChild(err);
+    } else {
+      const idle = mkEl('div', null, 'Aguardando mensagem recebida...');
+      Object.assign(idle.style, { fontSize: '11px', color: '#9ca3af', fontStyle: 'italic', padding: '4px 0' });
+      aiArea.appendChild(idle);
+    }
+  };
+  renderAiState();
+
+  const sep = mkEl('div');
+  Object.assign(sep.style, { borderTop: '1px solid #e5e7eb', margin: '10px -10px 10px' });
+  panelBody.appendChild(sep);
+  panelBody.appendChild(mkEl('div', 'lcrm-sub-label', 'RESPOSTAS SALVAS'));
+  const tmplList = mkEl('div'); panelBody.appendChild(tmplList);
+
+  const loadTemplates = async () => {
+    tmplList.textContent = '';
+    const replies = await sendToBackground({ type: 'GET_QUICK_REPLIES' });
+    if (!replies?.length) {
+      const empty = mkEl('div', null, 'Nenhuma resposta salva.');
+      Object.assign(empty.style, { fontSize: '11px', color: '#9ca3af', fontStyle: 'italic', padding: '4px 0' });
+      tmplList.appendChild(empty);
+    } else {
+      replies.forEach(r => {
+        const row = mkEl('div', 'lcrm-reply-template');
+        const info = mkEl('div');
+        Object.assign(info.style, { flex: '1', minWidth: '0', marginRight: '6px' });
+        info.appendChild(mkEl('div', 'lcrm-reply-title', r.title));
+        info.appendChild(mkEl('div', 'lcrm-reply-body', r.body));
+        const useBtn = mkEl('button', 'lcrm-btn lcrm-btn-primary', 'Usar');
+        Object.assign(useBtn.style, { width: 'auto', padding: '3px 8px', fontSize: '10px', flexShrink: '0' });
+        useBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const input = getInput();
+          if (!input) { alert('Campo nao encontrado.'); return; }
+          await insertTextReact(input, r.body);
+        });
+        const delBtn = mkEl('button', null, 'X');
+        Object.assign(delBtn.style, { background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: '12px', padding: '0 2px', flexShrink: '0' });
+        delBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          await sendToBackground({ type: 'DELETE_QUICK_REPLY', id: r.id });
+          loadTemplates();
+        });
+        row.appendChild(info); row.appendChild(useBtn); row.appendChild(delBtn);
+        tmplList.appendChild(row);
+      });
+    }
+  };
+  await loadTemplates();
+
+  const addBtn = mkEl('button', 'lcrm-btn lcrm-btn-secondary', '+ Adicionar resposta');
+  addBtn.style.marginTop = '6px';
+  const addForm = mkEl('div');
+  addForm.style.display = 'none'; addForm.style.marginTop = '8px';
+  const titleInp = document.createElement('input');
+  titleInp.type = 'text'; titleInp.placeholder = 'Titulo (ex: Saudacao)'; titleInp.className = 'lcrm-input';
+  const bodyInp = document.createElement('textarea');
+  bodyInp.placeholder = 'Texto da resposta...'; bodyInp.className = 'lcrm-textarea'; bodyInp.rows = 3;
+  const saveRplyBtn = mkEl('button', 'lcrm-btn lcrm-btn-primary', 'Salvar');
+  saveRplyBtn.addEventListener('click', async () => {
+    const t = titleInp.value.trim(), b = bodyInp.value.trim();
+    if (!t || !b) return;
+    await sendToBackground({ type: 'SAVE_QUICK_REPLY', title: t, body: b });
+    titleInp.value = ''; bodyInp.value = '';
+    addForm.style.display = 'none'; addBtn.style.display = '';
+    loadTemplates();
+  });
+  addForm.appendChild(titleInp); addForm.appendChild(bodyInp); addForm.appendChild(saveRplyBtn);
+  panelBody.appendChild(addBtn); panelBody.appendChild(addForm);
+  addBtn.addEventListener('click', () => { addForm.style.display = 'block'; addBtn.style.display = 'none'; });
 }
 
 async function renderProductsSection(container, ticket, client) {
