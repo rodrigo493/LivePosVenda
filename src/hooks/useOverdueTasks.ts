@@ -15,11 +15,12 @@ export function useOverdueTasks() {
       const today = new Date().toISOString().split("T")[0];
 
       // Busca overdue_ack_at do perfil (profiles usa user_id, não id)
-      const { data: profile } = await (supabase as any)
+      const { data: profile, error: profileErr } = await (supabase as any)
         .from("profiles")
         .select("overdue_ack_at")
         .eq("user_id", user!.id)
         .maybeSingle();
+      if (profileErr) console.error("[useOverdueTasks] falha ao buscar perfil:", profileErr);
 
       const ackDate = (profile as any)?.overdue_ack_at
         ? new Date((profile as any).overdue_ack_at).toISOString().split("T")[0]
