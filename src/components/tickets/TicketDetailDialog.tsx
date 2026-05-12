@@ -370,7 +370,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
   const [ticketChannel, setTicketChannel] = useState("");
   const [ticketCampanha, setTicketCampanha] = useState("");
   const [ticketStatus, setTicketStatus] = useState("");
-  const prevTicketStatusRef = React.useRef("");
+  const prevTicketStatusRef = useRef("");
   const [isEditingInfo, setIsEditingInfo] = useState(false);
   const [editClient, setEditClient] = useState<Record<string, string>>({});
   const [newNote, setNewNote] = useState("");
