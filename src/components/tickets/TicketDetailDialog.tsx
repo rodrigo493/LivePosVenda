@@ -6,6 +6,7 @@ import {
   ExternalLink, Receipt, Settings2, ArrowLeft, Cpu, Plus, ChevronDown, History, CheckSquare, Brain,
   BookOpen, Upload, Trash2, MoreVertical, Copy, PauseCircle, PlayCircle,
   ShoppingCart, Search, Minus, XCircle,
+  ThumbsUp, ThumbsDown, Pause, PersonStanding,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -368,6 +369,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
   const [ticketOrigin, setTicketOrigin] = useState("");
   const [ticketChannel, setTicketChannel] = useState("");
   const [ticketCampanha, setTicketCampanha] = useState("");
+  const [ticketStatus, setTicketStatus] = useState("");
   const [isEditingInfo, setIsEditingInfo] = useState(false);
   const [editClient, setEditClient] = useState<Record<string, string>>({});
   const [newNote, setNewNote] = useState("");
@@ -634,6 +636,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
     setTicketOrigin(ticket.origin || "");
     setTicketChannel(ticket.channel || "");
     setTicketCampanha(ticket.campanha || "");
+    setTicketStatus(ticket.status || "aberto");
     setIsEditingInfo(false);
     setLocalPipelineId(ticket.pipeline_id ?? null);
     setLocalAssignedTo(ticket.assigned_to ?? null);
@@ -780,7 +783,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
   });
 
   const updateTicketField = useMutation({
-    mutationFn: async ({ field, value }: { field: "description" | "internal_notes" | "objecao" | "ticket_type" | "origin" | "channel" | "campanha"; value: string }) => {
+    mutationFn: async ({ field, value }: { field: "description" | "internal_notes" | "objecao" | "ticket_type" | "origin" | "channel" | "campanha" | "status"; value: string }) => {
       const { error } = await supabase.from("tickets").update({ [field]: value, updated_at: new Date().toISOString() }).eq("id", ticketId!);
       if (error) throw error;
 
@@ -1659,6 +1662,41 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
                       <EditableInfoRow icon={MessageSquare} label="Canal" value={ticketChannel} onChange={setTicketChannel} editing={isEditingInfo} />
                       <EditableInfoRow icon={Settings2} label="Origem" value={ticketOrigin} onChange={setTicketOrigin} editing={isEditingInfo} />
                       <EditableInfoRow icon={Tag} label="Campanha" value={ticketCampanha} onChange={setTicketCampanha} editing={isEditingInfo} highlight />
+                      {/* Status da negociação */}
+                      <div className="flex items-start gap-2">
+                        <div className="mt-0.5 text-muted-foreground shrink-0">
+                          <PersonStanding size={14} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[10px] text-muted-foreground mb-0.5">Status</p>
+                          <Select
+                            value={ticketStatus}
+                            onValueChange={(val) => {
+                              setTicketStatus(val);
+                              updateTicketField.mutate({ field: "status", value: val });
+                            }}
+                          >
+                            <SelectTrigger className="h-7 text-xs border-zinc-700 bg-zinc-800 text-zinc-100 w-40">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="bg-zinc-900 border-zinc-700">
+                              {([
+                                { value: "aberto",    label: "Em andamento", Icon: PersonStanding },
+                                { value: "vendido",   label: "Vendido",      Icon: ThumbsUp       },
+                                { value: "cancelado", label: "Perdido",      Icon: ThumbsDown     },
+                                { value: "pausado",   label: "Pausado",      Icon: Pause          },
+                              ] as const).map(({ value, label, Icon }) => (
+                                <SelectItem key={value} value={value} className="text-xs text-zinc-100 focus:bg-zinc-700">
+                                  <span className="flex items-center gap-1.5">
+                                    <Icon size={12} />
+                                    {label}
+                                  </span>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
                     </div>
                   </div>
 

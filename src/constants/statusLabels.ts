@@ -10,6 +10,7 @@ export const ticketStatusLabels: Record<string, string> = {
   reprovado: "Reprovado",
   resolvido: "Resolvido",
   fechado: "Fechado",
+  vendido: "Vendido",
 };
 
 // Ticket type labels

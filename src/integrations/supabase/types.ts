@@ -2673,6 +2673,7 @@ export type Database = {
         | "fechado"
         | "cancelado"
         | "pausado"
+        | "vendido"
       ticket_type_enum:
         | "chamado_tecnico"
         | "garantia"
@@ -2876,6 +2877,7 @@ export const Constants = {
         "fechado",
         "cancelado",
         "pausado",
+        "vendido",
       ],
       ticket_type_enum: [
         "chamado_tecnico",

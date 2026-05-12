@@ -20,6 +20,12 @@ import {
   MoveRight,
   Layers,
   CheckSquare2,
+  ThumbsUp,
+  ThumbsDown,
+  Pause,
+  PersonStanding,
+  ClipboardCheck,
+  type LucideIcon,
 } from "lucide-react";
 import { ChannelIcon } from "@/components/ui/ChannelIcon";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -70,6 +76,7 @@ import { useAllUsers } from "@/hooks/useUserAccess";
 import { CrudDialog } from "@/components/shared/CrudDialog";
 import { TaskCreateDialog } from "@/components/tasks/TaskCreateDialog";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useClearNewLead } from "@/hooks/useNewLeads";
@@ -730,17 +737,44 @@ const CrmPipelinePage = () => {
             className="pl-8 pr-3 py-1.5 text-sm rounded-lg border border-zinc-700 bg-zinc-800 text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-primary/50 h-8 w-48"
           />
         </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="h-8 w-36 text-xs bg-zinc-800 border-zinc-700 text-zinc-100">
-            <SelectValue placeholder="Todos os status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos os status</SelectItem>
-            <SelectItem value="aberto">Em andamento</SelectItem>
-            <SelectItem value="cancelado">Perdida</SelectItem>
-            <SelectItem value="pausado">Pausado</SelectItem>
-          </SelectContent>
-        </Select>
+        {/* Status filter dropdown with icons */}
+        {(() => {
+          const STATUS_FILTER_OPTIONS = [
+            { value: "all",       label: "Todos os status", Icon: ClipboardCheck },
+            { value: "aberto",    label: "Em andamento",    Icon: PersonStanding },
+            { value: "vendido",   label: "Vendido",         Icon: ThumbsUp       },
+            { value: "cancelado", label: "Perdido",         Icon: ThumbsDown     },
+            { value: "pausado",   label: "Pausado",         Icon: Pause          },
+          ] as const;
+          const current = STATUS_FILTER_OPTIONS.find((o) => o.value === statusFilter) ?? STATUS_FILTER_OPTIONS[0];
+          return (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="flex items-center gap-1.5 h-8 px-3 text-xs rounded-md border border-zinc-700 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 transition-colors">
+                  <current.Icon size={13} />
+                  <span>{current.label}</span>
+                  <ChevronDown size={11} className="ml-0.5 opacity-60" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-48 bg-zinc-900 border-zinc-700">
+                <DropdownMenuLabel className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wide py-1.5">
+                  Status da Negociação
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator className="bg-zinc-700" />
+                {STATUS_FILTER_OPTIONS.map(({ value, label, Icon }) => (
+                  <DropdownMenuItem
+                    key={value}
+                    onClick={() => setStatusFilter(value)}
+                    className={`flex items-center gap-2 text-xs cursor-pointer ${statusFilter === value ? "text-primary font-semibold" : "text-zinc-100"} hover:bg-zinc-700 focus:bg-zinc-700`}
+                  >
+                    <Icon size={14} className={statusFilter === value ? "text-primary" : "text-zinc-400"} />
+                    {label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          );
+        })()}
         {isAdmin ? (
           <Select value={filterBy} onValueChange={setFilterBy}>
             <SelectTrigger className="h-8 w-36 text-xs bg-zinc-800 border-zinc-700 text-zinc-100">
@@ -1357,12 +1391,15 @@ const CrmPipelinePage = () => {
   );
 };
 
-const STATUS_LABELS: Record<string, { label: string; dot: string }> = {
-  aberto:    { label: "Em andamento", dot: "#3b82f6" },
-  fechado:   { label: "Vendida",      dot: "#22c55e" },
-  cancelado: { label: "Perdida",      dot: "#ef4444" },
-  pausado:   { label: "Pausado",      dot: "#f97316" },
+interface StatusConfig { label: string; dot: string; Icon: LucideIcon; tagClass: string; }
+const STATUS_CONFIG: Record<string, StatusConfig> = {
+  aberto:    { label: "Em andamento", dot: "#3b82f6", Icon: PersonStanding, tagClass: "bg-blue-900/60 text-blue-300 border-blue-700/50" },
+  vendido:   { label: "Vendido",      dot: "#22c55e", Icon: ThumbsUp,       tagClass: "bg-green-900/60 text-green-300 border-green-700/50" },
+  cancelado: { label: "Perdido",      dot: "#ef4444", Icon: ThumbsDown,     tagClass: "bg-red-900/60 text-red-300 border-red-700/50" },
+  pausado:   { label: "Pausado",      dot: "#f97316", Icon: Pause,          tagClass: "bg-orange-900/60 text-orange-300 border-orange-700/50" },
+  fechado:   { label: "Vendido",      dot: "#22c55e", Icon: ThumbsUp,       tagClass: "bg-green-900/60 text-green-300 border-green-700/50" },
 };
+const STATUS_FALLBACK: StatusConfig = { label: "—", dot: "#71717a", Icon: PersonStanding, tagClass: "bg-zinc-700/60 text-zinc-400 border-zinc-600/50" };
 
 const TICKET_TYPE_LABELS: Record<string, { label: string; color: string }> = {
   chamado_tecnico: { label: "Chamado Técnico", color: "bg-blue-100 text-blue-800" },
@@ -1597,7 +1634,7 @@ function PipelineCard({ ticket, pipelineName, stageKey, onQuickTask, onClick, on
   const isDelayed = ticket._isDelayed;
   const days = ticket._daysSinceInteraction ?? 0;
   const stageColor: string = ticket._stageColor ?? "#6366f1";
-  const statusInfo = STATUS_LABELS[ticket.status] ?? { label: ticket.status, dot: "#71717a" };
+  const statusInfo = STATUS_CONFIG[ticket.status] ?? STATUS_FALLBACK;
   const isVendas = pipelineName.toLowerCase().includes("vend");
   // Usa estimated_value ou, se vazio, soma os totais dos orçamentos
   const value = Number(ticket.estimated_value || 0) ||
@@ -1664,12 +1701,17 @@ function PipelineCard({ ticket, pipelineName, stageKey, onQuickTask, onClick, on
             <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-amber-900/60 text-amber-300 border border-amber-700/50 flex items-center gap-0.5">
               ⚠ Esfriando {days}d
             </span>
-          ) : (
-            <span className="text-[9px] font-medium px-1.5 py-0.5 rounded flex items-center gap-1 bg-zinc-700/60 text-zinc-400">
-              <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ backgroundColor: statusInfo.dot }} />
-              {statusInfo.label}
-            </span>
-          )}
+          ) : null}
+          {/* Status da negociação — sempre visível com ícone */}
+          {(() => {
+            const { Icon, label, tagClass } = statusInfo;
+            return (
+              <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border flex items-center gap-0.5 ${tagClass}`}>
+                <Icon size={9} />
+                {label}
+              </span>
+            );
+          })()}
           {ticket.channel && (
             <ChannelIcon channel={ticket.channel} size={11} className="opacity-80" />
           )}
