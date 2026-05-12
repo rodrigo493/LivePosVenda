@@ -62,9 +62,11 @@ function VariableChips({ onInsert }: { onInsert: (v: string) => void }) {
 function CopyConfigSection({
   cfg,
   onCfgChange,
+  onPipelineSelect,
 }: {
   cfg: Record<string, unknown>;
   onCfgChange: (key: string, value: unknown) => void;
+  onPipelineSelect: (pipelineId: string) => void;
 }) {
   const [pipelines, setPipelines] = useState<{ id: string; name: string }[]>([]);
   const [stages, setStages] = useState<{ id: string; label: string }[]>([]);
@@ -102,10 +104,7 @@ function CopyConfigSection({
     <div className="space-y-1.5">
       <select
         value={selectedPipelineId}
-        onChange={(e) => {
-          onCfgChange("target_pipeline_id", e.target.value);
-          onCfgChange("target_stage_id", "");
-        }}
+        onChange={(e) => onPipelineSelect(e.target.value)}
         className="w-full h-7 rounded-md border border-zinc-600 bg-zinc-800 px-2 text-xs text-zinc-100 focus:outline-none focus:ring-1 focus:ring-primary/50"
       >
         <option value="" className="bg-zinc-800">Selecionar funil destino</option>
@@ -312,6 +311,16 @@ export function AutomationRow({ automation, onChange, onDelete }: AutomationRowP
         <CopyConfigSection
           cfg={cfg}
           onCfgChange={handleConfigChange}
+          onPipelineSelect={(pipelineId) =>
+            onChange({
+              ...automation,
+              action_config: {
+                ...automation.action_config,
+                target_pipeline_id: pipelineId,
+                target_stage_id: "",
+              },
+            })
+          }
         />
       )}
     </div>
