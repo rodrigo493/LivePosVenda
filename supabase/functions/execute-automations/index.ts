@@ -95,6 +95,9 @@ Deno.serve(async (_req) => {
         case "notify_user":
           await executeSquadFallback(SQUAD_TOKEN, ticket, cfg, "Notificação");
           break;
+        case "create_copy":
+          await executeCreateCopy(supabase, ticket.id, cfg);
+          break;
         default:
           console.log(`[execute-automations] action_type '${automation.action_type}' não implementado em v1`);
       }
@@ -226,4 +229,96 @@ async function markFailed(supabase: any, id: string, error: string) {
     .from("pipeline_automation_queue")
     .update({ status: "failed", error, executed_at: new Date().toISOString() })
     .eq("id", id);
+}
+
+async function executeCreateCopy(
+  supabase: any,
+  ticketId: string,
+  cfg: Record<string, unknown>
+) {
+  const targetPipelineId = (cfg.target_pipeline_id as string) ?? "";
+  const targetStageId = (cfg.target_stage_id as string) ?? "";
+
+  if (!targetPipelineId || !targetStageId) {
+    throw new Error("create_copy: target_pipeline_id e target_stage_id são obrigatórios na action_config");
+  }
+
+  // Resolve a key da etapa destino a partir do ID
+  const { data: stageData, error: stageErr } = await supabase
+    .from("pipeline_stages")
+    .select("key")
+    .eq("id", targetStageId)
+    .eq("pipeline_id", targetPipelineId)
+    .single();
+
+  if (stageErr || !stageData) {
+    throw new Error(
+      `create_copy: etapa destino não encontrada (stage_id=${targetStageId}, pipeline_id=${targetPipelineId}): ${stageErr?.message ?? "null"}`
+    );
+  }
+
+  // Carrega todos os campos do ticket original
+  const { data: original, error: origErr } = await supabase
+    .from("tickets")
+    .select(
+      "title, client_id, assigned_to, description, internal_notes, channel, priority, problem_category, ticket_type, equipment_id, estimated_value"
+    )
+    .eq("id", ticketId)
+    .single();
+
+  if (origErr || !original) {
+    throw new Error(`create_copy: ticket original não encontrado: ${origErr?.message ?? "null"}`);
+  }
+
+  // Carrega os comentários do ticket original
+  const { data: comments } = await supabase
+    .from("ticket_comments")
+    .select("content, author_id, created_at")
+    .eq("ticket_id", ticketId)
+    .order("created_at", { ascending: true });
+
+  // Cria o ticket cópia
+  const { data: newTicket, error: insertErr } = await supabase
+    .from("tickets")
+    .insert({
+      title: original.title,
+      client_id: original.client_id,
+      assigned_to: original.assigned_to,
+      description: original.description,
+      internal_notes: original.internal_notes,
+      channel: original.channel,
+      priority: original.priority,
+      problem_category: original.problem_category,
+      ticket_type: original.ticket_type,
+      equipment_id: original.equipment_id,
+      estimated_value: original.estimated_value,
+      pipeline_id: targetPipelineId,
+      pipeline_stage: stageData.key,
+      status: "aberto",
+      origin: "copy",
+      ticket_number: "",
+    })
+    .select("id")
+    .single();
+
+  if (insertErr || !newTicket) {
+    throw new Error(`create_copy: falha ao criar ticket cópia: ${insertErr?.message ?? "null"}`);
+  }
+
+  // Copia os comentários para o novo ticket
+  if (comments && comments.length > 0) {
+    const copies = (comments as { content: string; author_id: string | null; created_at: string }[]).map((c) => ({
+      ticket_id: newTicket.id,
+      content: c.content,
+      author_id: c.author_id,
+      created_at: c.created_at,
+    }));
+    const { error: commentsErr } = await supabase.from("ticket_comments").insert(copies);
+    if (commentsErr) {
+      // Log mas não falha — o ticket foi criado com sucesso
+      console.warn(`[create_copy] falha ao copiar comentários para ${newTicket.id}: ${commentsErr.message}`);
+    }
+  }
+
+  console.log(`[create_copy] ticket ${ticketId} copiado → novo id: ${newTicket.id} (pipeline=${targetPipelineId}, stage=${stageData.key})`);
 }
