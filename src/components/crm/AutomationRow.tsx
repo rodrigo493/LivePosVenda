@@ -78,7 +78,8 @@ function CopyConfigSection({
       .order("name")
       .then(({ data }: { data: { id: string; name: string }[] | null }) => {
         setPipelines(data ?? []);
-      });
+      })
+      .catch(console.error);
   }, []);
 
   useEffect(() => {
@@ -93,7 +94,8 @@ function CopyConfigSection({
       .order("position", { ascending: true })
       .then(({ data }: { data: { id: string; label: string }[] | null }) => {
         setStages(data ?? []);
-      });
+      })
+      .catch(console.error);
   }, [selectedPipelineId]);
 
   return (
