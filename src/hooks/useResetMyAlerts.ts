@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -22,6 +23,11 @@ export function useResetMyAlerts() {
         qc.invalidateQueries({ queryKey: ["overdue-tasks-count"] }),
         qc.invalidateQueries({ queryKey: ["new-leads"] }),
       ]);
+
+      toast.success("Alertas zerados com sucesso");
+    } catch (err: any) {
+      console.error("[useResetMyAlerts] erro ao zerar alertas:", err);
+      toast.error("Erro ao zerar alertas: " + (err?.message ?? "tente novamente"));
     } finally {
       setIsResetting(false);
     }
