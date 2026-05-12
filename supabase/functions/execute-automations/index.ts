@@ -271,11 +271,15 @@ async function executeCreateCopy(
   }
 
   // Carrega os comentários do ticket original
-  const { data: comments } = await supabase
+  const { data: comments, error: commentsQueryErr } = await supabase
     .from("ticket_comments")
     .select("content, author_id, created_at")
     .eq("ticket_id", ticketId)
     .order("created_at", { ascending: true });
+
+  if (commentsQueryErr) {
+    console.warn(`[create_copy] falha ao buscar comentários de ${ticketId}: ${commentsQueryErr.message}`);
+  }
 
   // Cria o ticket cópia
   const { data: newTicket, error: insertErr } = await supabase
