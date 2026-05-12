@@ -370,6 +370,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
   const [ticketChannel, setTicketChannel] = useState("");
   const [ticketCampanha, setTicketCampanha] = useState("");
   const [ticketStatus, setTicketStatus] = useState("");
+  const prevTicketStatusRef = React.useRef("");
   const [isEditingInfo, setIsEditingInfo] = useState(false);
   const [editClient, setEditClient] = useState<Record<string, string>>({});
   const [newNote, setNewNote] = useState("");
@@ -628,6 +629,12 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, activeTab, ticket?.client_id]);
   useEffect(() => {
+    if (ticketStatus === "cancelado" && prevTicketStatusRef.current !== "cancelado") {
+      setActiveTab("loss-reasons");
+    }
+    prevTicketStatusRef.current = ticketStatus;
+  }, [ticketStatus]);
+  useEffect(() => {
     if (!open || !ticket) return;
     setTicketDescription(ticket.description || "");
     setTicketInternalNotes(ticket.internal_notes || "");
@@ -640,7 +647,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
     setIsEditingInfo(false);
     setLocalPipelineId(ticket.pipeline_id ?? null);
     setLocalAssignedTo(ticket.assigned_to ?? null);
-    setActiveTab(initialTab ?? "info");
+    const status = ticket.status || "aberto";
+    setActiveTab(initialTab ?? (status === "cancelado" ? "loss-reasons" : "info"));
     // Reset PS form on new ticket open
     setPsModelo(ticket.equipments?.equipment_models?.name || "");
     setPsSintoma(ticket.description?.slice(0, 400) || "");
@@ -1574,18 +1582,20 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
                 )}
               </TabsTrigger>
 
-              <TabsTrigger
-                value="loss-reasons"
-                className="text-xs rounded-none border-b-2 border-transparent data-[state=active]:border-destructive data-[state=active]:shadow-none px-3 pb-2 gap-1 data-[state=active]:text-destructive"
-              >
-                <XCircle className="h-3 w-3" />
-                Mot. de Perda
-                {(ticketLossReasons?.length ?? 0) > 0 && (
-                  <span className="ml-0.5 rounded-full bg-destructive text-white text-[9px] font-bold px-1.5 py-px">
-                    {ticketLossReasons!.length}
-                  </span>
-                )}
-              </TabsTrigger>
+              {ticketStatus === "cancelado" && (
+                <TabsTrigger
+                  value="loss-reasons"
+                  className="text-xs rounded-none border-b-2 border-transparent data-[state=active]:border-destructive data-[state=active]:shadow-none px-3 pb-2 gap-1 data-[state=active]:text-destructive"
+                >
+                  <XCircle className="h-3 w-3" />
+                  Mot. de Perda
+                  {(ticketLossReasons?.length ?? 0) > 0 && (
+                    <span className="ml-0.5 rounded-full bg-destructive text-white text-[9px] font-bold px-1.5 py-px">
+                      {ticketLossReasons!.length}
+                    </span>
+                  )}
+                </TabsTrigger>
+              )}
 
               <div className="h-5 w-px bg-border mx-2 self-center" />
 
@@ -2871,8 +2881,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
                   />
                 </TabsContent>
 
-                {/* ── Tab: Motivos de Perda ──── */}
-                <TabsContent value="loss-reasons" className="mt-0">
+                {/* ── Tab: Motivos de Perda — só visível quando status=Perdido ──── */}
+                {ticketStatus === "cancelado" && <TabsContent value="loss-reasons" className="mt-0">
                   <div className="space-y-4">
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                       Selecione os motivos de perda desta negociação
@@ -2911,7 +2921,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
                       </div>
                     )}
                   </div>
-                </TabsContent>
+                </TabsContent>}
 
                 {/* ── Tab: Problemas Produção ──────────────── */}
                 <TabsContent value="problemas-producao" className="mt-0 space-y-4">
