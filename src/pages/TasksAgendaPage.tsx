@@ -10,6 +10,7 @@ import { WeeklyCalendar } from "@/components/tasks/WeeklyCalendar";
 import { TaskCreateDialog } from "@/components/tasks/TaskCreateDialog";
 import { useTasks } from "@/hooks/useTasks";
 import type { TaskRow } from "@/hooks/useTasks";
+import { useAuth } from "@/hooks/useAuth";
 
 type ViewMode = "semana" | "dia";
 
@@ -26,7 +27,8 @@ export default function TasksAgendaPage() {
   const [createDefaultTime, setCreateDefaultTime] = useState<string | undefined>();
 
   const [editingTask, setEditingTask] = useState<TaskRow | null>(null);
-  const { data: tasks = [] } = useTasks();
+  const { user } = useAuth();
+  const { data: tasks = [] } = useTasks(user?.id);
 
   const weekDays = useMemo(
     () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
