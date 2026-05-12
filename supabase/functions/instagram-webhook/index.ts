@@ -89,8 +89,8 @@ async function ensureClientAndCard(
 
     const { data: pipeline } = await sb
       .from("pipelines")
-      .select("id, stages:pipeline_stages(id, position)")
-      .eq("active", true)
+      .select("id, stages:pipeline_stages(id, key, position)")
+      .eq("is_active", true)
       .order("position")
       .limit(1)
       .maybeSingle();
@@ -102,9 +102,9 @@ async function ensureClientAndCard(
         await sb.from("tickets").insert({
           client_id: clientId,
           pipeline_id: pipeline.id,
-          stage_id: firstStage.id,
+          pipeline_stage: firstStage.key,
           title: `Instagram — ${sender_username ?? ig_sender_id.slice(-6)}`,
-          type: "negociacao",
+          ticket_type: "negociacao",
         });
       }
     }
