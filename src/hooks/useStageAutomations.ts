@@ -6,7 +6,8 @@ export type AutomationActionType =
   | "create_task"
   | "notify_user"
   | "move_stage"
-  | "send_email";
+  | "send_email"
+  | "create_copy";
 
 export interface StageAutomation {
   id: string;
