@@ -1,7 +1,9 @@
 // src/components/crm/AutomationRow.tsx
+import { useEffect, useState } from "react";
 import { Zap, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { supabase } from "@/integrations/supabase/client";
 import type { AutomationActionType } from "@/hooks/useStageAutomations";
 
 interface LocalAutomation {
@@ -25,6 +27,7 @@ const ACTION_OPTIONS: { value: AutomationActionType; label: string }[] = [
   { value: "notify_user", label: "🔔 Notificar usuário" },
   { value: "move_stage", label: "➡️ Mover para etapa" },
   { value: "send_email", label: "📧 Enviar e-mail" },
+  { value: "create_copy", label: "📋 Criar Cópia do Card" },
 ];
 
 const VARIABLES = [
@@ -52,6 +55,77 @@ function VariableChips({ onInsert }: { onInsert: (v: string) => void }) {
           {v.label}
         </button>
       ))}
+    </div>
+  );
+}
+
+function CopyConfigSection({
+  cfg,
+  onCfgChange,
+}: {
+  cfg: Record<string, unknown>;
+  onCfgChange: (key: string, value: unknown) => void;
+}) {
+  const [pipelines, setPipelines] = useState<{ id: string; name: string }[]>([]);
+  const [stages, setStages] = useState<{ id: string; label: string }[]>([]);
+  const selectedPipelineId = (cfg.target_pipeline_id as string) ?? "";
+  const selectedStageId = (cfg.target_stage_id as string) ?? "";
+
+  useEffect(() => {
+    (supabase as any)
+      .from("pipelines")
+      .select("id, name")
+      .order("name")
+      .then(({ data }: { data: { id: string; name: string }[] | null }) => {
+        setPipelines(data ?? []);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!selectedPipelineId) {
+      setStages([]);
+      return;
+    }
+    (supabase as any)
+      .from("pipeline_stages")
+      .select("id, label")
+      .eq("pipeline_id", selectedPipelineId)
+      .order("position", { ascending: true })
+      .then(({ data }: { data: { id: string; label: string }[] | null }) => {
+        setStages(data ?? []);
+      });
+  }, [selectedPipelineId]);
+
+  return (
+    <div className="space-y-1.5">
+      <select
+        value={selectedPipelineId}
+        onChange={(e) => {
+          onCfgChange("target_pipeline_id", e.target.value);
+          onCfgChange("target_stage_id", "");
+        }}
+        className="w-full h-7 rounded-md border border-zinc-600 bg-zinc-800 px-2 text-xs text-zinc-100 focus:outline-none focus:ring-1 focus:ring-primary/50"
+      >
+        <option value="" className="bg-zinc-800">Selecionar funil destino</option>
+        {pipelines.map((p) => (
+          <option key={p.id} value={p.id} className="bg-zinc-800">
+            {p.name}
+          </option>
+        ))}
+      </select>
+      <select
+        value={selectedStageId}
+        onChange={(e) => onCfgChange("target_stage_id", e.target.value)}
+        disabled={!selectedPipelineId}
+        className="w-full h-7 rounded-md border border-zinc-600 bg-zinc-800 px-2 text-xs text-zinc-100 focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        <option value="" className="bg-zinc-800">Selecionar etapa destino</option>
+        {stages.map((s) => (
+          <option key={s.id} value={s.id} className="bg-zinc-800">
+            {s.label}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }
@@ -230,6 +304,13 @@ export function AutomationRow({ automation, onChange, onDelete }: AutomationRowP
             className={textareaDark}
           />
         </div>
+      )}
+
+      {automation.action_type === "create_copy" && (
+        <CopyConfigSection
+          cfg={cfg}
+          onCfgChange={handleConfigChange}
+        />
       )}
     </div>
   );
