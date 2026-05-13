@@ -127,7 +127,6 @@ const CrmPipelinePage = () => {
   }, [pipelines, currentPipeline]);
 
   const { data: stages = [] } = usePipelineStages(currentPipeline?.id);
-  const { data: bulkTargetStages = [] } = usePipelineStages(bulkTargetPipelineId || currentPipeline?.id);
 
   const stageKeySet = useMemo(() => new Set<string>(stages.map((s) => s.key)), [stages]);
 
@@ -206,6 +205,7 @@ const CrmPipelinePage = () => {
   const [bulkStatus, setBulkStatus] = useState("");
   const [bulkTargetPipelineId, setBulkTargetPipelineId] = useState("");
   const [bulkTargetStageKey, setBulkTargetStageKey] = useState("");
+  const { data: bulkTargetStages = [] } = usePipelineStages(bulkTargetPipelineId || currentPipeline?.id);
   const [bulkAddField, setBulkAddField] = useState<"qualificacao" | "campanha" | "fonte" | "canal">("qualificacao");
   const [bulkAddValue, setBulkAddValue] = useState("");
 
