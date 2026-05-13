@@ -18,6 +18,10 @@ export const ticketTypeLabels: Record<string, string> = {
   chamado_tecnico: "Chamado Técnico",
   garantia: "Garantia",
   assistencia: "Assistência",
+  pos_venda: "Pós Venda",
+  comprar_acessorios: "Comprar Acessórios",
+  vendas: "Vendas",
+  compras: "Compras",
 };
 
 // Work order status labels

@@ -1654,6 +1654,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
                           <option value="pos_venda">Pós Venda</option>
                           <option value="comprar_acessorios">Comprar Acessórios</option>
                           <option value="vendas">Vendas</option>
+                          <option value="compras">Compras</option>
                         </select>
                       </div>
                       <InfoRow icon={Clock} label="Último contato" value={
