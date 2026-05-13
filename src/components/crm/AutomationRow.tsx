@@ -29,7 +29,7 @@ const ACTION_OPTIONS: { value: AutomationActionType; label: string }[] = [
   { value: "move_stage", label: "➡️ Mover para etapa" },
   { value: "send_email", label: "📧 Enviar e-mail" },
   { value: "create_copy", label: "📋 Criar Cópia do Card" },
-  { value: "create_copy_if_status", label: "📋 Cópia Condicional por Status" },
+  { value: "create_copy_if_status", label: "📋 Copiar Card por Status → Funil" },
 ];
 
 const VARIABLES = [
@@ -174,24 +174,26 @@ function ConditionalCopyConfigSection({
   const selectedStatus = (cfg.required_status as string) ?? "";
   return (
     <div className="space-y-1.5">
+      <div className="text-[10px] text-zinc-400 font-medium uppercase tracking-wide">Condição</div>
       <select
         value={selectedStatus}
         onChange={(e) => onCfgChange("required_status", e.target.value)}
         className="w-full h-7 rounded-md border border-zinc-600 bg-zinc-800 px-2 text-xs text-zinc-100 focus:outline-none focus:ring-1 focus:ring-primary/50"
       >
-        <option value="" className="bg-zinc-800">Qualquer status (sempre copiar)</option>
+        <option value="" className="bg-zinc-800">— Selecionar status do card —</option>
         {TICKET_STATUS_OPTIONS.map((s) => (
           <option key={s.value} value={s.value} className="bg-zinc-800">
             {s.label}
           </option>
         ))}
       </select>
+      <div className="text-[10px] text-zinc-400 font-medium uppercase tracking-wide">Destino da cópia</div>
       <PipelineStageSelector
         cfg={cfg}
         onCfgChange={onCfgChange}
         onPipelineSelect={onPipelineSelect}
-        pipelinePlaceholder="Selecionar funil destino"
-        stagePlaceholder="Selecionar etapa destino"
+        pipelinePlaceholder="— Selecionar funil —"
+        stagePlaceholder="— Selecionar etapa —"
       />
     </div>
   );

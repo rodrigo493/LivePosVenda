@@ -244,20 +244,21 @@ async function executeCreateCopyIfStatus(
 ) {
   const requiredStatus = (cfg.required_status as string) ?? "";
 
-  // Se required_status está configurado, verifica se o ticket tem esse status
-  if (requiredStatus) {
-    const { data: current } = await supabase
-      .from("tickets")
-      .select("status")
-      .eq("id", ticket.id)
-      .single();
+  if (!requiredStatus) {
+    throw new Error("create_copy_if_status: required_status é obrigatório na action_config");
+  }
 
-    if (current?.status !== requiredStatus) {
-      console.log(
-        `[create_copy_if_status] ticket ${ticket.id} status='${current?.status}' ≠ required='${requiredStatus}' — ignorando`
-      );
-      return;
-    }
+  const { data: current } = await supabase
+    .from("tickets")
+    .select("status")
+    .eq("id", ticket.id)
+    .single();
+
+  if (current?.status !== requiredStatus) {
+    console.log(
+      `[create_copy_if_status] ticket ${ticket.id} status='${current?.status}' ≠ required='${requiredStatus}' — ignorando`
+    );
+    return;
   }
 
   await executeCreateCopy(supabase, ticket.id, cfg);
