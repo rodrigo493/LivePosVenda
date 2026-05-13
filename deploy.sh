@@ -1,7 +1,18 @@
 #!/bin/bash
 set -e
 cd /opt/posvenda
-git pull
+
+echo "==> [1/4] git pull"
+git pull origin main
+
+echo "==> [2/4] Supabase migrations (db push)"
+supabase db push --project-ref ehqkggiuouczmafmlzls
+
+echo "==> [3/4] Supabase edge functions"
+supabase functions deploy trigger-automations --project-ref ehqkggiuouczmafmlzls
+supabase functions deploy execute-automations --project-ref ehqkggiuouczmafmlzls
+
+echo "==> [4/4] Frontend (Docker build + service update)"
 docker build \
   --build-arg VITE_SUPABASE_URL=https://ehqkggiuouczmafmlzls.supabase.co \
   --build-arg VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_TBXHRRXXZEok0JWK08lbeQ_tcJdv4gZ \
@@ -10,4 +21,5 @@ docker build \
   -t posvenda:latest .
 docker service update --image posvenda:latest --force posvenda_posvenda
 docker service ps posvenda_posvenda
+
 echo "Deploy concluido!"
