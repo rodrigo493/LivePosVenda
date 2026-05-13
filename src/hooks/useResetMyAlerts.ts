@@ -5,8 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 
 export function useResetMyAlerts() {
-  const { user, hasRole } = useAuth();
-  const isAdmin = hasRole("admin");
+  const { user } = useAuth();
   const qc = useQueryClient();
   const [isResetting, setIsResetting] = useState(false);
 
@@ -14,14 +13,14 @@ export function useResetMyAlerts() {
     if (!user?.id || isResetting) return;
     setIsResetting(true);
     try {
-      // Admin zera alertas de TODOS os usuários; não-admin zera apenas os seus
-      const rpc = isAdmin ? "admin_reset_all_alerts" : "reset_my_alerts";
-      const { error } = await (supabase as any).rpc(rpc);
+      // Sempre zera apenas os alertas do usuário atual (cada usuário tem seus próprios alertas)
+      const { error } = await (supabase as any).rpc("reset_my_alerts");
       if (error) throw error;
 
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["overdue-tasks-count"] }),
         qc.invalidateQueries({ queryKey: ["new-leads"] }),
+        qc.invalidateQueries({ queryKey: ["whatsapp-unread"] }),
       ]);
 
       toast.success("Alertas zerados com sucesso");

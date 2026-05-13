@@ -1,6 +1,5 @@
 // src/components/crm/AutomationRow.tsx
 import { useEffect, useState } from "react";
-import { ticketStatusLabels } from "@/constants/statusLabels";
 import { Zap, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -157,10 +156,22 @@ function CopyConfigSection({
   );
 }
 
-const TICKET_STATUS_OPTIONS = Object.entries(ticketStatusLabels).map(([value, label]) => ({
-  value,
-  label,
-}));
+// Status do card: os 4 da aba Detalhes + todos os status do ticket
+const TICKET_STATUS_OPTIONS = [
+  { value: "aberto",    label: "Em andamento" },
+  { value: "vendido",   label: "Vendido" },
+  { value: "cancelado", label: "Perdido" },
+  { value: "pausado",   label: "Pausado" },
+  { value: "em_analise",             label: "Em análise" },
+  { value: "aguardando_informacoes", label: "Aguardando informações" },
+  { value: "aguardando_peca",        label: "Aguardando peça" },
+  { value: "agendado",               label: "Agendado" },
+  { value: "em_atendimento",         label: "Em atendimento" },
+  { value: "aprovado",               label: "Aprovado" },
+  { value: "reprovado",              label: "Reprovado" },
+  { value: "resolvido",              label: "Resolvido" },
+  { value: "fechado",                label: "Fechado" },
+];
 
 function ConditionalCopyConfigSection({
   cfg,
