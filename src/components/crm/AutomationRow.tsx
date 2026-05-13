@@ -59,14 +59,18 @@ function VariableChips({ onInsert }: { onInsert: (v: string) => void }) {
   );
 }
 
-function CopyConfigSection({
+function PipelineStageSelector({
   cfg,
   onCfgChange,
   onPipelineSelect,
+  pipelinePlaceholder,
+  stagePlaceholder,
 }: {
   cfg: Record<string, unknown>;
   onCfgChange: (key: string, value: unknown) => void;
   onPipelineSelect: (pipelineId: string) => void;
+  pipelinePlaceholder: string;
+  stagePlaceholder: string;
 }) {
   const [pipelines, setPipelines] = useState<{ id: string; name: string }[]>([]);
   const [stages, setStages] = useState<{ id: string; label: string }[]>([]);
@@ -107,7 +111,7 @@ function CopyConfigSection({
         onChange={(e) => onPipelineSelect(e.target.value)}
         className="w-full h-7 rounded-md border border-zinc-600 bg-zinc-800 px-2 text-xs text-zinc-100 focus:outline-none focus:ring-1 focus:ring-primary/50"
       >
-        <option value="" className="bg-zinc-800">Selecionar funil destino</option>
+        <option value="" className="bg-zinc-800">{pipelinePlaceholder}</option>
         {pipelines.map((p) => (
           <option key={p.id} value={p.id} className="bg-zinc-800">
             {p.name}
@@ -120,7 +124,7 @@ function CopyConfigSection({
         disabled={!selectedPipelineId}
         className="w-full h-7 rounded-md border border-zinc-600 bg-zinc-800 px-2 text-xs text-zinc-100 focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-40 disabled:cursor-not-allowed"
       >
-        <option value="" className="bg-zinc-800">Selecionar etapa destino</option>
+        <option value="" className="bg-zinc-800">{stagePlaceholder}</option>
         {stages.map((s) => (
           <option key={s.id} value={s.id} className="bg-zinc-800">
             {s.label}
@@ -128,6 +132,26 @@ function CopyConfigSection({
         ))}
       </select>
     </div>
+  );
+}
+
+function CopyConfigSection({
+  cfg,
+  onCfgChange,
+  onPipelineSelect,
+}: {
+  cfg: Record<string, unknown>;
+  onCfgChange: (key: string, value: unknown) => void;
+  onPipelineSelect: (pipelineId: string) => void;
+}) {
+  return (
+    <PipelineStageSelector
+      cfg={cfg}
+      onCfgChange={onCfgChange}
+      onPipelineSelect={onPipelineSelect}
+      pipelinePlaceholder="Selecionar funil destino"
+      stagePlaceholder="Selecionar etapa destino"
+    />
   );
 }
 
@@ -284,9 +308,22 @@ export function AutomationRow({ automation, onChange, onDelete }: AutomationRowP
       )}
 
       {automation.action_type === "move_stage" && (
-        <p className="text-xs text-zinc-500 italic">
-          Configurar após criar a automação
-        </p>
+        <PipelineStageSelector
+          cfg={cfg}
+          onCfgChange={handleConfigChange}
+          onPipelineSelect={(pipelineId) =>
+            onChange({
+              ...automation,
+              action_config: {
+                ...automation.action_config,
+                target_pipeline_id: pipelineId,
+                target_stage_id: "",
+              },
+            })
+          }
+          pipelinePlaceholder="Selecionar funil de destino"
+          stagePlaceholder="Selecionar etapa de destino"
+        />
       )}
 
       {automation.action_type === "send_email" && (

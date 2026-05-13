@@ -98,6 +98,9 @@ Deno.serve(async (_req) => {
         case "create_copy":
           await executeCreateCopy(supabase, ticket.id, cfg);
           break;
+        case "move_stage":
+          await executeMoveStage(supabase, ticket.id, cfg);
+          break;
         default:
           console.log(`[execute-automations] action_type '${automation.action_type}' não implementado em v1`);
       }
@@ -229,6 +232,46 @@ async function markFailed(supabase: any, id: string, error: string) {
     .from("pipeline_automation_queue")
     .update({ status: "failed", error, executed_at: new Date().toISOString() })
     .eq("id", id);
+}
+
+async function executeMoveStage(
+  supabase: any,
+  ticketId: string,
+  cfg: Record<string, unknown>
+) {
+  const targetPipelineId = (cfg.target_pipeline_id as string) ?? "";
+  const targetStageId = (cfg.target_stage_id as string) ?? "";
+
+  if (!targetPipelineId || !targetStageId) {
+    throw new Error("move_stage: target_pipeline_id e target_stage_id são obrigatórios na action_config");
+  }
+
+  const { data: stageData, error: stageErr } = await supabase
+    .from("pipeline_stages")
+    .select("key")
+    .eq("id", targetStageId)
+    .eq("pipeline_id", targetPipelineId)
+    .single();
+
+  if (stageErr || !stageData) {
+    throw new Error(
+      `move_stage: etapa destino não encontrada (stage_id=${targetStageId}, pipeline_id=${targetPipelineId}): ${stageErr?.message ?? "null"}`
+    );
+  }
+
+  const { error: updateErr } = await supabase
+    .from("tickets")
+    .update({
+      pipeline_id: targetPipelineId,
+      pipeline_stage: stageData.key,
+    })
+    .eq("id", ticketId);
+
+  if (updateErr) {
+    throw new Error(`move_stage: falha ao mover ticket: ${updateErr.message}`);
+  }
+
+  console.log(`[move_stage] ticket ${ticketId} movido → pipeline=${targetPipelineId}, stage=${stageData.key}`);
 }
 
 async function executeCreateCopy(
