@@ -60,7 +60,7 @@ export function EditableStageColumn({
   function addAutomation() {
     const newAuto: LocalAutomation = {
       id: `temp-${Date.now()}`,
-      trigger_type: "on_enter",
+      trigger_type: "card_enter_stage",
       action_type: "create_task",
       action_config: {},
       is_active: true,

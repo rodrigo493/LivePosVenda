@@ -33,7 +33,7 @@ Deno.serve(async (req) => {
       .select("id, delay_minutes")
       .eq("stage_id", stage_id)
       .eq("is_active", true)
-      .eq("trigger_type", "card_enter_stage");
+      .in("trigger_type", ["card_enter_stage", "on_enter"]);
 
     if (error) throw error;
     if (!automations || automations.length === 0) {

@@ -98,6 +98,9 @@ Deno.serve(async (_req) => {
         case "create_copy":
           await executeCreateCopy(supabase, ticket.id, cfg);
           break;
+        case "create_copy_if_status":
+          await executeCreateCopyIfStatus(supabase, ticket, cfg);
+          break;
         case "move_stage":
           await executeMoveStage(supabase, ticket.id, cfg);
           break;
@@ -232,6 +235,32 @@ async function markFailed(supabase: any, id: string, error: string) {
     .from("pipeline_automation_queue")
     .update({ status: "failed", error, executed_at: new Date().toISOString() })
     .eq("id", id);
+}
+
+async function executeCreateCopyIfStatus(
+  supabase: any,
+  ticket: any,
+  cfg: Record<string, unknown>
+) {
+  const requiredStatus = (cfg.required_status as string) ?? "";
+
+  // Se required_status está configurado, verifica se o ticket tem esse status
+  if (requiredStatus) {
+    const { data: current } = await supabase
+      .from("tickets")
+      .select("status")
+      .eq("id", ticket.id)
+      .single();
+
+    if (current?.status !== requiredStatus) {
+      console.log(
+        `[create_copy_if_status] ticket ${ticket.id} status='${current?.status}' ≠ required='${requiredStatus}' — ignorando`
+      );
+      return;
+    }
+  }
+
+  await executeCreateCopy(supabase, ticket.id, cfg);
 }
 
 async function executeMoveStage(

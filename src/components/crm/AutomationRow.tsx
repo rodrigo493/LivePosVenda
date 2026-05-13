@@ -1,5 +1,6 @@
 // src/components/crm/AutomationRow.tsx
 import { useEffect, useState } from "react";
+import { ticketStatusLabels } from "@/constants/statusLabels";
 import { Zap, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,7 @@ const ACTION_OPTIONS: { value: AutomationActionType; label: string }[] = [
   { value: "move_stage", label: "➡️ Mover para etapa" },
   { value: "send_email", label: "📧 Enviar e-mail" },
   { value: "create_copy", label: "📋 Criar Cópia do Card" },
+  { value: "create_copy_if_status", label: "📋 Cópia Condicional por Status" },
 ];
 
 const VARIABLES = [
@@ -152,6 +154,46 @@ function CopyConfigSection({
       pipelinePlaceholder="Selecionar funil destino"
       stagePlaceholder="Selecionar etapa destino"
     />
+  );
+}
+
+const TICKET_STATUS_OPTIONS = Object.entries(ticketStatusLabels).map(([value, label]) => ({
+  value,
+  label,
+}));
+
+function ConditionalCopyConfigSection({
+  cfg,
+  onCfgChange,
+  onPipelineSelect,
+}: {
+  cfg: Record<string, unknown>;
+  onCfgChange: (key: string, value: unknown) => void;
+  onPipelineSelect: (pipelineId: string) => void;
+}) {
+  const selectedStatus = (cfg.required_status as string) ?? "";
+  return (
+    <div className="space-y-1.5">
+      <select
+        value={selectedStatus}
+        onChange={(e) => onCfgChange("required_status", e.target.value)}
+        className="w-full h-7 rounded-md border border-zinc-600 bg-zinc-800 px-2 text-xs text-zinc-100 focus:outline-none focus:ring-1 focus:ring-primary/50"
+      >
+        <option value="" className="bg-zinc-800">Qualquer status (sempre copiar)</option>
+        {TICKET_STATUS_OPTIONS.map((s) => (
+          <option key={s.value} value={s.value} className="bg-zinc-800">
+            {s.label}
+          </option>
+        ))}
+      </select>
+      <PipelineStageSelector
+        cfg={cfg}
+        onCfgChange={onCfgChange}
+        onPipelineSelect={onPipelineSelect}
+        pipelinePlaceholder="Selecionar funil destino"
+        stagePlaceholder="Selecionar etapa destino"
+      />
+    </div>
   );
 }
 
@@ -346,6 +388,23 @@ export function AutomationRow({ automation, onChange, onDelete }: AutomationRowP
 
       {automation.action_type === "create_copy" && (
         <CopyConfigSection
+          cfg={cfg}
+          onCfgChange={handleConfigChange}
+          onPipelineSelect={(pipelineId) =>
+            onChange({
+              ...automation,
+              action_config: {
+                ...automation.action_config,
+                target_pipeline_id: pipelineId,
+                target_stage_id: "",
+              },
+            })
+          }
+        />
+      )}
+
+      {automation.action_type === "create_copy_if_status" && (
+        <ConditionalCopyConfigSection
           cfg={cfg}
           onCfgChange={handleConfigChange}
           onPipelineSelect={(pipelineId) =>
