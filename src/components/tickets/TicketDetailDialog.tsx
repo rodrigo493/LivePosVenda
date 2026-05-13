@@ -433,7 +433,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
   const ticketId = ticket?.id;
   const equipmentId = ticket?.equipment_id;
   const clientId = ticket?.client_id;
-  const { data: pipelineStages = [] } = usePipelineStages(open ? ticket?.pipeline_id : null);
+  const { data: pipelineStages = [] } = usePipelineStages(open ? localPipelineId : null);
   const { data: allPipelines = [] } = usePipelines();
   const { data: allUsers = [] } = useAllUsers();
 
