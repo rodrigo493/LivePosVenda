@@ -18,9 +18,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    if (import.meta.env.DEV) {
-      console.error("ErrorBoundary caught:", error, info.componentStack);
-    }
+    console.error("ErrorBoundary caught:", error, info.componentStack);
   }
 
   render() {
@@ -35,9 +33,9 @@ export class ErrorBoundary extends Component<Props, State> {
             </div>
             <h1 className="text-xl font-semibold text-foreground">Algo deu errado</h1>
             <p className="text-sm text-muted-foreground">
-              Ocorreu um erro inesperado. Tente recarregar a pagina.
+              Ocorreu um erro inesperado. Tente recarregar a página.
             </p>
-            {import.meta.env.DEV && this.state.error && (
+            {this.state.error && (
               <pre className="mt-4 p-3 bg-muted rounded-md text-xs text-left overflow-auto max-h-40">
                 {this.state.error.message}
               </pre>
@@ -46,7 +44,7 @@ export class ErrorBoundary extends Component<Props, State> {
               onClick={() => window.location.reload()}
               className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
             >
-              Recarregar pagina
+              Recarregar página
             </button>
           </div>
         </div>
