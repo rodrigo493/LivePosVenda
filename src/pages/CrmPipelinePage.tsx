@@ -127,6 +127,7 @@ const CrmPipelinePage = () => {
   }, [pipelines, currentPipeline]);
 
   const { data: stages = [] } = usePipelineStages(currentPipeline?.id);
+  const { data: bulkTargetStages = [] } = usePipelineStages(bulkTargetPipelineId || currentPipeline?.id);
 
   const stageKeySet = useMemo(() => new Set<string>(stages.map((s) => s.key)), [stages]);
 
@@ -198,13 +199,13 @@ const CrmPipelinePage = () => {
 
   // ── Seleção em massa (modo lista) ───────────────────────────────
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  type BulkModal = "transfer" | "status" | "stage" | "pipeline" | "addAlter" | "export" | null;
+  type BulkModal = "transfer" | "status" | "move" | "addAlter" | "export" | null;
   const [bulkModal, setBulkModal] = useState<BulkModal>(null);
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkTransferTo, setBulkTransferTo] = useState("");
   const [bulkStatus, setBulkStatus] = useState("");
-  const [bulkStage, setBulkStage] = useState("");
-  const [bulkPipelineId, setBulkPipelineId] = useState("");
+  const [bulkTargetPipelineId, setBulkTargetPipelineId] = useState("");
+  const [bulkTargetStageKey, setBulkTargetStageKey] = useState("");
   const [bulkAddField, setBulkAddField] = useState<"qualificacao" | "campanha" | "fonte" | "canal">("qualificacao");
   const [bulkAddValue, setBulkAddValue] = useState("");
 
@@ -885,11 +886,8 @@ const CrmPipelinePage = () => {
               <button onClick={() => setTaskCreate({ open: true })} className="text-xs text-zinc-300 hover:text-white flex items-center gap-1.5 px-2 py-1 rounded hover:bg-zinc-700 transition-colors">
                 <CalendarClock className="h-3 w-3" /> Criar tarefa
               </button>
-              <button onClick={() => { setBulkStage(""); setBulkModal("stage"); }} className="text-xs text-zinc-300 hover:text-white flex items-center gap-1.5 px-2 py-1 rounded hover:bg-zinc-700 transition-colors">
-                <MoveRight className="h-3 w-3" /> Mover para etapa
-              </button>
-              <button onClick={() => { setBulkPipelineId(""); setBulkModal("pipeline"); }} className="text-xs text-zinc-300 hover:text-white flex items-center gap-1.5 px-2 py-1 rounded hover:bg-zinc-700 transition-colors">
-                <Layers className="h-3 w-3" /> Mover para fluxo
+              <button onClick={() => { setBulkTargetPipelineId(currentPipeline?.id ?? ""); setBulkTargetStageKey(""); setBulkModal("move"); }} className="text-xs text-zinc-300 hover:text-white flex items-center gap-1.5 px-2 py-1 rounded hover:bg-zinc-700 transition-colors">
+                <MoveRight className="h-3 w-3" /> Mover para
               </button>
               <button onClick={() => setBulkModal("export")} className="text-xs text-zinc-300 hover:text-white flex items-center gap-1.5 px-2 py-1 rounded hover:bg-zinc-700 transition-colors">
                 <FileDown className="h-3 w-3" /> Exportar
@@ -1128,55 +1126,71 @@ const CrmPipelinePage = () => {
         </DialogContent>
       </Dialog>
 
-      {/* ── Modal: Mover para etapa ── */}
-      <Dialog open={bulkModal === "stage"} onOpenChange={(o) => !o && setBulkModal(null)}>
+      {/* ── Modal: Mover para (funil + etapa combinados) ── */}
+      <Dialog open={bulkModal === "move"} onOpenChange={(o) => !o && setBulkModal(null)}>
         <DialogContent className="bg-zinc-900 border-zinc-700 text-zinc-100 max-w-sm">
-          <DialogHeader><DialogTitle className="text-sm">Mover {selectedIds.size} negociação{selectedIds.size > 1 ? "ões" : ""} para etapa</DialogTitle></DialogHeader>
-          <div className="py-2 flex flex-col gap-2 max-h-64 overflow-y-auto">
-            {stages.map((s) => (
-              <label key={s.key} className={`flex items-center gap-2.5 px-3 py-2 rounded-lg cursor-pointer border transition-colors ${bulkStage === s.key ? "border-primary bg-primary/10" : "border-zinc-700 hover:bg-zinc-800"}`}>
-                <input type="radio" name="bulk-stage" value={s.key} checked={bulkStage === s.key} onChange={() => setBulkStage(s.key)} className="accent-primary" />
-                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: s.color }} />
-                <span className="text-xs">{s.label}</span>
-              </label>
-            ))}
+          <DialogHeader>
+            <DialogTitle className="text-sm">
+              Mover {selectedIds.size} negociação{selectedIds.size > 1 ? "ões" : ""}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-2 space-y-4">
+            {/* Seleção de funil */}
+            <div>
+              <p className="text-[10px] text-zinc-400 font-medium uppercase tracking-wide mb-2">Funil destino</p>
+              <div className="flex flex-col gap-1.5 max-h-36 overflow-y-auto">
+                {pipelines.map((p) => (
+                  <label key={p.id} className={`flex items-center gap-2.5 px-3 py-2 rounded-lg cursor-pointer border transition-colors ${bulkTargetPipelineId === p.id ? "border-primary bg-primary/10" : "border-zinc-700 hover:bg-zinc-800"}`}>
+                    <input
+                      type="radio"
+                      name="bulk-target-pipeline"
+                      value={p.id}
+                      checked={bulkTargetPipelineId === p.id}
+                      onChange={() => { setBulkTargetPipelineId(p.id); setBulkTargetStageKey(""); }}
+                      className="accent-primary"
+                    />
+                    <span className="text-xs">{p.name}</span>
+                    {p.id === currentPipeline?.id && <span className="text-[10px] text-zinc-500 ml-auto">atual</span>}
+                  </label>
+                ))}
+              </div>
+            </div>
+            {/* Seleção de etapa — carrega conforme o funil selecionado */}
+            <div>
+              <p className="text-[10px] text-zinc-400 font-medium uppercase tracking-wide mb-2">Etapa destino</p>
+              <div className="flex flex-col gap-1.5 max-h-48 overflow-y-auto">
+                {bulkTargetStages.length === 0 && (
+                  <p className="text-xs text-zinc-500 text-center py-2">Selecione um funil acima</p>
+                )}
+                {bulkTargetStages.map((s) => (
+                  <label key={s.key} className={`flex items-center gap-2.5 px-3 py-2 rounded-lg cursor-pointer border transition-colors ${bulkTargetStageKey === s.key ? "border-primary bg-primary/10" : "border-zinc-700 hover:bg-zinc-800"}`}>
+                    <input
+                      type="radio"
+                      name="bulk-target-stage"
+                      value={s.key}
+                      checked={bulkTargetStageKey === s.key}
+                      onChange={() => setBulkTargetStageKey(s.key)}
+                      className="accent-primary"
+                    />
+                    <span className="h-2 w-2 rounded-full flex-shrink-0" style={{ backgroundColor: s.color }} />
+                    <span className="text-xs">{s.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
           </div>
           <DialogFooter>
             <button onClick={() => setBulkModal(null)} className="text-xs px-3 py-1.5 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-800">Cancelar</button>
             <button
-              disabled={!bulkStage || bulkLoading}
-              onClick={() => bulkUpdate({ pipeline_stage: bulkStage })}
+              disabled={!bulkTargetPipelineId || !bulkTargetStageKey || bulkLoading}
+              onClick={() => bulkUpdate({
+                pipeline_id: bulkTargetPipelineId,
+                pipeline_stage: bulkTargetStageKey,
+                pipeline_position: 0,
+              })}
               className="text-xs px-3 py-1.5 rounded bg-primary text-white hover:bg-primary/90 disabled:opacity-50"
             >
               {bulkLoading ? "Movendo..." : "Mover"}
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Modal: Mover para fluxo ── */}
-      <Dialog open={bulkModal === "pipeline"} onOpenChange={(o) => !o && setBulkModal(null)}>
-        <DialogContent className="bg-zinc-900 border-zinc-700 text-zinc-100 max-w-sm">
-          <DialogHeader><DialogTitle className="text-sm">Mover {selectedIds.size} negociação{selectedIds.size > 1 ? "ões" : ""} para fluxo</DialogTitle></DialogHeader>
-          <div className="py-2 flex flex-col gap-2">
-            {pipelines.filter((p) => p.id !== currentPipeline?.id).map((p) => (
-              <label key={p.id} className={`flex items-center gap-2.5 px-3 py-2 rounded-lg cursor-pointer border transition-colors ${bulkPipelineId === p.id ? "border-primary bg-primary/10" : "border-zinc-700 hover:bg-zinc-800"}`}>
-                <input type="radio" name="bulk-pipeline" value={p.id} checked={bulkPipelineId === p.id} onChange={() => setBulkPipelineId(p.id)} className="accent-primary" />
-                <span className="text-xs">{p.name}</span>
-              </label>
-            ))}
-            {pipelines.filter((p) => p.id !== currentPipeline?.id).length === 0 && (
-              <p className="text-xs text-zinc-500 text-center py-2">Nenhum outro fluxo disponível</p>
-            )}
-          </div>
-          <DialogFooter>
-            <button onClick={() => setBulkModal(null)} className="text-xs px-3 py-1.5 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-800">Cancelar</button>
-            <button
-              disabled={!bulkPipelineId || bulkLoading}
-              onClick={() => bulkUpdate({ pipeline_id: bulkPipelineId })}
-              className="text-xs px-3 py-1.5 rounded bg-primary text-white hover:bg-primary/90 disabled:opacity-50"
-            >
-              {bulkLoading ? "Movendo..." : "Mover para fluxo"}
             </button>
           </DialogFooter>
         </DialogContent>
