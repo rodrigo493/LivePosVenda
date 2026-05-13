@@ -330,7 +330,7 @@ const PGDetailPage = () => {
     return null;
   };
 
-  const items = linkedQuote?.quote_items || [];
+  const items = Array.isArray(linkedQuote?.quote_items) ? linkedQuote.quote_items : [];
 
   // Editable item-level ERP data
   const [itemErpData, setItemErpData] = useState<Record<string, { produto: string; quantidade: string; valorUnitario: string }>>({});
@@ -407,6 +407,7 @@ const PGDetailPage = () => {
   const currentParts = parts ?? wc.covered_parts ?? "";
   const currentSquadNotes = squadNotes ?? (wc as any).squad_notes ?? "";
   const currentCost = costVal ?? String(wc.internal_cost || 0);
+  const currentWarrantyStatus = wc.warranty_status || "em_analise";
   const claimNumber = (wc as any).claim_number || "PG";
   const clientName = wc.tickets?.clients?.name || "—";
   const modelName = wc.tickets?.equipments?.equipment_models?.name || "—";
@@ -509,6 +510,11 @@ const PGDetailPage = () => {
 
   const handleEnterEdit = () => {
     setEditing(true);
+    setDefect(wc.defect_description ?? "");
+    setAnalysis(wc.technical_analysis ?? "");
+    setParts(wc.covered_parts ?? "");
+    setSquadNotes((wc as any).squad_notes ?? "");
+    setCostVal(String(wc.internal_cost || 0));
     const next: Record<string, { quantity: string; unit_price: string; description: string }> = {};
     for (const item of items) {
       next[item.id] = {
@@ -522,6 +528,11 @@ const PGDetailPage = () => {
 
   const handleCancelEdit = () => {
     setEditing(false);
+    setDefect(null);
+    setAnalysis(null);
+    setParts(null);
+    setSquadNotes(null);
+    setCostVal(null);
   };
 
   const handleSaveAll = async () => {
@@ -580,6 +591,11 @@ const PGDetailPage = () => {
       void notifySquad({ recordType: "pg", recordId: id!, reference: claimNumber });
       toast.success("Alterações salvas e Squad notificado!");
       setEditing(false);
+      setDefect(null);
+      setAnalysis(null);
+      setParts(null);
+      setSquadNotes(null);
+      setCostVal(null);
       qc.invalidateQueries({ queryKey: ["warranty_claim_detail", id] });
       qc.invalidateQueries({ queryKey: ["pg_linked_quote", id] });
     } catch (err: any) {
@@ -597,6 +613,7 @@ const PGDetailPage = () => {
         defect_description: currentDefect,
         technical_analysis: currentAnalysis,
         covered_parts: currentParts,
+        squad_notes: currentSquadNotes || null,
         internal_cost: parseFloat(currentCost) || 0,
       }).eq("id", id!);
       if (error) throw error;
@@ -652,7 +669,7 @@ const PGDetailPage = () => {
     if (!nomusFields.cliente.trim()) { toast.error("Preencha o nome do cliente."); return; }
 
     setApproving(true);
-    void notifySquad({ recordType: "pg", recordId: id!, reference: claimNumber, target: "pedido-acessorios" });
+    void notifySquad({ recordType: "pg", recordId: id!, reference: claimNumber });
     try {
       let idPessoaCliente = nomusClientId;
       if (!idPessoaCliente) {
@@ -829,7 +846,7 @@ const PGDetailPage = () => {
           </h1>
           <p className="text-xs text-muted-foreground">{clientName} • {modelName}{serialNumber ? ` • S/N ${serialNumber}` : ""}</p>
         </div>
-        <StatusBadge status={warrantyStatusLabels[wc.warranty_status] || wc.warranty_status} />
+        <StatusBadge status={warrantyStatusLabels[currentWarrantyStatus] || currentWarrantyStatus} />
         <ExportMenu onPdf={handleExportPdf} onExcel={handleExportExcel} onPrint={handlePrint} />
         {!editing ? (
           <div className="flex gap-2">
@@ -887,7 +904,7 @@ const PGDetailPage = () => {
             <div className="flex-1 min-w-[160px]">
               <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Status do Orçamento</label>
               <Select
-                value={linkedQuote.status}
+                value={linkedQuote.status || "aguardando_aprovacao"}
                 onValueChange={async (val) => {
                   await supabase.from("quotes").update({ status: val }).eq("id", linkedQuote.id);
                   qc.invalidateQueries({ queryKey: ["pg_linked_quote", id] });
@@ -905,16 +922,17 @@ const PGDetailPage = () => {
             <div className="flex-1 min-w-[160px]">
               <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Consultor / Vendedor</label>
               <Select
-                value={(linkedQuote as any).created_by ?? ""}
+                value={(linkedQuote as any).created_by || "__none__"}
                 onValueChange={async (val) => {
-                  await supabase.from("quotes").update({ created_by: val || null }).eq("id", linkedQuote.id);
+                  await supabase.from("quotes").update({ created_by: val === "__none__" ? null : val }).eq("id", linkedQuote.id);
                   qc.invalidateQueries({ queryKey: ["pg_linked_quote", id] });
                   toast.success("Consultor atualizado");
                 }}
               >
                 <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Selecionar..." /></SelectTrigger>
                 <SelectContent>
-                  {allUsers.map(u => (
+                  <SelectItem value="__none__">Sem consultor</SelectItem>
+                  {allUsers.filter((u) => !!u.user_id).map(u => (
                     <SelectItem key={u.user_id} value={u.user_id}>
                       <span>{u.full_name || u.email}</span>
                       {(u.email || u.phone) && (
@@ -1150,7 +1168,7 @@ const PGDetailPage = () => {
                             />
                           ) : item.description}
                         </td>
-                        <td className="px-3 py-2.5"><StatusBadge status={itemTypeLabels[item.item_type] || item.item_type} /></td>
+                        <td className="px-3 py-2.5"><StatusBadge status={itemTypeLabels[item.item_type] || item.item_type || "Sem tipo"} /></td>
                         <td className="px-3 py-2.5 text-xs font-mono">
                           {editing ? (
                             <Input
@@ -1301,7 +1319,7 @@ const PGDetailPage = () => {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <div>
           <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Status do PG</label>
-          <Select value={wc.warranty_status} onValueChange={handleStatusChange}>
+          <Select value={currentWarrantyStatus} onValueChange={handleStatusChange}>
             <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="em_analise">Em Análise</SelectItem>
@@ -1383,7 +1401,7 @@ const PGDetailPage = () => {
               open={createClientOpen}
               onOpenChange={setCreateClientOpen}
               defaultName={nomusFields.cliente}
-              crmClient={{ name: sr?.tickets?.clients?.name }}
+              crmClient={{ name: wc?.tickets?.clients?.name }}
               vendedorOptions={nomusVendedorAll}
               onCreated={(id, nome) => { setNomusClientId(id); updateNomusField("cliente", nome); }}
             />

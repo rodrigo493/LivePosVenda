@@ -13,12 +13,12 @@ import { formatCurrency as fmtCurrency, formatDate as fmtDate } from "@/lib/form
 const PedidosGarantiaPage = () => {
   const navigate = useNavigate();
 
-  const { data: claims, isLoading } = useQuery({
+  const { data: claims, isLoading, isError, error } = useQuery({
     queryKey: ["warranty_claims_pg"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("warranty_claims")
-        .select("*, nomus_order_id, tickets(ticket_number, title, clients(name), equipments(serial_number, equipment_models(name)))")
+        .select("*, tickets(ticket_number, title, clients(name), equipments(serial_number, equipment_models(name)))")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data;
@@ -41,6 +41,10 @@ const PedidosGarantiaPage = () => {
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
         {isLoading ? (
           <div className="p-8 text-center text-muted-foreground text-sm">Carregando...</div>
+        ) : isError ? (
+          <div className="p-8 text-center text-destructive text-sm bg-card rounded-xl border">
+            Erro ao carregar pedidos de garantia: {(error as Error)?.message || "tente novamente."}
+          </div>
         ) : !claims?.length ? (
           <div className="p-8 text-center text-muted-foreground text-sm bg-card rounded-xl border">Nenhum pedido de garantia registrado.</div>
         ) : (

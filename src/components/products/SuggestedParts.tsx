@@ -23,7 +23,7 @@ export function SuggestedParts({ modelId, modelName, onSelect, itemTypes = defau
     if (!products) return [];
     return products
       .filter((p: any) => p.status === "ativo")
-      .sort((a: any, b: any) => a.name.localeCompare(b.name))
+      .sort((a: any, b: any) => String(a.name || "").localeCompare(String(b.name || "")))
       .slice(0, SUGGESTED_PARTS_LIMIT);
   }, [products]);
 
@@ -51,8 +51,8 @@ export function SuggestedParts({ modelId, modelName, onSelect, itemTypes = defau
           <div key={p.id} className="flex items-center gap-2 p-2 rounded-lg border bg-muted/30 hover:bg-muted/50 transition-colors">
             <Package className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
             <div className="min-w-0 flex-1">
-              <p className="text-xs font-medium truncate">{p.name}</p>
-              <p className="text-[10px] font-mono text-primary">{p.code}</p>
+              <p className="text-xs font-medium truncate">{p.name || "Produto sem nome"}</p>
+              <p className="text-[10px] font-mono text-primary">{p.code || "Sem código"}</p>
             </div>
             <p className="text-[10px] font-mono shrink-0">R$ {Number(p.base_cost).toFixed(2)}</p>
             <div className="flex gap-0.5 shrink-0">

@@ -1,4 +1,3 @@
-Initialising login role...
 export type Json =
   | string
   | number
@@ -1767,13 +1766,17 @@ export type Database = {
       service_requests: {
         Row: {
           approved_by_client: boolean | null
+          contract_generated_at: string | null
           created_at: string
+          document_type: string
           estimated_cost: number | null
           id: string
+          nomus_order_id: number | null
           notes: string | null
           request_number: string | null
           request_type: Database["public"]["Enums"]["service_request_type"]
           squad_error: string | null
+          squad_notes: string | null
           squad_response_status: number | null
           squad_sent_at: string | null
           status: Database["public"]["Enums"]["service_request_status"]
@@ -1783,13 +1786,17 @@ export type Database = {
         }
         Insert: {
           approved_by_client?: boolean | null
+          contract_generated_at?: string | null
           created_at?: string
+          document_type?: string
           estimated_cost?: number | null
           id?: string
+          nomus_order_id?: number | null
           notes?: string | null
           request_number?: string | null
           request_type?: Database["public"]["Enums"]["service_request_type"]
           squad_error?: string | null
+          squad_notes?: string | null
           squad_response_status?: number | null
           squad_sent_at?: string | null
           status?: Database["public"]["Enums"]["service_request_status"]
@@ -1799,13 +1806,17 @@ export type Database = {
         }
         Update: {
           approved_by_client?: boolean | null
+          contract_generated_at?: string | null
           created_at?: string
+          document_type?: string
           estimated_cost?: number | null
           id?: string
+          nomus_order_id?: number | null
           notes?: string | null
           request_number?: string | null
           request_type?: Database["public"]["Enums"]["service_request_type"]
           squad_error?: string | null
+          squad_notes?: string | null
           squad_response_status?: number | null
           squad_sent_at?: string | null
           status?: Database["public"]["Enums"]["service_request_status"]
@@ -2245,9 +2256,11 @@ export type Database = {
           id: string
           installation_date: string | null
           internal_cost: number | null
+          nomus_order_id: number | null
           purchase_date: string | null
           rejection_reason: string | null
           squad_error: string | null
+          squad_notes: string | null
           squad_response_status: number | null
           squad_sent_at: string | null
           technical_analysis: string | null
@@ -2268,9 +2281,11 @@ export type Database = {
           id?: string
           installation_date?: string | null
           internal_cost?: number | null
+          nomus_order_id?: number | null
           purchase_date?: string | null
           rejection_reason?: string | null
           squad_error?: string | null
+          squad_notes?: string | null
           squad_response_status?: number | null
           squad_sent_at?: string | null
           technical_analysis?: string | null
@@ -2291,9 +2306,11 @@ export type Database = {
           id?: string
           installation_date?: string | null
           internal_cost?: number | null
+          nomus_order_id?: number | null
           purchase_date?: string | null
           rejection_reason?: string | null
           squad_error?: string | null
+          squad_notes?: string | null
           squad_response_status?: number | null
           squad_sent_at?: string | null
           technical_analysis?: string | null

@@ -1,5 +1,5 @@
 interface StatusBadgeProps {
-  status: string;
+  status?: string | null;
 }
 
 const statusConfig: Record<string, { bg: string; text: string }> = {
@@ -18,11 +18,12 @@ const statusConfig: Record<string, { bg: string; text: string }> = {
 };
 
 export function StatusBadge({ status }: StatusBadgeProps) {
-  const key = status.toLowerCase();
+  const label = status || "Sem status";
+  const key = label.toLowerCase();
   const config = statusConfig[key] || { bg: "bg-muted", text: "text-muted-foreground" };
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium ${config.bg} ${config.text}`}>
-      {status}
+      {label}
     </span>
   );
 }
