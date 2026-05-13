@@ -6,11 +6,11 @@ echo "==> [1/4] git pull"
 git pull origin main
 
 echo "==> [2/4] Supabase migrations (db push)"
-supabase db push --project-ref ehqkggiuouczmafmlzls
+supabase db push
 
 echo "==> [3/4] Supabase edge functions"
-supabase functions deploy trigger-automations --project-ref ehqkggiuouczmafmlzls
-supabase functions deploy execute-automations --project-ref ehqkggiuouczmafmlzls
+supabase functions deploy trigger-automations
+supabase functions deploy execute-automations
 
 echo "==> [4/4] Frontend (Docker build + service update)"
 docker build \
