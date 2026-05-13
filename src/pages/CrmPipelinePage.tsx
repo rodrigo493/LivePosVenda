@@ -1144,7 +1144,7 @@ const CrmPipelinePage = () => {
           <DragOverlay dropAnimation={null}>
             {activeTicket ? (
               <div className="w-[260px] rotate-2 shadow-lg">
-                <PipelineCard ticket={activeTicket} onQuickTask={() => {}} onClick={() => {}} isAdmin={isAdmin} />
+                <PipelineCard ticket={activeTicket} pipelineName={currentPipeline?.name ?? ""} stageKey={activeTicket._stage ?? ""} onQuickTask={() => {}} onClick={() => {}} onTaskClick={() => {}} isAdmin={isAdmin} />
               </div>
             ) : null}
           </DragOverlay>
@@ -1691,7 +1691,7 @@ function PipelineCard({ ticket, pipelineName, stageKey, onQuickTask, onClick, on
   const days = ticket._daysSinceInteraction ?? 0;
   const stageColor: string = ticket._stageColor ?? "#6366f1";
   const statusInfo = STATUS_CONFIG[ticket.status] ?? STATUS_FALLBACK;
-  const isVendas = pipelineName.toLowerCase().includes("vend");
+  const isVendas = (pipelineName ?? "").toLowerCase().includes("vend");
   // Usa estimated_value ou, se vazio, soma os totais dos orçamentos
   const value = Number(ticket.estimated_value || 0) ||
     (ticket.quotes || []).reduce((s: number, q: any) => s + Number(q.total || 0), 0);
