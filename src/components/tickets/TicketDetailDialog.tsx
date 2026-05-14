@@ -386,8 +386,9 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
   const [stagePopoverOpen, setStagePopoverOpen] = useState(false);
   const [pipelinePopoverOpen, setPipelinePopoverOpen] = useState(false);
   const [userPopoverOpen, setUserPopoverOpen] = useState(false);
-  // Estado local para refletir mudanças de funil/responsável sem depender do prop stale
+  // Estado local para refletir mudanças de funil/etapa/responsável sem depender do prop stale
   const [localPipelineId, setLocalPipelineId] = useState<string | null>(ticket?.pipeline_id ?? null);
+  const [localPipelineStage, setLocalPipelineStage] = useState<string | null>(ticket?.pipeline_stage ?? null);
   const [localAssignedTo, setLocalAssignedTo] = useState<string | null>(ticket?.assigned_to ?? null);
   const [selectedQuotes, setSelectedQuotes] = useState<Set<string>>(new Set());
   const [selectedPA, setSelectedPA] = useState<Set<string>>(new Set());
@@ -646,6 +647,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
     setTicketStatus(ticket.status || "aberto");
     setIsEditingInfo(false);
     setLocalPipelineId(ticket.pipeline_id ?? null);
+    setLocalPipelineStage(ticket.pipeline_stage ?? null);
     setLocalAssignedTo(ticket.assigned_to ?? null);
     const status = ticket.status || "aberto";
     setActiveTab(initialTab ?? (status === "cancelado" ? "loss-reasons" : "info"));
@@ -659,7 +661,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
     setPsEvidencias([]);
     setPsMemoriaId(null);
     setPsAprovada(false);
-  }, [open, ticket?.id, ticket?.description, ticket?.internal_notes, ticket?.objecao, ticket?.ticket_type, ticket?.origin, ticket?.channel, ticket?.campanha]);
+  }, [open, ticket?.id, ticket?.description, ticket?.internal_notes, ticket?.objecao, ticket?.ticket_type, ticket?.origin, ticket?.channel, ticket?.campanha, ticket?.pipeline_id, ticket?.pipeline_stage, ticket?.assigned_to]);
 
   // Sync editClient when clientProfile loads/changes
   useEffect(() => {
@@ -859,6 +861,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
           .upsert({ user_id: localAssignedTo, pipeline_id: pipelineId }, { onConflict: "user_id,pipeline_id" });
       }
       setLocalPipelineId(pipelineId);
+      setLocalPipelineStage(firstStageKey);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["pipeline-tickets"] });
@@ -1278,15 +1281,15 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
                   </svg>
                   WhatsApp
                 </button>
-                {ticket.pipeline_stage && (
+                {localPipelineStage && (
                   <Popover open={stagePopoverOpen} onOpenChange={setStagePopoverOpen}>
                     <PopoverTrigger asChild>
                       <button className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-medium bg-muted hover:bg-muted/80 transition-colors cursor-pointer">
                         <span
                           className="h-2 w-2 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: pipelineStages.find((s) => s.key === ticket.pipeline_stage)?.color || "hsl(var(--muted-foreground))" }}
+                          style={{ backgroundColor: pipelineStages.find((s) => s.key === localPipelineStage)?.color || "hsl(var(--muted-foreground))" }}
                         />
-                        {pipelineStages.find((s) => s.key === ticket.pipeline_stage)?.label || ticket.pipeline_stage}
+                        {pipelineStages.find((s) => s.key === localPipelineStage)?.label || localPipelineStage}
                         <ChevronDown className="h-3 w-3 text-muted-foreground" />
                       </button>
                     </PopoverTrigger>
@@ -1296,16 +1299,30 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
                         <button
                           key={stage.key}
                           onClick={() => {
-                            if (stage.key === ticket.pipeline_stage) {
+                            if (stage.key === localPipelineStage) {
                               setStagePopoverOpen(false);
                               return;
                             }
-                            moveStage.mutate({ id: ticket.id, stage: stage.key, pipelineId: ticket.pipeline_id, position: 9999 });
+                            if (!localPipelineId) {
+                              toast.error("Funil não definido");
+                              return;
+                            }
+                            const previousStage = localPipelineStage;
+                            setLocalPipelineStage(stage.key);
                             setStagePopoverOpen(false);
-                            toast.success(`Movido para: ${stage.label}`);
+                            moveStage.mutate(
+                              { id: ticket.id, stage: stage.key, pipelineId: localPipelineId, position: 9999 },
+                              {
+                                onSuccess: () => toast.success(`Movido para: ${stage.label}`),
+                                onError: () => {
+                                  setLocalPipelineStage(previousStage);
+                                  toast.error("Falha ao mover etapa");
+                                },
+                              },
+                            );
                           }}
                           className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-muted transition-colors text-left ${
-                            ticket.pipeline_stage === stage.key ? "bg-muted font-semibold" : ""
+                            localPipelineStage === stage.key ? "bg-muted font-semibold" : ""
                           }`}
                         >
                           <span className="h-2 w-2 rounded-full flex-shrink-0" style={{ backgroundColor: stage.color }} />
