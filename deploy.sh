@@ -11,6 +11,9 @@ supabase db push
 echo "==> [3/4] Supabase edge functions"
 supabase functions deploy trigger-automations
 supabase functions deploy execute-automations
+supabase functions deploy nomus-search
+supabase functions deploy nomus-create-purchase-order
+supabase functions deploy send-purchase-order-email
 
 echo "==> [4/4] Frontend (Docker build + service update)"
 docker build \
