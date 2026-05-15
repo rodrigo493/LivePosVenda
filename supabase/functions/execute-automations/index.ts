@@ -35,26 +35,46 @@ Deno.serve(async (_req) => {
 
   for (const entry of entries as any[]) {
     try {
-      // Load ticket with all joins needed for variable resolution
+      // Carrega o ticket (apenas colunas escalares — embeds dependem de FKs
+      // que não existem no schema cache do PostgREST e quebram a query).
       const { data: ticket, error: tErr } = await supabase
         .from("tickets")
-        .select(`
-          id,
-          client_id,
-          assigned_to,
-          pipeline_id,
-          pipeline_stage,
-          clients(name),
-          users:assigned_to(name, phone),
-          pipeline_stages!tickets_pipeline_stage_fkey(label),
-          pipelines(name)
-        `)
+        .select("id, client_id, assigned_to, pipeline_id, pipeline_stage")
         .eq("id", entry.ticket_id)
         .single();
 
       if (tErr || !ticket) {
         await markFailed(supabase, entry.id, `Ticket não encontrado: ${tErr?.message ?? "null"}`);
         continue;
+      }
+
+      // Dados relacionados em queries separadas (sem embeds/FKs).
+      let clientName = "";
+      if (ticket.client_id) {
+        const { data: cli } = await supabase
+          .from("clients").select("name").eq("id", ticket.client_id).maybeSingle();
+        clientName = (cli as any)?.name ?? "";
+      }
+
+      let assignee: { full_name: string | null; phone: string | null } | null = null;
+      if (ticket.assigned_to) {
+        const { data: prof } = await supabase
+          .from("profiles").select("full_name, phone").eq("user_id", ticket.assigned_to).maybeSingle();
+        assignee = prof as { full_name: string | null; phone: string | null } | null;
+      }
+
+      let pipelineName = "";
+      let stageLabel = "";
+      if (ticket.pipeline_id) {
+        const { data: pip } = await supabase
+          .from("pipelines").select("name").eq("id", ticket.pipeline_id).maybeSingle();
+        pipelineName = (pip as any)?.name ?? "";
+        if (ticket.pipeline_stage) {
+          const { data: stg } = await supabase
+            .from("pipeline_stages").select("label")
+            .eq("pipeline_id", ticket.pipeline_id).eq("key", ticket.pipeline_stage).maybeSingle();
+          stageLabel = (stg as any)?.label ?? "";
+        }
       }
 
       // Load the automation config
@@ -71,11 +91,11 @@ Deno.serve(async (_req) => {
 
       // Build variable substitution map
       const vars: Record<string, string> = {
-        "{{cliente_nome}}": (ticket.clients as any)?.name ?? "",
-        "{{tecnico_nome}}": (ticket.users as any)?.name ?? "",
-        "{{tecnico_telefone}}": (ticket.users as any)?.phone ?? "",
-        "{{etapa_nome}}": (ticket.pipeline_stages as any)?.label ?? "",
-        "{{funil_nome}}": (ticket.pipelines as any)?.name ?? "",
+        "{{cliente_nome}}": clientName,
+        "{{tecnico_nome}}": assignee?.full_name ?? "",
+        "{{tecnico_telefone}}": assignee?.phone ?? "",
+        "{{etapa_nome}}": stageLabel,
+        "{{funil_nome}}": pipelineName,
         "{{ticket_numero}}": ticket.id.slice(0, 8).toUpperCase(),
       };
 
