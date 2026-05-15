@@ -411,8 +411,12 @@ const CrmPipelinePage = () => {
         _stageColor: stageColor,
         _isNewLead: !!t.new_lead,
       };
-      const target = map[t.pipeline_stage] ? t.pipeline_stage : "sem_atendimento";
-      map[target]?.push(enriched);
+      // Se a etapa do card não existir neste funil (dado inconsistente),
+      // joga na primeira etapa para o card não sumir do kanban.
+      const target = map[t.pipeline_stage]
+        ? t.pipeline_stage
+        : (map["sem_atendimento"] ? "sem_atendimento" : stages[0]?.key);
+      if (target && map[target]) map[target].push(enriched);
     });
 
     Object.values(map).forEach((arr) =>

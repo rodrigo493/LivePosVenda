@@ -1289,7 +1289,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
                           className="h-2 w-2 rounded-full flex-shrink-0"
                           style={{ backgroundColor: pipelineStages.find((s) => s.key === localPipelineStage)?.color || "hsl(var(--muted-foreground))" }}
                         />
-                        {pipelineStages.find((s) => s.key === localPipelineStage)?.label || localPipelineStage}
+                        {pipelineStages.find((s) => s.key === localPipelineStage)?.label
+                          || (pipelineStages.length > 0 ? "Selecione a etapa" : localPipelineStage)}
                         <ChevronDown className="h-3 w-3 text-muted-foreground" />
                       </button>
                     </PopoverTrigger>
