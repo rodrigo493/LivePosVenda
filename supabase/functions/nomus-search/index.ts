@@ -17,7 +17,8 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { type, query } = await req.json();
+    const body = await req.json();
+    const { type, query } = body;
 
     let url = '';
     if (type === 'clientes') {
@@ -58,8 +59,72 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
 
+    } else if (type === 'pessoas') {
+      const termo = (body.query ?? "").trim();
+      const categoria: string = body.categoria === "comprador" ? "comprador" : "fornecedor";
+      const term = encodeURIComponent(termo);
+      const pessoasUrl = termo
+        ? `${NOMUS_API_URL}/rest/pessoas?query=nomeFantasia==*${term}*,razaoSocial==*${term}*,nome==*${term}*&size=50`
+        : `${NOMUS_API_URL}/rest/pessoas?size=50`;
+
+      const resPessoas = await fetch(pessoasUrl, {
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": `Basic ${NOMUS_API_KEY}`,
+        },
+      });
+      const rawPessoas = await resPessoas.text();
+      let dataPessoas: any;
+      try { dataPessoas = JSON.parse(rawPessoas); } catch { dataPessoas = []; }
+
+      const filtered = (Array.isArray(dataPessoas) ? dataPessoas : [])
+        .filter((p: any) => p?.categorias?.[categoria] === true)
+        .map((p: any) => ({
+          id: p.id,
+          nome: p.nomeFantasia || p.razaoSocial || p.nome || '',
+          codigo: p.codigo ?? null,
+          cnpj: p.cnpj ?? null,
+          email: p.email ?? null,
+          contatos: p.contatos ?? p.contatosBean ?? [],
+        }));
+
+      return new Response(JSON.stringify({ results: filtered }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+
+    } else if (type === 'tiposMovimentacao') {
+      const termo = (body.query ?? "").trim();
+      const term = encodeURIComponent(termo);
+      const tiposUrl = termo
+        ? `${NOMUS_API_URL}/rest/tiposMovimentacao?query=nome==*${term}*`
+        : `${NOMUS_API_URL}/rest/tiposMovimentacao`;
+
+      const resTipos = await fetch(tiposUrl, {
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": `Basic ${NOMUS_API_KEY}`,
+        },
+      });
+      const rawTipos = await resTipos.text();
+      let dataTipos: any;
+      try { dataTipos = JSON.parse(rawTipos); } catch { dataTipos = []; }
+
+      const tipos = (Array.isArray(dataTipos) ? dataTipos : [])
+        .filter((t: any) => t?.natureza === 3)
+        .map((t: any) => ({
+          codigo: t.codigo ?? null,
+          nome: t.nome ?? '',
+          natureza: t.natureza,
+        }));
+
+      return new Response(JSON.stringify({ results: tipos }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+
     } else {
-      return new Response(JSON.stringify({ error: 'Tipo inválido. Use: clientes, produtos ou estoque' }), {
+      return new Response(JSON.stringify({ error: 'Tipo inválido. Use: clientes, produtos, estoque, pessoas ou tiposMovimentacao' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });

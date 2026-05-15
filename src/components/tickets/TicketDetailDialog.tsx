@@ -59,6 +59,8 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { formatDate as fmtDate, formatCurrency as fmtCurrency } from "@/lib/formatters";
 import { ACTIVITY_LOG_LIMIT } from "@/constants/limits";
+import { usePurchaseOrders, useCreatePurchaseOrder } from "@/hooks/usePurchaseOrders";
+import { PURCHASE_ORDER_STATUS_LABELS } from "@/types/purchaseOrder";
 
 interface Props {
   ticket: any;
@@ -491,6 +493,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
   const { data: clientServiceRequests } = useClientServiceRequests(enabledClientId);
   const { data: clientSalesOrders } = useClientSalesOrders(enabledClientId);
   const { data: clientTasks } = useClientTasks(enabledClientId);
+  const { data: purchaseOrders } = usePurchaseOrders(open ? ticket?.id : undefined);
+  const createPurchaseOrder = useCreatePurchaseOrder();
   const { data: clientHistory } = useClientServiceHistory(enabledClientId);
   const { data: ticketEntregaveis } = useTicketEntregaveis(enabledId);
   const { data: ticketMemoria } = useTicketMemoria(enabledId);
@@ -1573,6 +1577,9 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
               <TabsTrigger value="client-services" className="text-xs rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-3 pb-2 gap-1">
                 <Package className="h-3 w-3" /> Ped. Acessórios ({clientServiceRequests?.length || 0})
               </TabsTrigger>
+              <TabsTrigger value="purchase-orders" className="text-xs rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-3 pb-2 gap-1">
+                <ShoppingCart className="h-3 w-3" /> Ped. Compras ({purchaseOrders?.length || 0})
+              </TabsTrigger>
               <TabsTrigger value="client-sales-orders" className="text-xs rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-3 pb-2 gap-1">
                 <Package className="h-3 w-3" /> Ped. de Venda ({clientSalesOrders?.length || 0})
               </TabsTrigger>
@@ -2313,6 +2320,36 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
                       </div>
                     );
                   })}
+                </TabsContent>
+
+                {/* ── Tab: Pedidos de Compras (PC) ───────── */}
+                <TabsContent value="purchase-orders" className="mt-0 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold">Pedidos de Compra</span>
+                    <Button size="sm" disabled={createPurchaseOrder.isPending} onClick={async () => {
+                      const po = await createPurchaseOrder.mutateAsync({ ticket_id: ticket.id, created_by: user?.id });
+                      onOpenChange(false);
+                      setTimeout(() => navigate(`/pedidos-compras/${po.id}?from_ticket=${ticket.id}`), 150);
+                    }}>
+                      {createPurchaseOrder.isPending ? "Criando..." : "Criar Pedido de Compras"}
+                    </Button>
+                  </div>
+                  <div className="rounded-lg border divide-y">
+                    {(purchaseOrders ?? []).map((po) => (
+                      <div key={po.id} className="flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30">
+                        <span className="text-xs font-mono font-semibold flex-1">{po.order_number}</span>
+                        <span className="text-[10px] text-muted-foreground">{po.nomus_fornecedor_nome ?? "—"}</span>
+                        <span className="text-[10px]">{PURCHASE_ORDER_STATUS_LABELS[po.status]}</span>
+                        <Button variant="ghost" size="icon" className="h-6 w-6"
+                          onClick={() => { onOpenChange(false); navigate(`/pedidos-compras/${po.id}?from_ticket=${ticket.id}`); }}>
+                          <ExternalLink className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ))}
+                    {(purchaseOrders ?? []).length === 0 && (
+                      <div className="px-3 py-4 text-xs text-muted-foreground text-center">Nenhum pedido de compra</div>
+                    )}
+                  </div>
                 </TabsContent>
 
                 {/* ── Tab: Pedidos de Venda (PD) ───────── */}
