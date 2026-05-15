@@ -316,6 +316,21 @@ async function executeCreateCopy(
     throw new Error("create_copy: target_pipeline_id e target_stage_id são obrigatórios na action_config");
   }
 
+  // Idempotência: não copia de novo se este card já foi copiado para o funil destino
+  const { data: existingCopy } = await supabase
+    .from("tickets")
+    .select("id")
+    .eq("source_ticket_id", ticketId)
+    .eq("pipeline_id", targetPipelineId)
+    .limit(1);
+
+  if (existingCopy && existingCopy.length > 0) {
+    console.log(
+      `[create_copy] ticket ${ticketId} já possui cópia no pipeline ${targetPipelineId} — ignorando`
+    );
+    return;
+  }
+
   // Resolve a key da etapa destino a partir do ID
   const { data: stageData, error: stageErr } = await supabase
     .from("pipeline_stages")
@@ -373,6 +388,7 @@ async function executeCreateCopy(
       pipeline_stage: stageData.key,
       status: "aberto",
       origin: "copy",
+      source_ticket_id: ticketId,
       ticket_number: "",
     })
     .select("id")
