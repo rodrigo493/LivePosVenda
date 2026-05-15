@@ -257,17 +257,20 @@ export default function PCDetailPage() {
   };
 
   const handleProductSelect = (product: any, _itemType: string) => {
-    addItem.mutate({
-      purchase_order_id: po.id,
-      nomus_produto_id: product._fromNomus ? Number(product.id) || null : null,
-      produto_codigo: product.code ?? null,
-      produto_descricao: product.name ?? product.description ?? null,
-      posicao: items.length + 1,
-      quantidade: 1,
-      valor_unitario: Number(product.base_cost ?? 0),
-      percentual_desconto: 0,
-      valor_desconto: 0,
-    });
+    addItem.mutate(
+      {
+        purchase_order_id: po.id,
+        nomus_produto_id: product._fromNomus ? Number(product.id) || null : null,
+        produto_codigo: product.code ?? null,
+        produto_descricao: product.name ?? product.description ?? null,
+        posicao: items.length + 1,
+        quantidade: 1,
+        valor_unitario: Number(product.base_cost ?? 0),
+        percentual_desconto: 0,
+        valor_desconto: 0,
+      },
+      { onError: () => toast.error("Falha ao adicionar item") }
+    );
   };
 
   // ─── JSX ──────────────────────────────────────────────────────────────────
@@ -513,7 +516,10 @@ export default function PCDetailPage() {
             items={items}
             onUpdate={(itemId, updates) => updateItem.mutate({ id: itemId, ...updates } as any)}
             onDelete={(itemId) =>
-              deleteItem.mutate({ id: itemId, purchase_order_id: po.id })
+              deleteItem.mutate(
+                { id: itemId, purchase_order_id: po.id },
+                { onError: () => toast.error("Falha ao remover item") }
+              )
             }
           />
         </div>
