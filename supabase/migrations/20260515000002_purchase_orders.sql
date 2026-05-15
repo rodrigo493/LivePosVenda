@@ -84,6 +84,7 @@ BEGIN
   RETURN 'PC.' || SUBSTRING(EXTRACT(YEAR FROM now())::text FROM 3) || '.' || LPAD(seq_num::TEXT, 3, '0');
 END;
 $$;
+GRANT EXECUTE ON FUNCTION public.generate_pc_number() TO authenticated;
 
 -- 5. RLS
 ALTER TABLE public.purchase_orders      ENABLE ROW LEVEL SECURITY;
@@ -95,8 +96,8 @@ CREATE POLICY "poi_all"  ON public.purchase_order_items FOR ALL TO authenticated
 CREATE POLICY "supp_all" ON public.suppliers            FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 -- 6. Storage bucket para os PDFs do fornecedor
-INSERT INTO storage.buckets (id, name, public)
-VALUES ('compras-orcamentos', 'compras-orcamentos', true)
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES ('compras-orcamentos', 'compras-orcamentos', true, 52428800, ARRAY['application/pdf'])
 ON CONFLICT (id) DO NOTHING;
 
 CREATE POLICY "compras_orcamentos_read"   ON storage.objects FOR SELECT TO authenticated USING (bucket_id = 'compras-orcamentos');
