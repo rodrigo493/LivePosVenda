@@ -18,6 +18,8 @@ export const CRM_MODULES = [
   { key: "manutencao",         label: "Manutenção Prev.",      section: "Operações"  },
   { key: "minhas_conversas_wa", label: "Minhas Conversas WA",  section: "Operações"  },
   { key: "meu_desempenho_wa",   label: "Meu Desempenho WA",    section: "Operações"  },
+  { key: "pedidos_compra",      label: "Pedidos de Compra",    section: "Operações"  },
+  { key: "fornecedores",        label: "Fornecedores",         section: "Operações"  },
   { key: "relatorios",         label: "Relatórios",            section: "Gestão"     },
   { key: "produtos_pecas",     label: "Produtos e Peças",      section: "Gestão"     },
   { key: "servicos",           label: "Serviços",              section: "Gestão"     },

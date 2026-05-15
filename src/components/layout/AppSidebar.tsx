@@ -29,6 +29,8 @@ import {
   TrendingDown,
   TrendingUp,
   Receipt,
+  ShoppingCart,
+  Truck,
 } from "lucide-react";
 import { NavLink } from "@/components/layout/NavLink";
 import posvendaLogo from "@/assets/posvenda.png";
@@ -73,6 +75,8 @@ const operationsNav = [
   { title: "Manutenção Prev.",      url: "/manutencao",         icon: CalendarClock,  moduleKey: "manutencao" },
   { title: "Minhas Conversas WA",   url: "/minhas-conversas-wa", icon: MessageSquare,  moduleKey: "minhas_conversas_wa" },
   { title: "Meu Desempenho WA",     url: "/meu-desempenho-wa",  icon: TrendingUp,     moduleKey: "meu_desempenho_wa" },
+  { title: "Pedidos de Compra",     url: "/pedidos-compras",    icon: ShoppingCart,   moduleKey: "pedidos_compra" },
+  { title: "Fornecedores",          url: "/fornecedores",       icon: Truck,          moduleKey: "fornecedores" },
 ];
 
 const managementNav = [

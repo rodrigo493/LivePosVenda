@@ -21,6 +21,9 @@ const WarrantiesPage = lazy(() => import("./pages/WarrantiesPage"));
 const ServiceRequestsPage = lazy(() => import("./pages/ServiceRequestsPage"));
 const PedidosAcessoriosPage = lazy(() => import("./pages/PedidosAcessoriosPage"));
 const PADetailPage = lazy(() => import("./pages/PADetailPage"));
+const PedidosCompraPage = lazy(() => import("./pages/PedidosCompraPage"));
+const PCDetailPage = lazy(() => import("./pages/PCDetailPage"));
+const FornecedoresPage = lazy(() => import("./pages/FornecedoresPage"));
 const PedidosVendaPage = lazy(() => import("./pages/PedidosVendaPage"));
 const PDDetailPage = lazy(() => import("./pages/PDDetailPage"));
 const PedidosGarantiaPage = lazy(() => import("./pages/PedidosGarantiaPage"));
@@ -119,6 +122,9 @@ function AppRoutes() {
             <Route path="/assistencia" element={<ServiceRequestsPage />} />
             <Route path="/pedidos-acessorios" element={<PedidosAcessoriosPage />} />
             <Route path="/pedidos-acessorios/:id" element={<PADetailPage />} />
+            <Route path="/pedidos-compras" element={<PedidosCompraPage />} />
+            <Route path="/pedidos-compras/:id" element={<PCDetailPage />} />
+            <Route path="/fornecedores" element={<FornecedoresPage />} />
             <Route path="/pedidos-venda" element={<PedidosVendaPage />} />
             <Route path="/pedidos-venda/:id" element={<PDDetailPage />} />
             <Route path="/pedidos-garantia" element={<PedidosGarantiaPage />} />
