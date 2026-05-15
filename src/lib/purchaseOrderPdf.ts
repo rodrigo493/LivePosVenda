@@ -24,7 +24,7 @@ export function buildPurchaseOrderPdf(po: PurchaseOrder, items: PurchaseOrderIte
   });
 
   if (po.observacoes) {
-    const y = (doc as any).lastAutoTable.finalY + 10;
+    const y = ((doc as any).lastAutoTable?.finalY ?? 50) + 10;
     doc.text("Observações:", 14, y);
     doc.text(doc.splitTextToSize(po.observacoes, 180), 14, y + 6);
   }
