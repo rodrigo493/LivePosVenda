@@ -2326,12 +2326,12 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
                 <TabsContent value="purchase-orders" className="mt-0 space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold">Pedidos de Compra</span>
-                    <Button size="sm" onClick={async () => {
+                    <Button size="sm" disabled={createPurchaseOrder.isPending} onClick={async () => {
                       const po = await createPurchaseOrder.mutateAsync({ ticket_id: ticket.id, created_by: user?.id });
                       onOpenChange(false);
                       setTimeout(() => navigate(`/pedidos-compras/${po.id}?from_ticket=${ticket.id}`), 150);
                     }}>
-                      Criar Pedido de Compras
+                      {createPurchaseOrder.isPending ? "Criando..." : "Criar Pedido de Compras"}
                     </Button>
                   </div>
                   <div className="rounded-lg border divide-y">

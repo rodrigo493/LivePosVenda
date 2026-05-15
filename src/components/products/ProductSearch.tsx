@@ -214,6 +214,7 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
   const handleAddNomus = useCallback((nr: NomusProduct, itemType: string) => {
     const synthetic = {
       id: null,
+      _nomusId: nr.id,
       name: nr.nome,
       code: nr.codigo,
       base_cost: nr.preco,

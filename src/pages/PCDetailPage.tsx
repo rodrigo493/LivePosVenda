@@ -260,7 +260,7 @@ export default function PCDetailPage() {
     addItem.mutate(
       {
         purchase_order_id: po.id,
-        nomus_produto_id: product._fromNomus ? Number(product.id) || null : null,
+        nomus_produto_id: product._fromNomus ? (Number(product._nomusId) || null) : null,
         produto_codigo: product.code ?? null,
         produto_descricao: product.name ?? product.description ?? null,
         posicao: items.length + 1,

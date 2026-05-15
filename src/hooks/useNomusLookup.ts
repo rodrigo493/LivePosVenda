@@ -20,7 +20,7 @@ export interface NomusTipoMov {
 async function callNomusSearch(payload: Record<string, unknown>): Promise<any[]> {
   const { data, error } = await supabase.functions.invoke("nomus-search", { body: payload });
   if (error) throw error;
-  return Array.isArray(data) ? data : [];
+  return Array.isArray(data) ? data : (Array.isArray(data?.results) ? data.results : []);
 }
 
 /** Busca pessoas (fornecedor/comprador) no Nomus com debounce. */
