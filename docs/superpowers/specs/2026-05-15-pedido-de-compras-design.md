@@ -185,13 +185,11 @@ Novos valores de `type`:
   "idPessoaFornecedor": <nomus_fornecedor_id>,
   "idCondicaoPagamento": <default configurável>,
   "idFormaPagamento": <default configurável>,
-  "idTipoPedidoCompra": <default configurável>,
   "dataEmissao": "dd/MM/yyyy",
   "dataEntregaPadrao": "dd/MM/yyyy",
   "itensPedidoCompra": [
     {
       "idProduto": <nomus_produto_id>,
-      "idSetorEntrada": <default configurável>,
       "idTipoMovimentacao": <nomus_tipo_movimentacao_id>,
       "idUnidadeMedida": <nomus_unidade_medida_id>,
       "idClassificacaoFinanceira": <nomus_classificacao_financeira_id>,
@@ -212,12 +210,12 @@ Novos valores de `type`:
 
 ### 6.3 Defaults configuráveis (`system_settings`)
 
-Campos exigidos pela API que não têm campo na tela (decisão do usuário):
+Campos exigidos pela API que não têm campo na tela:
 
-- `nomus_pc_id_tipo_pedido_compra` — campo "Tipo de pedido" foi removido da tela.
-- `nomus_pc_id_setor_entrada` — campo "Setor de entrada" foi removido da tela.
 - `nomus_pc_id_forma_pagamento`.
 - `nomus_pc_id_condicao_pagamento` — mapeamento, já que a tela usa condição como texto livre.
+
+> **`idTipoPedidoCompra` e `idSetorEntrada` não serão enviados** (decisão do usuário) — campos removidos da tela e omitidos do `POST`. Risco: se a API do Nomus exigir esses campos, o `POST` falhará e será necessário revisar. A ser validado no primeiro teste real.
 
 ---
 
@@ -258,8 +256,9 @@ A estrutura de banco e telas fica pronta; os itens abaixo são plugados conforme
 2. **Contato** — assumido que vem do `contatosBean` do fornecedor selecionado. Confirmar.
 3. **Condição / forma de pagamento** — tela usa condição como texto livre; API exige `idCondicaoPagamento` e `idFormaPagamento` (inteiros). Definir defaults/mapeamento.
 4. **Endpoints GET ainda sem documentação:** empresas, classificações financeiras, unidades de medida.
-5. **Valores default:** `idTipoPedidoCompra`, `idSetorEntrada`, `idFormaPagamento` — confirmar com o Nomus.
+5. **Valor default `idFormaPagamento`** — confirmar com o Nomus.
 6. **Comprador/Contato/Observações** não constam no corpo `POST` documentado — gravados localmente; enviados ao Nomus apenas se a API aceitar campos extras.
+7. **`idTipoPedidoCompra` / `idSetorEntrada`** — omitidos do `POST` por decisão do usuário; validar no primeiro teste se a API aceita sem eles.
 
 ---
 
