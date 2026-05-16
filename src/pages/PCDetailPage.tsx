@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, ShoppingCart, FileDown, Mail, Upload, Send, Loader2, Plus, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ import {
   useDeletePurchaseOrderItem,
 } from "@/hooks/usePurchaseOrders";
 import { useNomusTiposMovimentacao } from "@/hooks/useNomusLookup";
+import { useSupplierByNomusId } from "@/hooks/useSuppliers";
 import { NomusPessoaSearch } from "@/components/compras/NomusPessoaSearch";
 import { PurchaseOrderItemsTable } from "@/components/compras/PurchaseOrderItemsTable";
 import { ProductSearch } from "@/components/products/ProductSearch";
@@ -136,6 +137,13 @@ export default function PCDetailPage() {
 
   const { data: po, isLoading } = usePurchaseOrder(id);
   const { data: items = [] } = usePurchaseOrderItems(id);
+  const { data: supplier } = useSupplierByNomusId(po?.nomus_fornecedor_id);
+
+  // E-mail do fornecedor: vem do cadastro interno; em branco se não houver.
+  const [supplierEmail, setSupplierEmail] = useState("");
+  useEffect(() => {
+    setSupplierEmail(supplier?.email ?? "");
+  }, [supplier?.email]);
 
   const updatePO = useUpdatePurchaseOrder();
   const addItem = useAddPurchaseOrderItem();
@@ -179,19 +187,26 @@ export default function PCDetailPage() {
   };
 
   const handleSendEmail = async () => {
+    const email = supplierEmail.trim();
+    if (!email) {
+      toast.error("Preencha o e-mail do fornecedor antes de enviar.");
+      return;
+    }
     setSendingEmail(true);
     try {
       const pdf_base64 = purchaseOrderPdfBase64(po, items);
       const { data, error } = await supabase.functions.invoke("send-purchase-order-email", {
-        body: { purchase_order_id: po.id, pdf_base64 },
+        body: { purchase_order_id: po.id, pdf_base64, to: email },
       });
       if (error) {
         toast.error(error.message ?? "Falha no envio");
         return;
       }
       if (data?.ok) {
-        toast.success("E-mail enviado com sucesso!");
+        toast.success("E-mail enviado e cadastrado no fornecedor!");
         qc.invalidateQueries({ queryKey: ["purchase-order", po.id] });
+        qc.invalidateQueries({ queryKey: ["supplier-by-nomus", po.nomus_fornecedor_id] });
+        qc.invalidateQueries({ queryKey: ["suppliers"] });
       } else {
         toast.error(data?.error ?? "Falha no envio");
       }
@@ -376,6 +391,22 @@ export default function PCDetailPage() {
                   update({ nomus_fornecedor_id: p.id, nomus_fornecedor_nome: p.nome })
                 }
                 placeholder="Buscar fornecedor..."
+              />
+            </div>
+          </div>
+
+          {/* 3b. E-mail do fornecedor */}
+          <div>
+            <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+              E-mail do fornecedor
+            </Label>
+            <div className="mt-1">
+              <Input
+                type="email"
+                value={supplierEmail}
+                onChange={(e) => setSupplierEmail(e.target.value)}
+                placeholder="email@fornecedor.com"
+                className="h-9 text-xs"
               />
             </div>
           </div>

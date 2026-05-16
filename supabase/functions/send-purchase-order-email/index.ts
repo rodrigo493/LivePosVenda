@@ -10,7 +10,7 @@ const corsHeaders = {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
-    const { purchase_order_id, pdf_base64 } = await req.json();
+    const { purchase_order_id, pdf_base64, to } = await req.json();
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
@@ -20,14 +20,16 @@ Deno.serve(async (req) => {
       .from("purchase_orders").select("*").eq("id", purchase_order_id).single();
     if (!po) throw new Error("Pedido não encontrado");
 
-    // Resolve o destinatário: agenda local → e-mail do Nomus
-    let destino: string | null = null;
-    if (po.nomus_fornecedor_id) {
+    // Resolve o destinatário: e-mail informado pelo comprador → cadastro do fornecedor
+    let destino: string | null = (typeof to === "string" && to.trim()) ? to.trim() : null;
+    if (!destino && po.nomus_fornecedor_id) {
       const { data: sup } = await supabase
         .from("suppliers").select("email").eq("nomus_pessoa_id", po.nomus_fornecedor_id).maybeSingle();
       destino = sup?.email ?? null;
     }
-    if (!destino) throw new Error("Fornecedor sem e-mail cadastrado na agenda");
+    if (!destino) {
+      throw new Error("Fornecedor sem e-mail. Preencha o e-mail do fornecedor antes de enviar.");
+    }
 
     const client = new SMTPClient({
       connection: {
@@ -52,6 +54,16 @@ Deno.serve(async (req) => {
         : [],
     });
     await client.close();
+
+    // Persiste o e-mail usado no cadastro interno do fornecedor
+    if (po.nomus_fornecedor_id) {
+      await supabase.from("suppliers").upsert({
+        nomus_pessoa_id: po.nomus_fornecedor_id,
+        nome: po.nomus_fornecedor_nome ?? "Fornecedor",
+        email: destino,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "nomus_pessoa_id" });
+    }
 
     await supabase.from("purchase_orders").update({
       email_sent_at: new Date().toISOString(),
