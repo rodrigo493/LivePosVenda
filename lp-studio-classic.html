@@ -35,6 +35,28 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
   .accent { color: var(--accent); }
   section { padding: 88px 0; }
 
+  /* TOPBAR — logo que surge ao rolar */
+  .topbar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    background: rgba(10,10,10,0.92);
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border);
+    transform: translateY(-100%);
+    transition: transform 0.3s ease;
+  }
+  .topbar.visible { transform: translateY(0); }
+  .topbar .wrap {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-top: 12px; padding-bottom: 12px;
+  }
+  .topbar img { height: 24px; width: auto; display: block; }
+  .topbar a {
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+    color: #fff; text-decoration: none; border-radius: 5px;
+    padding: 9px 18px; font-family: 'Manrope', sans-serif;
+    font-size: 13px; font-weight: 800;
+  }
+
   /* HERO */
   .hero {
     background:
@@ -131,7 +153,12 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
   .bonus-list { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   .bonus-item {
     background: var(--bg); border: 1px solid var(--border);
-    border-radius: 8px; padding: 22px;
+    border-radius: 8px; padding: 20px;
+    display: flex; align-items: center; gap: 16px;
+  }
+  .bonus-item img {
+    width: 92px; height: 92px; flex-shrink: 0;
+    border-radius: 8px; object-fit: cover;
   }
   .bonus-item .nm { font-family: 'Manrope', sans-serif; font-weight: 800; font-size: 17px; }
   .bonus-item .ds { font-size: 13px; color: var(--text-dim); margin-top: 6px; }
@@ -198,6 +225,14 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
 <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-KJPPQKXV"
 height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
 <!-- End Google Tag Manager (noscript) -->
+
+<!-- TOPBAR (surge ao rolar) -->
+<header class="topbar" id="topbar">
+  <div class="wrap">
+    <img src="logo-live.png" alt="Live Universe">
+    <a href="#lead-form">Quero meu orçamento</a>
+  </div>
+</header>
 
 <!-- HERO -->
 <section class="hero">
@@ -284,12 +319,18 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
     <h2>E ainda: você ganha.</h2>
     <div class="bonus-list">
       <div class="bonus-item">
-        <div class="nm">Jogo de alças</div>
-        <div class="ds">Acessório para ampliar os exercícios do seu studio.</div>
+        <img src="brinde-alcas.jpg" alt="Jogo de alças">
+        <div>
+          <div class="nm">Jogo de alças</div>
+          <div class="ds">Acessório para ampliar os exercícios do seu studio.</div>
+        </div>
       </div>
       <div class="bonus-item">
-        <div class="nm">Step / Box de Pilates</div>
-        <div class="ds">Apoio versátil para variações de treino.</div>
+        <img src="brinde-step.jpg" alt="Step / Box de Pilates">
+        <div>
+          <div class="nm">Step / Box de Pilates</div>
+          <div class="ds">Apoio versátil para variações de treino.</div>
+        </div>
       </div>
     </div>
     <p class="bonus-note">Enquanto durar o estoque · para compra no PIX.</p>
@@ -333,6 +374,13 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
       btn.classList.add('active');
       studioValue = btn.getAttribute('data-value');
     });
+  });
+
+  // Topbar aparece quando rola além do hero
+  var topbar = document.getElementById('topbar');
+  window.addEventListener('scroll', function () {
+    if (window.scrollY > 520) topbar.classList.add('visible');
+    else topbar.classList.remove('visible');
   });
 
   var form = document.getElementById('lead-form');
