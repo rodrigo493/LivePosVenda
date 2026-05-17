@@ -288,7 +288,13 @@ export default function PCDetailPage() {
 
   function handleApplyExtraction(plan: QuoteApplyPlan) {
     for (const upd of plan.itemUpdates) {
-      updateItem.mutate({ id: upd.id, valor_unitario: upd.valor_unitario, data_entrega: upd.data_entrega, percentual_desconto: upd.percentual_desconto, valor_desconto: upd.valor_desconto } as any);
+      updateItem.mutate({
+        id: upd.id,
+        valor_unitario: upd.valor_unitario,
+        data_entrega: upd.data_entrega,
+        percentual_desconto: upd.percentual_desconto,
+        valor_desconto: upd.valor_desconto,
+      } as any);
     }
     plan.newItems.forEach((ni, idx) => {
       addItem.mutate({
@@ -698,7 +704,7 @@ export default function PCDetailPage() {
               size="sm"
               className="gap-1.5"
               onClick={() => runExtraction(po.supplier_quote_pdf_url!, po.supplier_quote_pdf_url!)}
-              disabled={extracting}
+              disabled={extracting || uploadingQuote}
             >
               {extracting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
               {extracting ? "Lendo com IA..." : "Reprocessar com IA"}
