@@ -42,6 +42,9 @@ verify_jwt = false
 [functions.site-lead-webhook]
 verify_jwt = false
 
+[functions.lp-studio-lead]
+verify_jwt = false
+
 [functions.meta-lead-webhook]
 verify_jwt = false
 

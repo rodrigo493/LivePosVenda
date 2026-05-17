@@ -1,0 +1,21 @@
+version: "3.8"
+
+services:
+  lp:
+    image: nginx:alpine
+    volumes:
+      - /opt/lp-studio/html:/usr/share/nginx/html:ro
+    networks:
+      - Rodrigo
+    deploy:
+      replicas: 1
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.lp.entrypoints=websecure
+        - traefik.http.routers.lp.rule=Host(`lp.liveuni.com.br`)
+        - traefik.http.routers.lp.tls.certresolver=letsencryptresolver
+        - traefik.http.services.lp.loadbalancer.server.port=80
+
+networks:
+  Rodrigo:
+    external: true

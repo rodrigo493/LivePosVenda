@@ -1683,6 +1683,18 @@ function formatTaskDateTime(due_date: string | null, due_time: string | null): s
   return date;
 }
 
+// Nome de exibição do card: usa o nome do cliente; se estiver vazio ou for um
+// telefone (cliente criado só com o número), cai para o nome do título —
+// removendo o sufixo "· Tem/Sem studio" dos cards da Landing Page.
+function cardDisplayName(ticket: any): string {
+  const clientName = String(ticket.clients?.name ?? "").trim();
+  const looksLikePhone = clientName !== "" && /^[\d\s()+-]{8,}$/.test(clientName);
+  if (clientName && !looksLikePhone) return clientName;
+  const title = String(ticket.title ?? "").trim();
+  const semSufixo = title.replace(/\s*·\s*(tem|sem)\s+studio\s*$/i, "").trim();
+  return semSufixo || title || "—";
+}
+
 function PipelineCard({ ticket, pipelineName, stageKey, onQuickTask, onClick, onTaskClick, isAdmin }: { ticket: any; pipelineName: string; stageKey: string; onQuickTask: () => void; onClick: () => void; onTaskClick: () => void; isAdmin: boolean }) {
   const navigate = useNavigate();
   const typeInfo = TICKET_TYPE_LABELS[ticket.ticket_type] || { label: ticket.ticket_type, color: "bg-zinc-700 text-zinc-300" };
@@ -1753,6 +1765,16 @@ function PipelineCard({ ticket, pipelineName, stageKey, onQuickTask, onClick, on
               CONTRATO
             </span>
           )}
+          {ticket.has_studio === true && (
+            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded border bg-emerald-900/60 text-emerald-300 border-emerald-700/50">
+              TEM STUDIO
+            </span>
+          )}
+          {ticket.has_studio === false && (
+            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded border bg-zinc-700/60 text-zinc-300 border-zinc-600/50">
+              SEM STUDIO
+            </span>
+          )}
           {stageKey === "concluido" ? (
             <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-green-900/60 text-green-300 border border-green-700/50 flex items-center gap-0.5">
               ✓ Resolvido
@@ -1783,7 +1805,7 @@ function PipelineCard({ ticket, pipelineName, stageKey, onQuickTask, onClick, on
         {/* Linha 2: nome + valor */}
         <div className="flex items-start justify-between gap-1">
           <p className="text-xs font-semibold line-clamp-1 text-zinc-100 flex-1 min-w-0">
-            {ticket.clients?.name || ticket.title || "—"}
+            {cardDisplayName(ticket)}
           </p>
           <span className="text-[10px] font-bold shrink-0 tabular-nums" style={{ color: value > 0 ? stageColor : "#52525b" }}>
             {value > 0
