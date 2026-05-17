@@ -93,12 +93,22 @@ Deno.serve(async (req) => {
     let clientId: string;
     const { data: existing } = await db
       .from("clients")
-      .select("id")
+      .select("id, name, email")
       .or(`phone.eq.${phone},whatsapp.eq.${phone}`)
       .limit(1)
       .maybeSingle();
     if (existing) {
       clientId = existing.id;
+      // Corrige o cadastro se o cliente foi criado antes só com o telefone
+      // (ex.: criado pela extensão do WhatsApp, com o número no campo nome).
+      const nomeAtual = String(existing.name ?? "").trim();
+      const nomeEhTelefone = nomeAtual === "" || /^[\d\s()+-]+$/.test(nomeAtual);
+      const patch: Record<string, unknown> = {};
+      if (nomeEhTelefone && name) patch.name = name;
+      if (!String(existing.email ?? "").trim() && email) patch.email = email;
+      if (Object.keys(patch).length > 0) {
+        await db.from("clients").update(patch).eq("id", existing.id);
+      }
     } else {
       const { data: nc, error: ce } = await db
         .from("clients")
@@ -133,6 +143,7 @@ Deno.serve(async (req) => {
         pipeline_stage: stageKey,
         ticket_type: "negociacao",
         title: `${name} · ${studioSuffix}`,
+        has_studio: hasStudio,
         description,
         status: "aberto",
         origin: "landing_page",
