@@ -34,8 +34,10 @@ export interface QuoteExtraction {
 function toNumberOrNull(v: unknown): number | null {
   if (typeof v === "number" && Number.isFinite(v)) return v;
   if (typeof v === "string") {
-    const cleaned = v.trim().replace(/\./g, "").replace(",", ".").replace(/[^\d.-]/g, "");
-    if (cleaned === "") return null;
+    const t = v.trim().replace(/[^\d.,-]/g, "");
+    if (t === "") return null;
+    // Com vírgula → formato pt-BR ("1.200,50"); sem vírgula → já é decimal com ponto
+    const cleaned = t.includes(",") ? t.replace(/\./g, "").replace(",", ".") : t;
     const n = parseFloat(cleaned);
     return Number.isFinite(n) ? n : null;
   }
