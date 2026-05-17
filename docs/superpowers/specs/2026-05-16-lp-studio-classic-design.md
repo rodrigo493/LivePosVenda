@@ -133,9 +133,27 @@ Em caso de erro, retorna status apropriado e mensagem — a LP exibe mensagem am
 
 ## 8. Google Tag Manager
 
-- Snippet do GTM no `<head>` (script) e logo após `<body>` (noscript)
-- ID do container: **pendente** (Rodrigo vai fornecer — formato `GTM-XXXXXXX`)
+- ID do container: **`GTM-KJPPQKXV`**
 - O GTM cobre o pixel do Facebook/Meta e demais tags de campanha — não há pixel embutido separado
+
+Snippet no `<head>` (o mais alto possível):
+```html
+<!-- Google Tag Manager -->
+<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+})(window,document,'script','dataLayer','GTM-KJPPQKXV');</script>
+<!-- End Google Tag Manager -->
+```
+
+Snippet imediatamente após `<body>`:
+```html
+<!-- Google Tag Manager (noscript) -->
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-KJPPQKXV"
+height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+<!-- End Google Tag Manager (noscript) -->
+```
 
 ## 9. Deploy
 
@@ -147,12 +165,12 @@ Mesmo padrão do deploy `pure` (já em produção):
 4. **Traefik:** labels para `Host(lp.liveuni.com.br)`, entrypoint `websecure`, certresolver `letsencryptresolver`
 5. **Edge function:** deploy de `lp-studio-lead` no Supabase do projeto LivePosVenda (`ehqkggiuouczmafmlzls`)
 
-## 10. Assets pendentes (Rodrigo fornece)
+## 10. Assets
 
-1. **GTM ID** — `GTM-XXXXXXX`
-2. **Imagem do combo completo** — foto do studio com os 4 equipamentos montados (arquivo de imagem)
+- **GTM ID** — `GTM-KJPPQKXV` ✅ recebido
+- **Imagem do combo completo** — foto do studio com os 4 equipamentos montados (arquivo de imagem) — **pendente** (Rodrigo fornece)
 
-A implementação pode começar com placeholders e os assets entram quando disponíveis.
+A implementação pode começar com placeholder de imagem e o asset entra quando disponível.
 
 ## 11. Fora de escopo (YAGNI)
 
