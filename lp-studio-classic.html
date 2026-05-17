@@ -192,6 +192,36 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
   .footer img { height: 30px; width: auto; opacity: 0.7; }
   .footer p { font-size: 11px; color: var(--text-mute); margin-top: 10px; letter-spacing: 0.1em; }
 
+  /* AUTORIDADE */
+  .authority {
+    background: var(--bg-2);
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    padding: 44px 0;
+  }
+  .authority-list { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+  .authority-item { text-align: center; }
+  .authority-item .num {
+    font-family: 'Manrope', sans-serif; font-size: 34px; font-weight: 800;
+    color: var(--accent); letter-spacing: -0.02em; line-height: 1;
+  }
+  .authority-item .lbl { font-size: 12px; color: var(--text-dim); margin-top: 6px; }
+
+  /* FAQ */
+  .faq { background: var(--bg); }
+  .faq h2 { font-size: 30px; margin-bottom: 24px; }
+  .faq-item { border-bottom: 1px solid var(--border); }
+  .faq-item:first-of-type { border-top: 1px solid var(--border); }
+  .faq-item summary {
+    font-family: 'Manrope', sans-serif; font-weight: 700; font-size: 16px;
+    cursor: pointer; list-style: none; padding: 18px 0;
+    display: flex; justify-content: space-between; align-items: center; gap: 16px;
+  }
+  .faq-item summary::-webkit-details-marker { display: none; }
+  .faq-item summary::after { content: '+'; color: var(--accent); font-size: 24px; font-weight: 400; }
+  .faq-item[open] summary::after { content: '\2212'; }
+  .faq-item p { font-size: 14px; color: var(--text-dim); padding: 0 0 18px; max-width: 720px; }
+
   /* MOBILE — a maior parte do tráfego vem de anúncios mobile (IG/FB) */
   @media (max-width: 820px) {
     .wrap { padding: 0 20px; }
@@ -208,6 +238,9 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
     .cond h2 { font-size: 24px; }
     .close h2 { font-size: 27px; }
     .form-card { padding: 24px; }
+    .authority-list { grid-template-columns: 1fr 1fr; gap: 24px; }
+    .authority-item .num { font-size: 30px; }
+    .faq h2 { font-size: 24px; }
   }
   @media (max-width: 440px) {
     .wrap { padding: 0 16px; }
@@ -285,6 +318,30 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
   </div>
 </section>
 
+<!-- AUTORIDADE -->
+<section class="authority">
+  <div class="wrap">
+    <div class="authority-list">
+      <div class="authority-item">
+        <div class="num">+5.000</div>
+        <div class="lbl">Equipamentos vendidos</div>
+      </div>
+      <div class="authority-item">
+        <div class="num">15.000 m²</div>
+        <div class="lbl">Fábrica própria</div>
+      </div>
+      <div class="authority-item">
+        <div class="num">6</div>
+        <div class="lbl">Equipamentos patenteados</div>
+      </div>
+      <div class="authority-item">
+        <div class="num">Global</div>
+        <div class="lbl">Exporta para diversos países</div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- COMBO -->
 <section class="combo">
   <div class="wrap">
@@ -345,6 +402,30 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
     <p>R$ 22.650 à vista no PIX, ou em até 18x sem juros (Visa/Master, mediante aprovação da operadora do cartão).</p>
     <p class="valid">Oferta válida até 31 de maio.</p>
     <a href="#lead-form" class="cta-btn">Quero meu orçamento</a>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section class="faq">
+  <div class="wrap">
+    <div class="eyebrow">Dúvidas frequentes</div>
+    <h2>Perguntas que todo dono de studio faz.</h2>
+    <details class="faq-item">
+      <summary>Os equipamentos têm garantia?</summary>
+      <p>Sim. Todos os equipamentos Live têm garantia de fábrica. A estrutura é industrial — há equipamentos Live rodando há mais de 6 anos sem nenhuma intervenção.</p>
+    </details>
+    <details class="faq-item">
+      <summary>Quem monta os equipamentos?</summary>
+      <p>A transportadora entrega os aparelhos dentro da sala e enviamos um montador profissional para a montagem completa. Você recebe o studio pronto para abrir.</p>
+    </details>
+    <details class="faq-item">
+      <summary>Qual o prazo de entrega?</summary>
+      <p>Hoje, 30 dias após a confirmação do pedido. Com a inauguração da nova fábrica de 15.000 m² em junho/26, passamos a operar com pronta entrega.</p>
+    </details>
+    <details class="faq-item">
+      <summary>Os equipamentos exigem manutenção constante?</summary>
+      <p>Não. Os equipamentos Live não precisam de manutenção estrutural nem de revisões periódicas — a única rotina é manter trilhos e rodas limpos.</p>
+    </details>
   </div>
 </section>
 
