@@ -101,3 +101,87 @@ export function normalizeQuoteExtraction(raw: unknown, poItemIds: string[]): Quo
     aviso: toStringOrNull(obj.aviso),
   };
 }
+
+// ── aplicação da revisão ─────────────────────────────────────────────────────
+export interface QuoteReviewItem {
+  po_item_id: string;
+  valor_unitario: number | null;
+  data_entrega: string | null;
+  percentual_desconto: number | null;
+  valor_desconto: number | null;
+}
+
+export interface QuoteReviewExtra {
+  selected: boolean;
+  descricao: string;
+  codigo: string | null;
+  quantidade: number | null;
+  valor_unitario: number | null;
+  data_entrega: string | null;
+  percentual_desconto: number | null;
+  valor_desconto: number | null;
+}
+
+export interface QuoteReviewState {
+  items: QuoteReviewItem[];
+  extras: QuoteReviewExtra[];
+  condicao_pagamento: string | null;
+}
+
+export interface QuoteItemUpdate {
+  id: string;
+  valor_unitario: number;
+  data_entrega: string | null;
+  percentual_desconto: number;
+  valor_desconto: number;
+}
+
+export interface QuoteNewItem {
+  produto_codigo: string | null;
+  produto_descricao: string;
+  quantidade: number;
+  valor_unitario: number;
+  percentual_desconto: number;
+  valor_desconto: number;
+  data_entrega: string | null;
+}
+
+export interface QuoteApplyPlan {
+  itemUpdates: QuoteItemUpdate[];
+  newItems: QuoteNewItem[];
+  condicao_pagamento: string | null;
+}
+
+export function buildQuoteItemUpdates(state: QuoteReviewState): QuoteApplyPlan {
+  const itemUpdates: QuoteItemUpdate[] = state.items
+    .filter(
+      (it) =>
+        it.valor_unitario != null ||
+        it.data_entrega != null ||
+        it.percentual_desconto != null ||
+        it.valor_desconto != null,
+    )
+    .map((it) => ({
+      id: it.po_item_id,
+      valor_unitario: it.valor_unitario ?? 0,
+      data_entrega: it.data_entrega,
+      percentual_desconto: it.percentual_desconto ?? 0,
+      valor_desconto: it.valor_desconto ?? 0,
+    }));
+
+  const newItems: QuoteNewItem[] = state.extras
+    .filter((e) => e.selected && e.descricao.trim() !== "")
+    .map((e) => ({
+      produto_codigo: e.codigo,
+      produto_descricao: e.descricao.trim(),
+      quantidade: e.quantidade ?? 1,
+      valor_unitario: e.valor_unitario ?? 0,
+      percentual_desconto: e.percentual_desconto ?? 0,
+      valor_desconto: e.valor_desconto ?? 0,
+      data_entrega: e.data_entrega,
+    }));
+
+  const cond = (state.condicao_pagamento ?? "").trim();
+
+  return { itemUpdates, newItems, condicao_pagamento: cond === "" ? null : cond };
+}

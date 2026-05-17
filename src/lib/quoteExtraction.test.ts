@@ -87,3 +87,45 @@ describe("normalizeQuoteExtraction", () => {
     expect(r.extra_items[0].descricao).toBe("Válido");
   });
 });
+
+import { buildQuoteItemUpdates } from "./quoteExtraction";
+
+describe("buildQuoteItemUpdates", () => {
+  it("gera update só para itens com algum valor preenchido", () => {
+    const plan = buildQuoteItemUpdates({
+      items: [
+        { po_item_id: "a", valor_unitario: 10, data_entrega: "2026-06-01", percentual_desconto: null, valor_desconto: null },
+        { po_item_id: "b", valor_unitario: null, data_entrega: null, percentual_desconto: null, valor_desconto: null },
+      ],
+      extras: [],
+      condicao_pagamento: null,
+    });
+    expect(plan.itemUpdates).toHaveLength(1);
+    expect(plan.itemUpdates[0]).toEqual({
+      id: "a",
+      valor_unitario: 10,
+      data_entrega: "2026-06-01",
+      percentual_desconto: 0,
+      valor_desconto: 0,
+    });
+  });
+
+  it("inclui só extras marcados, com quantidade padrão 1", () => {
+    const plan = buildQuoteItemUpdates({
+      items: [],
+      extras: [
+        { selected: true, descricao: "Arruela", codigo: "AR1", quantidade: null, valor_unitario: 0.5, data_entrega: null, percentual_desconto: null, valor_desconto: null },
+        { selected: false, descricao: "Ignorado", codigo: null, quantidade: 2, valor_unitario: 1, data_entrega: null, percentual_desconto: null, valor_desconto: null },
+      ],
+      condicao_pagamento: "  à vista  ",
+    });
+    expect(plan.newItems).toHaveLength(1);
+    expect(plan.newItems[0]).toMatchObject({ produto_descricao: "Arruela", produto_codigo: "AR1", quantidade: 1, valor_unitario: 0.5 });
+    expect(plan.condicao_pagamento).toBe("à vista");
+  });
+
+  it("condicao_pagamento vazia vira null", () => {
+    const plan = buildQuoteItemUpdates({ items: [], extras: [], condicao_pagamento: "   " });
+    expect(plan.condicao_pagamento).toBeNull();
+  });
+});
