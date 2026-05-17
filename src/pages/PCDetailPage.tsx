@@ -28,6 +28,8 @@ import { downloadPurchaseOrderPdf, purchaseOrderPdfBase64 } from "@/lib/purchase
 import { buildPedidoCompraPayload } from "@/lib/buildPedidoCompraPayload";
 import { PURCHASE_ORDER_STATUS_LABELS } from "@/types/purchaseOrder";
 import type { PurchaseOrderStatus } from "@/types/purchaseOrder";
+import { SupplierQuoteReviewDialog } from "@/components/compras/SupplierQuoteReviewDialog";
+import { normalizeQuoteExtraction, type QuoteExtraction, type QuoteApplyPlan } from "@/lib/quoteExtraction";
 
 // ─── Tipo Movimentação autocomplete ─────────────────────────────────────────
 
@@ -154,6 +156,8 @@ export default function PCDetailPage() {
   const [sendingEmail, setSendingEmail] = useState(false);
   const [creatingNomus, setCreatingNomus] = useState(false);
   const [uploadingQuote, setUploadingQuote] = useState(false);
+  const [extracting, setExtracting] = useState(false);
+  const [reviewData, setReviewData] = useState<{ fileName: string; extraction: QuoteExtraction } | null>(null);
 
   // ─── helpers ──────────────────────────────────────────────────────────────
 
@@ -239,6 +243,8 @@ export default function PCDetailPage() {
         status: "orcamento_recebido" as PurchaseOrderStatus,
       });
       toast.success("Orçamento importado com sucesso!");
+      // Dispara a leitura por IA
+      runExtraction(url, file.name);
     } catch (err: any) {
       toast.error(err.message ?? "Erro ao importar orçamento");
     } finally {
@@ -246,6 +252,62 @@ export default function PCDetailPage() {
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
+
+  // Detecta o file_type a partir do nome/URL do arquivo
+  function detectFileType(nameOrUrl: string): "pdf" | "image" | "txt" | null {
+    const lower = nameOrUrl.toLowerCase();
+    if (lower.endsWith(".pdf")) return "pdf";
+    if (lower.endsWith(".txt")) return "txt";
+    if (/\.(jpg|jpeg|png|webp|gif)$/.test(lower)) return "image";
+    return null;
+  }
+
+  async function runExtraction(fileUrl: string, fileName: string) {
+    const fileType = detectFileType(fileName);
+    if (!fileType) {
+      toast.error("Formato não suportado para leitura por IA (use PDF, imagem ou TXT).");
+      return;
+    }
+    setExtracting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("extract-supplier-quote", {
+        body: { purchase_order_id: po.id, file_url: fileUrl, file_type: fileType },
+      });
+      if (error || !data?.ok) {
+        toast.error(data?.error ?? error?.message ?? "Não foi possível ler com IA — use 'Reprocessar' ou preencha manual.");
+        return;
+      }
+      const extraction = normalizeQuoteExtraction(data.data, items.map((it) => it.id));
+      setReviewData({ fileName, extraction });
+    } catch (err: any) {
+      toast.error(err.message ?? "Falha na leitura por IA");
+    } finally {
+      setExtracting(false);
+    }
+  }
+
+  function handleApplyExtraction(plan: QuoteApplyPlan) {
+    for (const upd of plan.itemUpdates) {
+      updateItem.mutate({ id: upd.id, valor_unitario: upd.valor_unitario, data_entrega: upd.data_entrega, percentual_desconto: upd.percentual_desconto, valor_desconto: upd.valor_desconto } as any);
+    }
+    plan.newItems.forEach((ni, idx) => {
+      addItem.mutate({
+        purchase_order_id: po.id,
+        nomus_produto_id: null,
+        produto_codigo: ni.produto_codigo,
+        produto_descricao: ni.produto_descricao,
+        quantidade: ni.quantidade,
+        valor_unitario: ni.valor_unitario,
+        percentual_desconto: ni.percentual_desconto,
+        valor_desconto: ni.valor_desconto,
+        data_entrega: ni.data_entrega,
+        posicao: items.length + 1 + idx,
+      } as any);
+    });
+    if (plan.condicao_pagamento) update({ condicao_pagamento: plan.condicao_pagamento });
+    setReviewData(null);
+    toast.success("Orçamento aplicado ao pedido!");
+  }
 
   const handleCreateNomus = async () => {
     setCreatingNomus(true);
@@ -598,7 +660,7 @@ export default function PCDetailPage() {
             <input
               ref={fileInputRef}
               type="file"
-              accept=".pdf"
+              accept=".pdf,image/*,.txt"
               className="hidden"
               onChange={handleFileChange}
             />
@@ -629,6 +691,20 @@ export default function PCDetailPage() {
             )}
           </div>
 
+          {/* Reprocessar com IA */}
+          {po.supplier_quote_pdf_url && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => runExtraction(po.supplier_quote_pdf_url!, po.supplier_quote_pdf_url!)}
+              disabled={extracting}
+            >
+              {extracting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+              {extracting ? "Lendo com IA..." : "Reprocessar com IA"}
+            </Button>
+          )}
+
           {/* Criar pedido na Nomus */}
           <Button
             size="sm"
@@ -645,6 +721,17 @@ export default function PCDetailPage() {
           </Button>
         </div>
       </motion.div>
+
+      {reviewData && (
+        <SupplierQuoteReviewDialog
+          open={true}
+          fileName={reviewData.fileName}
+          extraction={reviewData.extraction}
+          items={items}
+          onClose={() => setReviewData(null)}
+          onApply={handleApplyExtraction}
+        />
+      )}
     </div>
   );
 }
