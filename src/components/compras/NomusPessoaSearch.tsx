@@ -13,7 +13,7 @@ interface Props {
 export function NomusPessoaSearch({ categoria, value, onSelect, placeholder }: Props) {
   const [termo, setTermo] = useState("");
   const [open, setOpen] = useState(false);
-  const { results, loading } = useNomusPessoas(termo, categoria);
+  const { results, loading, rateLimited } = useNomusPessoas(termo, categoria);
 
   return (
     <div className="relative">
@@ -27,7 +27,12 @@ export function NomusPessoaSearch({ categoria, value, onSelect, placeholder }: P
       {open && (termo.trim().length >= 2) && (
         <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover shadow-md max-h-60 overflow-auto">
           {loading && <div className="px-3 py-2 text-xs text-muted-foreground">Buscando...</div>}
-          {!loading && results.length === 0 && (
+          {!loading && rateLimited && (
+            <div className="px-3 py-2 text-xs text-amber-600">
+              Muitas buscas seguidas — aguarde alguns segundos e tente novamente.
+            </div>
+          )}
+          {!loading && !rateLimited && results.length === 0 && (
             <div className="px-3 py-2 text-xs text-muted-foreground">Nenhum resultado</div>
           )}
           {results.map((p) => (

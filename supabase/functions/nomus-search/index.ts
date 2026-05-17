@@ -23,7 +23,7 @@ Deno.serve(async (req) => {
     let url = '';
     if (type === 'clientes') {
       const term = encodeURIComponent(query.trim());
-      url = `${NOMUS_API_URL}/rest/pessoas?query=nomeFantasia==*${term}*,razaoSocial==*${term}*,nome==*${term}*`;
+      url = `${NOMUS_API_URL}/rest/pessoas?query=nome==*${term}*,codigo==*${term}*&size=50`;
     } else if (type === 'produtos') {
       const term = encodeURIComponent(query.trim());
       // Busca por código OU nome/descrição, retorna até 50 resultados
@@ -63,8 +63,10 @@ Deno.serve(async (req) => {
       const termo = (body.query ?? "").trim();
       const categoria: string = body.categoria === "comprador" ? "comprador" : "fornecedor";
       const term = encodeURIComponent(termo);
+      // Seletores RSQL válidos no /rest/pessoas: `nome` e `codigo`
+      // (nomeFantasia/razaoSocial NÃO existem — geram UnknownSelectorException 400).
       const pessoasUrl = termo
-        ? `${NOMUS_API_URL}/rest/pessoas?query=nomeFantasia==*${term}*,razaoSocial==*${term}*,nome==*${term}*&size=50`
+        ? `${NOMUS_API_URL}/rest/pessoas?query=nome==*${term}*,codigo==*${term}*&size=50`
         : `${NOMUS_API_URL}/rest/pessoas?size=50`;
 
       const resPessoas = await fetch(pessoasUrl, {
@@ -78,11 +80,20 @@ Deno.serve(async (req) => {
       let dataPessoas: any;
       try { dataPessoas = JSON.parse(rawPessoas); } catch { dataPessoas = []; }
 
-      const filtered = (Array.isArray(dataPessoas) ? dataPessoas : [])
+      // Rate limit da Nomus → sinaliza para a UI em vez de "nenhum resultado"
+      if (resPessoas.status === 429) {
+        const espera = (dataPessoas && dataPessoas.tempoAteLiberar) ?? null;
+        return new Response(JSON.stringify({ results: [], rateLimited: true, retryAfter: espera }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const arrPessoas = Array.isArray(dataPessoas) ? dataPessoas : [];
+      const filtered = arrPessoas
         .filter((p: any) => p?.categorias?.[categoria] === true)
         .map((p: any) => ({
           id: p.id,
-          nome: p.nomeFantasia || p.razaoSocial || p.nome || '',
+          nome: p.nome || p.nomeRazaoSocial || '',
           codigo: p.codigo ?? null,
           cnpj: p.cnpj ?? null,
           email: p.email ?? null,
