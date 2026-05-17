@@ -73,11 +73,12 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    const { data: rawItems } = await supabase
+    const { data: rawItems, error: dbError } = await supabase
       .from("purchase_order_items")
       .select("id, produto_codigo, produto_descricao, quantidade")
       .eq("purchase_order_id", purchase_order_id)
       .order("posicao", { ascending: true });
+    if (dbError) throw new Error(`Erro ao buscar itens do pedido: ${dbError.message}`);
     const items = (rawItems ?? []).map((it: Record<string, unknown>) => ({
       id: it.id as string,
       codigo: (it.produto_codigo as string) ?? null,
