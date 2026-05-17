@@ -8,6 +8,7 @@ import type { PurchaseOrderItem } from "@/types/purchaseOrder";
 import {
   buildQuoteItemUpdates,
   type QuoteExtraction,
+  type QuoteConfidence,
   type QuoteReviewItem,
   type QuoteReviewExtra,
   type QuoteApplyPlan,
@@ -29,7 +30,7 @@ const numOrNull = (v: string): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
-const confidenceBadge: Record<string, { label: string; cls: string }> = {
+const confidenceBadge: Record<QuoteConfidence, { label: string; cls: string }> = {
   alta: { label: "✓ alta", cls: "text-emerald-600" },
   media: { label: "~ média", cls: "text-amber-600" },
   baixa: { label: "⚠ baixa", cls: "text-red-600" },
@@ -55,7 +56,7 @@ export function SupplierQuoteReviewDialog({ open, fileName, extraction, items, o
   const [condicao, setCondicao] = useState(extraction.condicao_pagamento ?? "");
 
   const matchByItem = useMemo(() => {
-    const m = new Map<string, string>();
+    const m = new Map<string, QuoteConfidence>();
     for (const e of extraction.items) {
       m.set(e.po_item_id, e.matched ? e.confidence : "baixa");
     }
@@ -93,8 +94,17 @@ export function SupplierQuoteReviewDialog({ open, fileName, extraction, items, o
               Itens do pedido
             </p>
             <div className="rounded-md border divide-y">
+              <div className="p-2 grid grid-cols-12 gap-2 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                <span className="col-span-3">Produto</span>
+                <span className="col-span-1">Qtd</span>
+                <span className="col-span-2">Vlr unit.</span>
+                <span className="col-span-2">% desc.</span>
+                <span className="col-span-2">Entrega</span>
+                <span className="col-span-2">Match</span>
+              </div>
               {items.map((it) => {
-                const ri = reviewItems.find((r) => r.po_item_id === it.id)!;
+                const ri = reviewItems.find((r) => r.po_item_id === it.id);
+                if (!ri) return null;
                 const conf = matchByItem.get(it.id) ?? "baixa";
                 const badge = confidenceBadge[conf];
                 return (
@@ -136,7 +146,7 @@ export function SupplierQuoteReviewDialog({ open, fileName, extraction, items, o
               </p>
               <div className="rounded-md border divide-y">
                 {extras.map((e, idx) => (
-                  <label key={idx} className="p-2 flex items-center gap-2 cursor-pointer">
+                  <label key={`${idx}-${e.descricao}`} className="p-2 flex items-center gap-2 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={e.selected}
