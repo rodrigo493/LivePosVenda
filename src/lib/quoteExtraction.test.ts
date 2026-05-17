@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizeQuoteExtraction } from "./quoteExtraction";
+import { normalizeQuoteExtraction, buildQuoteItemUpdates } from "./quoteExtraction";
 
 describe("normalizeQuoteExtraction", () => {
   const poIds = ["item-a", "item-b"];
@@ -88,8 +88,6 @@ describe("normalizeQuoteExtraction", () => {
   });
 });
 
-import { buildQuoteItemUpdates } from "./quoteExtraction";
-
 describe("buildQuoteItemUpdates", () => {
   it("gera update só para itens com algum valor preenchido", () => {
     const plan = buildQuoteItemUpdates({
@@ -127,5 +125,23 @@ describe("buildQuoteItemUpdates", () => {
   it("condicao_pagamento vazia vira null", () => {
     const plan = buildQuoteItemUpdates({ items: [], extras: [], condicao_pagamento: "   " });
     expect(plan.condicao_pagamento).toBeNull();
+  });
+
+  it("item que passa no filtro só pela data tem valor_unitario default 0", () => {
+    const plan = buildQuoteItemUpdates({
+      items: [
+        { po_item_id: "c", valor_unitario: null, data_entrega: "2026-07-01", percentual_desconto: null, valor_desconto: null },
+      ],
+      extras: [],
+      condicao_pagamento: null,
+    });
+    expect(plan.itemUpdates).toHaveLength(1);
+    expect(plan.itemUpdates[0]).toEqual({
+      id: "c",
+      valor_unitario: 0,
+      data_entrega: "2026-07-01",
+      percentual_desconto: 0,
+      valor_desconto: 0,
+    });
   });
 });
