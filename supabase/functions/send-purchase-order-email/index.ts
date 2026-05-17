@@ -7,6 +7,60 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+/** Garante que uma promise não trave indefinidamente. */
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: number | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`Timeout: ${label} não respondeu em ${ms / 1000}s`)),
+      ms,
+    );
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
+}
+
+/** Envia um e-mail via SMTP Hostinger com timeout. Lança erro descritivo em caso de falha. */
+async function enviarEmail(opts: {
+  to: string;
+  subject: string;
+  content: string;
+  attachments?: { filename: string; content: string; encoding: string; contentType: string }[];
+}): Promise<void> {
+  const password = Deno.env.get("COMPRAS_SMTP_PASSWORD");
+  if (!password) throw new Error("COMPRAS_SMTP_PASSWORD não configurado nos secrets");
+
+  console.log(`[send-pc-email] conectando smtp.hostinger.com:465 → destino ${opts.to}`);
+  const client = new SMTPClient({
+    connection: {
+      hostname: "smtp.hostinger.com",
+      port: 465,
+      tls: true,
+      auth: { username: "compras@liveuniverse.com.br", password },
+    },
+  });
+
+  try {
+    await withTimeout(
+      client.send({
+        from: "Compras Live <compras@liveuniverse.com.br>",
+        to: opts.to,
+        subject: opts.subject,
+        content: opts.content,
+        attachments: opts.attachments ?? [],
+      }),
+      45000,
+      "envio SMTP",
+    );
+    console.log("[send-pc-email] e-mail enviado com sucesso");
+  } finally {
+    try {
+      await withTimeout(client.close(), 8000, "fechar conexão SMTP");
+    } catch (closeErr) {
+      console.warn("[send-pc-email] aviso ao fechar conexão:", String(closeErr));
+    }
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
@@ -31,20 +85,7 @@ Deno.serve(async (req) => {
       throw new Error("Fornecedor sem e-mail. Preencha o e-mail do fornecedor antes de enviar.");
     }
 
-    const client = new SMTPClient({
-      connection: {
-        hostname: "smtp.hostinger.com",
-        port: 465,
-        tls: true,
-        auth: {
-          username: "compras@liveuniverse.com.br",
-          password: Deno.env.get("COMPRAS_SMTP_PASSWORD")!,
-        },
-      },
-    });
-
-    await client.send({
-      from: "compras@liveuniverse.com.br",
+    await enviarEmail({
       to: destino,
       subject: `Solicitação de cotação — ${po.order_number}`,
       content: `Olá,\n\nSegue em anexo a solicitação de cotação ${po.order_number}.\n` +
@@ -53,7 +94,6 @@ Deno.serve(async (req) => {
         ? [{ filename: `${po.order_number}.pdf`, content: pdf_base64, encoding: "base64", contentType: "application/pdf" }]
         : [],
     });
-    await client.close();
 
     // Persiste o e-mail usado no cadastro interno do fornecedor
     if (po.nomus_fornecedor_id) {
@@ -76,7 +116,9 @@ Deno.serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
-    return new Response(JSON.stringify({ ok: false, error: String(e) }), {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[send-pc-email] ERRO:", msg);
+    return new Response(JSON.stringify({ ok: false, error: msg }), {
       status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
