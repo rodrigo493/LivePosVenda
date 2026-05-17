@@ -15,10 +15,10 @@ A landing será publicada em `lp.liveuni.com.br`.
 Promoção **Combo Studio Live Classic** — kit completo para abrir um studio de Pilates:
 
 - **Equipamentos:** V1 Barrel · V4 Chair (com braços articulados) · V5 Reformer Mini · V8 Cadillac Plus
-- **Preço:** R$ 22.650,00 à vista no PIX, ou em até 18x sem juros (Visa/Master, mediante aprovação)
+- **Preço:** R$ 22.650,00 à vista no PIX, ou em até 18x sem juros (Visa/Master, mediante aprovação do cartão)
 - **Brindes:** alças + step/box — enquanto durar o estoque, para compra no PIX
 - **Validade:** até 31 de maio
-- **Público:** quem quer abrir um studio + quem já tem e quer renovar equipamentos
+- **Público:** quem quer abrir um studio + quem já tem e quer renovar equipamentos ou quer ampliar
 
 ## 3. Princípios de design
 
