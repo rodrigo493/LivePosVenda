@@ -675,7 +675,7 @@ export default function PCDetailPage() {
               size="sm"
               className="gap-1.5"
               onClick={() => fileInputRef.current?.click()}
-              disabled={uploadingQuote}
+              disabled={uploadingQuote || extracting}
             >
               {uploadingQuote ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -703,7 +703,10 @@ export default function PCDetailPage() {
               variant="outline"
               size="sm"
               className="gap-1.5"
-              onClick={() => runExtraction(po.supplier_quote_pdf_url!, po.supplier_quote_pdf_url!)}
+              onClick={() => {
+                const url = po.supplier_quote_pdf_url!;
+                runExtraction(url, url.split("/").pop() ?? url);
+              }}
               disabled={extracting || uploadingQuote}
             >
               {extracting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}

@@ -24,7 +24,7 @@ function bufferToBase64(buf: ArrayBuffer): string {
 const SYSTEM_PROMPT =
   "Você extrai dados de orçamentos de fornecedores. Responda SOMENTE com um objeto JSON válido, sem texto fora do JSON.";
 
-function buildInstruction(items: { id: string; codigo: string | null; descricao: string | null; quantidade: number }[]): string {
+function buildInstruction(items: { po_item_id: string; codigo: string | null; descricao: string | null; quantidade: number }[]): string {
   return [
     "Abaixo está a lista de itens de um Pedido de Compra (campo po_item_id é o identificador).",
     JSON.stringify(items),
@@ -80,7 +80,7 @@ Deno.serve(async (req) => {
       .order("posicao", { ascending: true });
     if (dbError) throw new Error(`Erro ao buscar itens do pedido: ${dbError.message}`);
     const items = (rawItems ?? []).map((it: Record<string, unknown>) => ({
-      id: it.id as string,
+      po_item_id: it.id as string,
       codigo: (it.produto_codigo as string) ?? null,
       descricao: (it.produto_descricao as string) ?? null,
       quantidade: Number(it.quantidade ?? 0),
@@ -97,10 +97,11 @@ Deno.serve(async (req) => {
       const text = await fileRes.text();
       userContent = `${instruction}\n\n--- CONTEÚDO DO ORÇAMENTO (TXT) ---\n${text}`;
     } else if (file_type === "image") {
+      const mime = fileRes.headers.get("content-type") || "image/jpeg";
       const b64 = bufferToBase64(await fileRes.arrayBuffer());
       userContent = [
         { type: "text", text: instruction },
-        { type: "image_url", image_url: { url: `data:image/jpeg;base64,${b64}` } },
+        { type: "image_url", image_url: { url: `data:${mime};base64,${b64}` } },
       ];
     } else if (file_type === "pdf") {
       const b64 = bufferToBase64(await fileRes.arrayBuffer());
