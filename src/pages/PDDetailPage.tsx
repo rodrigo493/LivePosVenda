@@ -1321,15 +1321,18 @@ const PDDetailPage = () => {
           <Textarea
             value={currentSquadNotes}
             onChange={(e) => setSquadNotes(e.target.value)}
+            disabled={!editing}
             placeholder="Informações adicionais enviadas ao Squad junto com este PD..."
             rows={4}
           />
-          <div className="flex justify-end pt-1">
-            <Button size="sm" className="gap-1.5" onClick={handleSaveSquadNotes} disabled={savingSquad}>
-              {savingSquad ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-              {savingSquad ? "Enviando..." : "Salvar e Enviar Alerta ao Squad"}
-            </Button>
-          </div>
+          {editing && (
+            <div className="flex justify-end pt-1">
+              <Button size="sm" className="gap-1.5" onClick={handleSaveSquadNotes} disabled={savingSquad}>
+                {savingSquad ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                {savingSquad ? "Enviando..." : "Salvar e Enviar Alerta ao Squad"}
+              </Button>
+            </div>
+          )}
         </div>
         <div>
           <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Custo Estimado (R$)</label>
