@@ -118,6 +118,8 @@ export default function PCDetailPage() {
   }, [supplier?.email]);
 
   // Edit mode states
+  // Invariante: handleEnterEdit sempre define `draft` antes de `editing = true`
+  // (atualizações em lote no React 18), então `draft` é não-nulo sempre que `editing` é true.
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<PCDraft | null>(null);
   const [showExitDialog, setShowExitDialog] = useState(false);
@@ -201,7 +203,7 @@ export default function PCDetailPage() {
   }
 
   function handleSave(onDone?: () => void) {
-    if (!po || !draft) return;
+    if (!po || !draft) { setSavingExit(false); return; }
     updatePO.mutate(
       { id: po.id, ...draft } as any,
       {
