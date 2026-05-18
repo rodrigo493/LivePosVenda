@@ -30,6 +30,7 @@ import { serviceRequestStatusLabels as statusLabels, itemTypeLabels } from "@/co
 import { ExternalLink } from "lucide-react";
 import { formatCurrency as fmtCurrency } from "@/lib/formatters";
 import { ContractSection } from "@/components/pd/ContractSection";
+import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
 import type { ContractItem } from "@/lib/generateContractPdf";
 import { extractCodeFromDescription, quoteToContractInstallments, EBOOK_MAPPING } from "@/lib/contractMappings";
 import { CreateNomusClientDialog } from "@/components/nomus/CreateNomusClientDialog";
@@ -102,6 +103,8 @@ const PDDetailPage = () => {
 
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [showExitDialog, setShowExitDialog] = useState(false);
+  const [savingExit, setSavingExit] = useState(false);
 
   const [notes, setNotes] = useState<string | null>(null);
   const [squadNotes, setSquadNotes] = useState<string | null>(null);
@@ -121,7 +124,6 @@ const PDDetailPage = () => {
 
   const [quoteNotes, setQuoteNotes] = useState<string>("");
   const [quoteValidUntil, setQuoteValidUntil] = useState<string>("");
-  const [savingQuoteDetails, setSavingQuoteDetails] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<"pix" | "transferencia" | "cartao">("pix");
   const [installments, setInstallments] = useState(1);
   useEffect(() => {
@@ -132,48 +134,6 @@ const PDDetailPage = () => {
     setPaymentMethod(((linkedQuote as any).payment_method as "pix" | "transferencia" | "cartao") ?? "pix");
     setInstallments((linkedQuote as any).installments ?? 1);
   }, [linkedQuote?.id, linkedQuote?.notes, linkedQuote?.valid_until, (linkedQuote as any)?.created_by, (linkedQuote as any)?.payment_method, (linkedQuote as any)?.installments]);
-
-  async function saveQuoteDetails() {
-    const quoteId = await ensureLinkedQuote();
-    if (!quoteId) return;
-    setSavingQuoteDetails(true);
-    try {
-      const { error } = await (supabase as any)
-        .from("quotes")
-        .update({
-          notes: quoteNotes || null,
-          valid_until: quoteValidUntil || null,
-          created_by: consultorId || null,
-          payment_method: paymentMethod,
-          installments: paymentMethod === "cartao" ? installments : 1,
-        })
-        .eq("id", quoteId);
-      if (error) { toast.error(error.message); return; }
-      toast.success("Detalhes do orçamento salvos");
-      qc.invalidateQueries({ queryKey: ["pd_linked_quote", id] });
-    } finally {
-      setSavingQuoteDetails(false);
-    }
-  }
-
-  const handlePaymentMethodChange = async (method: "pix" | "transferencia" | "cartao") => {
-    setPaymentMethod(method);
-    const quoteId = await ensureLinkedQuote();
-    if (!quoteId) return;
-    await (supabase as any).from("quotes").update({
-      payment_method: method,
-      installments: method === "cartao" ? installments : 1,
-    }).eq("id", quoteId);
-    qc.invalidateQueries({ queryKey: ["pd_linked_quote", id] });
-  };
-
-  const handleInstallmentsBlur = async () => {
-    if (paymentMethod !== "cartao") return;
-    const quoteId = linkedQuote?.id;
-    if (!quoteId) return;
-    await (supabase as any).from("quotes").update({ installments }).eq("id", quoteId);
-    qc.invalidateQueries({ queryKey: ["pd_linked_quote", id] });
-  };
 
   const [nomusFields, setNomusFields] = useState({
     pedido: "",
@@ -607,6 +567,11 @@ const PDDetailPage = () => {
     setSquadNotes((sr as any).squad_notes ?? "");
     setCost(String(sr.estimated_cost || 0));
     setEditStatus(sr.status);
+    // Detalhes do orçamento — reset to the loaded quote values
+    setQuoteNotes((linkedQuote?.notes as string) ?? "");
+    setQuoteValidUntil((linkedQuote?.valid_until as string) ?? "");
+    setPaymentMethod(((linkedQuote as any)?.payment_method as "pix" | "transferencia" | "cartao") ?? "pix");
+    setInstallments((linkedQuote as any)?.installments ?? 1);
     const next: Record<string, { quantity: string; unit_price: string; description: string }> = {};
     for (const item of items) {
       next[item.id] = {
@@ -624,11 +589,48 @@ const PDDetailPage = () => {
     setSquadNotes(null);
     setCost(null);
     setEditStatus(null);
+    // Restore detalhes do orçamento to the loaded quote values
+    setQuoteNotes((linkedQuote?.notes as string) ?? "");
+    setQuoteValidUntil((linkedQuote?.valid_until as string) ?? "");
+    setPaymentMethod(((linkedQuote as any)?.payment_method as "pix" | "transferencia" | "cartao") ?? "pix");
+    setInstallments((linkedQuote as any)?.installments ?? 1);
   };
 
-  const handleSaveAll = async () => {
+  // isDirty: true only when in edit mode AND at least one editable value differs from the loaded value
+  const isDirty =
+    editing &&
+    (currentNotes !== (sr.notes ?? "") ||
+      currentSquadNotes !== ((sr as any).squad_notes ?? "") ||
+      currentCost !== String(sr.estimated_cost || 0) ||
+      currentStatus !== sr.status ||
+      quoteNotes !== ((linkedQuote?.notes as string) ?? "") ||
+      quoteValidUntil !== ((linkedQuote?.valid_until as string) ?? "") ||
+      paymentMethod !== (((linkedQuote as any)?.payment_method as "pix" | "transferencia" | "cartao") ?? "pix") ||
+      installments !== ((linkedQuote as any)?.installments ?? 1) ||
+      items.some((item: any) => {
+        const ed = editableItems[item.id];
+        if (!ed) return false;
+        return (
+          ed.quantity !== String(item.quantity || 1) ||
+          ed.unit_price !== Number(item.unit_price || 0).toFixed(2) ||
+          ed.description !== (item.description || "")
+        );
+      }));
+
+  function navigateBack() {
+    if (fromTicketId) navigate(`/crm?open_ticket=${fromTicketId}`);
+    else navigate("/pedidos-venda");
+  }
+
+  function handleBackClick() {
+    if (isDirty) setShowExitDialog(true);
+    else navigateBack();
+  }
+
+  const handleSaveAll = async (): Promise<boolean> => {
     setSaving(true);
     try {
+      // 1. Save service_requests fields (notes, squad_notes, estimated_cost, status)
       const { error: srError } = await supabase.from("service_requests").update({
         notes: currentNotes,
         squad_notes: currentSquadNotes || null,
@@ -637,6 +639,7 @@ const PDDetailPage = () => {
       }).eq("id", id!);
       if (srError) throw srError;
 
+      // 2. Save each edited item
       const itemUpdates = items.map(async (item: any) => {
         const ed = editableItems[item.id];
         if (!ed) return;
@@ -652,7 +655,9 @@ const PDDetailPage = () => {
       });
       await Promise.all(itemUpdates);
 
-      if (linkedQuote) {
+      // 3. Save quote detalhes (notes, valid_until, consultor, payment) + recalc totals
+      const quoteId = await ensureLinkedQuote();
+      if (quoteId) {
         let newSubtotal = 0;
         let newDiscount = 0;
         let newFreight = 0;
@@ -666,54 +671,34 @@ const PDDetailPage = () => {
           else newSubtotal += lineTotal;
         }
         const newTotal = newSubtotal + newFreight - newDiscount;
-        await supabase.from("quotes").update({
+        const { error: quoteError } = await (supabase as any).from("quotes").update({
           subtotal: newSubtotal,
           discount: newDiscount,
           freight: newFreight,
           total: newTotal,
-        }).eq("id", linkedQuote.id);
+          notes: quoteNotes || null,
+          valid_until: quoteValidUntil || null,
+          created_by: consultorId || null,
+          payment_method: paymentMethod,
+          installments: paymentMethod === "cartao" ? installments : 1,
+        }).eq("id", quoteId);
+        if (quoteError) throw quoteError;
       }
 
       void notifySquad({ recordType: "pd", recordId: id!, reference: requestNumber });
       toast.success("Alterações salvas e Squad notificado!");
       setEditing(false);
       setNotes(null);
+      setSquadNotes(null);
       setCost(null);
       setEditStatus(null);
       qc.invalidateQueries({ queryKey: ["service_request_detail_pd", id] });
       qc.invalidateQueries({ queryKey: ["pd_linked_quote", id] });
+      return true;
     } catch (err: any) {
       if (import.meta.env.DEV) console.error("Save error:", err);
       toast.error(err.message || "Erro ao salvar alterações");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleStatusChange = async (val: string) => {
-    setEditStatus(val);
-    const { error } = await supabase.from("service_requests").update({ status: val as any }).eq("id", id!);
-    if (error) toast.error("Erro ao atualizar");
-    else { toast.success("Status atualizado"); qc.invalidateQueries({ queryKey: ["service_request_detail_pd", id] }); }
-  };
-
-  const handleSaveBasic = async () => {
-    setSaving(true);
-    try {
-      const { error } = await supabase.from("service_requests").update({
-        notes: currentNotes,
-        squad_notes: currentSquadNotes || null,
-        estimated_cost: parseFloat(currentCost) || 0,
-      }).eq("id", id!);
-      if (error) throw error;
-      toast.success("Alterações salvas!");
-      setNotes(null);
-      setSquadNotes(null);
-      setCost(null);
-      qc.invalidateQueries({ queryKey: ["service_request_detail_pd", id] });
-    } catch (err: any) {
-      if (import.meta.env.DEV) console.error("Save error:", err);
-      toast.error(err.message || "Erro ao salvar");
+      return false;
     } finally {
       setSaving(false);
     }
@@ -902,10 +887,7 @@ const PDDetailPage = () => {
     <div className="max-w-6xl mx-auto">
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
-        <Button variant="ghost" size="sm" onClick={() => {
-          if (fromTicketId) navigate(`/crm?open_ticket=${fromTicketId}`);
-          else navigate("/pedidos-venda");
-        }}><ArrowLeft className="h-4 w-4 mr-1" /> {fromTicketId ? "Voltar ao Card" : "Voltar"}</Button>
+        <Button variant="ghost" size="sm" onClick={handleBackClick}><ArrowLeft className="h-4 w-4 mr-1" /> {fromTicketId ? "Voltar ao Card" : "Voltar"}</Button>
         <div className="flex-1">
           <h1 className="font-display font-bold text-lg flex items-center gap-2">
             <Package className="h-5 w-5 text-primary" /> {requestNumber}
@@ -917,11 +899,7 @@ const PDDetailPage = () => {
         {!editing ? (
           <div className="flex gap-2">
             <Button size="sm" variant="outline" className="gap-1.5" onClick={handleEnterEdit}>
-              <Pencil className="h-3.5 w-3.5" /> Editar Itens
-            </Button>
-            <Button size="sm" className="gap-1.5" onClick={handleSaveBasic} disabled={saving}>
-              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-              Salvar
+              <Pencil className="h-3.5 w-3.5" /> Editar
             </Button>
           </div>
         ) : (
@@ -931,7 +909,7 @@ const PDDetailPage = () => {
             </Button>
             <Button size="sm" className="gap-1.5" onClick={handleSaveAll} disabled={saving}>
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-              Salvar Tudo
+              Salvar
             </Button>
           </div>
         )}
@@ -1027,8 +1005,9 @@ const PDDetailPage = () => {
             <button
               key={value}
               type="button"
-              onClick={() => handlePaymentMethodChange(value)}
-              className={`flex items-start gap-3 p-3 rounded-xl border-2 transition-all text-left ${
+              disabled={!editing}
+              onClick={() => setPaymentMethod(value)}
+              className={`flex items-start gap-3 p-3 rounded-xl border-2 transition-all text-left disabled:opacity-60 disabled:cursor-not-allowed ${
                 paymentMethod === value
                   ? "border-orange-400 bg-orange-50 dark:bg-orange-950/30"
                   : "border-border hover:border-muted-foreground/40 bg-background"
@@ -1050,9 +1029,9 @@ const PDDetailPage = () => {
               type="number"
               min={1}
               max={24}
+              disabled={!editing}
               value={installments}
               onChange={e => setInstallments(Math.max(1, Math.min(24, Number(e.target.value) || 1)))}
-              onBlur={handleInstallmentsBlur}
               className="w-20 h-8 text-sm font-mono"
             />
             {totals.charged > 0 && (
@@ -1318,14 +1297,10 @@ const PDDetailPage = () => {
         <Textarea
           value={quoteNotes}
           onChange={(e) => setQuoteNotes(e.target.value)}
+          disabled={!editing}
           placeholder="Condições de pagamento, prazo estimado, garantia de serviço..."
           rows={3}
         />
-        <div className="flex justify-end mt-2">
-          <Button size="sm" variant="outline" className="gap-1.5" disabled={savingQuoteDetails} onClick={saveQuoteDetails}>
-            <Save className="h-3.5 w-3.5" /> {savingQuoteDetails ? "Salvando..." : "Salvar Detalhes"}
-          </Button>
-        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -1334,6 +1309,7 @@ const PDDetailPage = () => {
           <Textarea
             value={currentNotes}
             onChange={(e) => setNotes(e.target.value)}
+            disabled={!editing}
             placeholder="Observações do pedido de venda..."
             rows={3}
           />
@@ -1362,7 +1338,8 @@ const PDDetailPage = () => {
             step="0.01"
             value={currentCost}
             onChange={(e) => setCost(e.target.value)}
-            className="w-full px-3 py-2 text-sm rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono"
+            disabled={!editing}
+            className="w-full px-3 py-2 text-sm rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono disabled:opacity-60 disabled:cursor-not-allowed"
           />
         </div>
       </div>
@@ -1370,7 +1347,7 @@ const PDDetailPage = () => {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <div>
           <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Status do PD</label>
-          <Select value={currentStatus} onValueChange={handleStatusChange}>
+          <Select value={currentStatus} onValueChange={setEditStatus} disabled={!editing}>
             <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="em_analise">Em Análise</SelectItem>
@@ -1670,13 +1647,26 @@ const PDDetailPage = () => {
       </motion.div>
 
       <div className="flex flex-wrap gap-2 border-t pt-4">
-        <Button size="sm" variant="outline" className="gap-1.5" onClick={() => {
-          if (fromTicketId) navigate(`/crm?open_ticket=${fromTicketId}`);
-          else navigate("/pedidos-venda");
-        }}>
+        <Button size="sm" variant="outline" className="gap-1.5" onClick={handleBackClick}>
           <ArrowLeft className="h-3.5 w-3.5" /> {fromTicketId ? "Voltar ao Card" : "Voltar para Pedidos de Venda"}
         </Button>
       </div>
+
+      <UnsavedChangesDialog
+        open={showExitDialog}
+        saving={savingExit}
+        onCancel={() => setShowExitDialog(false)}
+        onDiscardAndExit={() => { setShowExitDialog(false); handleCancelEdit(); navigateBack(); }}
+        onSaveAndExit={async () => {
+          setSavingExit(true);
+          try {
+            const ok = await handleSaveAll();
+            if (ok) { setShowExitDialog(false); navigateBack(); }
+          } finally {
+            setSavingExit(false);
+          }
+        }}
+      />
     </div>
   );
 };
