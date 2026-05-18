@@ -39,7 +39,7 @@ const clientFields = [
   { name: "document_type", label: "Tipo Documento", type: "select" as const, options: [{ value: "cpf", label: "CPF" }, { value: "cnpj", label: "CNPJ" }] },
   { name: "email", label: "Email", type: "email" as const, placeholder: "email@exemplo.com" },
   { name: "phone", label: "Telefone", type: "tel" as const, placeholder: "(11) 99999-9999" },
-  { name: "whatsapp", label: "WhatsApp", type: "tel" as const, placeholder: "(11) 99999-9999" },
+  { name: "whatsapp", label: "WhatsApp", type: "tel" as const, required: true, placeholder: "(11) 99999-9999" },
   { name: "contact_person", label: "Responsável", placeholder: "Nome do responsável" },
   { name: "address", label: "Endereço", placeholder: "Rua, número, bairro" },
   { name: "city", label: "Cidade", placeholder: "São Paulo" },
