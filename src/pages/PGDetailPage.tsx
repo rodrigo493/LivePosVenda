@@ -557,7 +557,7 @@ const PGDetailPage = () => {
     setCostVal(null);
   };
 
-  const handleSaveAll = async () => {
+  const handleSaveAll = async (): Promise<boolean> => {
     setSaving(true);
     try {
       // 1. Save warranty_claim fields
@@ -620,9 +620,11 @@ const PGDetailPage = () => {
       setCostVal(null);
       qc.invalidateQueries({ queryKey: ["warranty_claim_detail", id] });
       qc.invalidateQueries({ queryKey: ["pg_linked_quote", id] });
+      return true;
     } catch (err: any) {
       if (import.meta.env.DEV) console.error("Save error:", err);
       toast.error(err.message || "Erro ao salvar alterações");
+      return false;
     } finally {
       setSaving(false);
     }
@@ -1594,9 +1596,11 @@ const PGDetailPage = () => {
         onSaveAndExit={async () => {
           setSavingExit(true);
           try {
-            await handleSaveAll();
-            setShowExitDialog(false);
-            navigateBack();
+            const ok = await handleSaveAll();
+            if (ok) {
+              setShowExitDialog(false);
+              navigateBack();
+            }
           } finally {
             setSavingExit(false);
           }
