@@ -1350,21 +1350,19 @@ const CrmPipelinePage = () => {
           },
           { name: "document", label: "CPF / CNPJ", placeholder: "000.000.000-00" },
           { name: "phone", label: "Telefone", type: "tel" as const, placeholder: "(11) 99999-9999" },
-          { name: "whatsapp", label: "WhatsApp", type: "tel" as const, placeholder: "(11) 99999-9999" },
+          { name: "whatsapp", label: "WhatsApp", type: "tel" as const, required: true, placeholder: "(11) 99999-9999" },
           { name: "email", label: "Email", type: "email" as const },
           { name: "contact_person", label: "Pessoa de Contato", placeholder: "Nome do contato" },
           {
             name: "pipeline_stage",
             label: "Etapa do Pipeline",
             type: "select" as const,
-            required: true,
             options: stages.map((s) => ({ value: s.key, label: s.label })),
           },
           {
             name: "model_id",
-            label: "Equipamento",
+            label: "Equipamento (opcional)",
             type: "select" as const,
-            required: true,
             options: equipmentModels?.map((m: any) => ({ value: m.id, label: m.name })) || [],
           },
           { name: "serial_number", label: "Número de Série", placeholder: "Ex: RF-2024-00001" },
@@ -1377,11 +1375,6 @@ const CrmPipelinePage = () => {
         ]}
         onSubmit={async (values) => {
           const { pipeline_stage, model_id, title, serial_number, ...clientData } = values;
-
-          if (!model_id) {
-            toast.error("Selecione um equipamento para criar o card no pipeline");
-            return;
-          }
 
           const normalizedContacts = [normalizePhone(clientData.phone), normalizePhone(clientData.whatsapp)].filter(Boolean);
           let client: any = null;
@@ -1415,16 +1408,20 @@ const CrmPipelinePage = () => {
             client = { ...client, name: clientData.name };
           }
 
-          const { data: newEquipment, error: eqError } = await supabase
-            .from("equipments")
-            .insert({ model_id, client_id: client.id, serial_number: serial_number || null })
-            .select("*, equipment_models(name)")
-            .single();
-          if (eqError) throw eqError;
+          let newEquipment: any = null;
+          if (model_id) {
+            const { data: equipmentData, error: eqError } = await supabase
+              .from("equipments")
+              .insert({ model_id, client_id: client.id, serial_number: serial_number || null })
+              .select("*, equipment_models(name)")
+              .single();
+            if (eqError) throw eqError;
+            newEquipment = equipmentData;
+          }
 
           const newTicket = await createTicket.mutateAsync({
             client_id: client.id,
-            equipment_id: newEquipment.id,
+            equipment_id: newEquipment?.id ?? null,
             ticket_type: "chamado_tecnico",
             title: title || `Atendimento - ${client.name}`,
             ticket_number: "",
