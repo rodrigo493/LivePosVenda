@@ -14,9 +14,17 @@ interface ProductSearchProps {
   modelId?: string;
   onSelect: (product: any, itemType: string) => void;
   itemTypes?: { value: string; label: string }[];
-  productTypeFilter?: "peca" | "servico";
+  productTypeFilter?: "peca" | "servico" | "materia_prima";
   showNomusStock?: boolean;
 }
+
+// Normaliza tipo de produto: minúsculo, sem acentos — para comparação robusta
+const normalizeProductType = (v?: string | null) =>
+  (v || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .trim();
 
 type StockEntry = { loading: boolean; qty: number | null; custoMedio: number | null; preco: number | null };
 type NomusProduct = { id: number; nome: string; codigo: string; preco: number; unidade: string; ativo: boolean };
@@ -108,6 +116,9 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
         if (productTypeFilter === "peca") {
           return p.product_type !== "servico" && p.category !== "servico";
         }
+        if (productTypeFilter === "materia_prima") {
+          return normalizeProductType(p.product_type) === "materia prima";
+        }
         return true;
       })
       .filter((p) => {
@@ -140,7 +151,7 @@ export function ProductSearch({ modelFilter, modelId, onSelect, itemTypes = defa
         return a.name.localeCompare(b.name);
       })
       .slice(0, SEARCH_RESULTS_LIMIT);
-  }, [products, query, modelFilter, compatMap]);
+  }, [products, query, modelFilter, compatMap, productTypeFilter]);
 
   // Busca estoque sob demanda ao passar o mouse — via edge function nomus-search
   const handleMouseEnter = async (code: string) => {

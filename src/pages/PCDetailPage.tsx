@@ -607,6 +607,7 @@ export default function PCDetailPage() {
             </p>
             <ProductSearch
               onSelect={handleProductSelect}
+              productTypeFilter="materia_prima"
             />
           </div>
 
