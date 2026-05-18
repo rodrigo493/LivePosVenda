@@ -44,6 +44,8 @@ async function enviarEmail(opts: {
       client.send({
         from: "Compras Live <compras@liveuniverse.com.br>",
         to: opts.to,
+        // Cópia oculta para a própria caixa de Compras — registra o envio na Caixa de Entrada
+        bcc: "compras@liveuniverse.com.br",
         subject: opts.subject,
         content: opts.content,
         attachments: opts.attachments ?? [],

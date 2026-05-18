@@ -274,7 +274,16 @@ export default function PCDetailPage() {
         body: { purchase_order_id: po.id, file_url: fileUrl, file_type: fileType },
       });
       if (error || !data?.ok) {
-        toast.error(data?.error ?? error?.message ?? "Não foi possível ler com IA — use 'Reprocessar' ou preencha manual.");
+        // FunctionsHttpError esconde o corpo da resposta em error.context — lê o erro real
+        let detail: string | undefined = data?.error;
+        const ctx = (error as { context?: Response } | null)?.context;
+        if (!detail && ctx && typeof ctx.json === "function") {
+          try {
+            const body = await ctx.json();
+            if (body?.error) detail = String(body.error);
+          } catch { /* corpo não é JSON */ }
+        }
+        toast.error(detail ?? error?.message ?? "Não foi possível ler com IA — use 'Reprocessar' ou preencha manual.");
         return;
       }
       const extraction = normalizeQuoteExtraction(data.data, items.map((it) => it.id));
