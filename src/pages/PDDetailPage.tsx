@@ -117,6 +117,7 @@ const PDDetailPage = () => {
   const [newService, setNewService] = useState({ name: "", description: "", cost: "", itemType: "servico_cobrado" });
   const [showFreteForm, setShowFreteForm] = useState(false);
   const [newFrete, setNewFrete] = useState({ carrier: "Correios SEDEX", custom: "", value: "" });
+  // read-only: set from the linked quote when the PD is loaded; no editor UI on this page
   const [consultorId, setConsultorId] = useState<string | null>(null);
   const { data: allUsers = [] } = useAllUsers();
 
@@ -917,7 +918,7 @@ const PDDetailPage = () => {
 
       {editing && (
         <div className="bg-primary/5 border border-primary/20 rounded-lg px-4 py-2 mb-4 text-xs text-primary font-medium flex items-center gap-2">
-          <Pencil className="h-3.5 w-3.5" /> Modo de edição ativo — altere os campos e clique em "Salvar Tudo"
+          <Pencil className="h-3.5 w-3.5" /> Modo de edição ativo — altere os campos e clique em "Salvar"
         </div>
       )}
 
