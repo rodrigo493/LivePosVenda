@@ -15,6 +15,7 @@ supabase functions deploy nomus-search
 supabase functions deploy nomus-create-purchase-order
 supabase functions deploy send-purchase-order-email
 supabase functions deploy extract-supplier-quote
+supabase functions deploy squad-notify
 
 echo "==> [4/4] Frontend (Docker build + service update)"
 docker build \
