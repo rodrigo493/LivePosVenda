@@ -69,11 +69,15 @@ Estado atual: já possuem modo edição para itens, mas três campos gravam sozi
 Novo comportamento:
 - Remover o auto-save dessas três funções: os campos passam a alterar apenas o
   estado local.
-- **Método de pagamento** e **parcelas** continuam sendo persistidos pelo botão
-  **"Salvar Detalhes"**, que já existe e já grava esses campos (`saveQuoteDetails`).
-- **Status** passa a ser persistido junto no botão **"Salvar"** do modo edição
-  (incluído em `handleSaveAll` / `handleSaveBasic`).
-- O restante (notas, custo, itens) continua como hoje: manual, via "Salvar".
+- Os campos de **"Detalhes do orçamento"** (método de pagamento, parcelas,
+  validade, notas do orçamento) deixam de ser editáveis fora do modo edição —
+  passam a só ficar editáveis após o clique em **"Editar"**.
+- O botão **"Salvar Detalhes"** deixa de existir. A persistência desses campos
+  (`saveQuoteDetails`) é unificada no botão **"Salvar"** único do modo edição.
+- **Status** também é persistido nesse mesmo "Salvar".
+- Resultado: PD/PA passam a ter exatamente um fluxo — "Editar" → "Salvar" /
+  "Cancelar" — gravando notas, custo, status, itens e detalhes do orçamento de
+  uma só vez. Comportamento idêntico a PG e PC.
 
 ### PG — Pedido de Garantia
 
@@ -163,4 +167,3 @@ Clicar "Voltar"
 
 - Aviso ao fechar a aba/navegador (`beforeunload`) — decisão explícita do usuário.
 - Auto-save com debounce / rascunho persistido.
-- Unificação dos botões "Salvar" / "Salvar Detalhes" de PD/PA num único botão.
