@@ -673,6 +673,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
   useEffect(() => {
     if (!clientProfile) return;
     setEditClient({
+      name: clientProfile.name || "",
       phone: clientProfile.phone || "",
       whatsapp: clientProfile.whatsapp || "",
       email: clientProfile.email || "",
@@ -793,6 +794,9 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["client-profile", clientId] });
+      // Reflete a alteração na página Clientes e nas listas de cards
+      qc.invalidateQueries({ queryKey: ["clients"] });
+      qc.invalidateQueries({ queryKey: ["pipeline-tickets"] });
       toast.success("Dados do cliente atualizados!");
     },
     onError: () => toast.error("Erro ao atualizar dados do cliente."),
@@ -1173,6 +1177,9 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
     const orig = clientProfile as any;
     const fields = ["phone", "whatsapp", "email", "contact_person", "city", "state", "address", "document", "document_type"] as const;
     fields.forEach((f) => { if ((editClient[f] ?? "") !== (orig?.[f] || "")) clientChanges[f] = editClient[f] ?? ""; });
+    // Nome do cliente: salva só se preenchido e alterado (name é obrigatório, não pode ficar vazio)
+    const trimmedName = (editClient.name ?? "").trim();
+    if (trimmedName && trimmedName !== (orig?.name || "")) clientChanges.name = trimmedName;
     if (Object.keys(clientChanges).length > 0) updateClientProfile.mutate(clientChanges);
     setIsEditingInfo(false);
   };
@@ -1656,7 +1663,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
                         </Button>
                       ) : (
                         <div className="flex gap-1.5">
-                          <Button variant="ghost" size="sm" className="h-7 px-2.5 text-xs" onClick={() => { setIsEditingInfo(false); setTicketTitle(ticket.title || ""); setTicketOrigin(ticket.origin || ""); setTicketChannel(ticket.channel || ""); setTicketCampanha(ticket.campanha || ""); if (clientProfile) setEditClient({ phone: clientProfile.phone || "", whatsapp: clientProfile.whatsapp || "", email: clientProfile.email || "", contact_person: clientProfile.contact_person || "", city: clientProfile.city || "", state: clientProfile.state || "", address: clientProfile.address || "", document: clientProfile.document || "", document_type: clientProfile.document_type || "" }); }}>
+                          <Button variant="ghost" size="sm" className="h-7 px-2.5 text-xs" onClick={() => { setIsEditingInfo(false); setTicketTitle(ticket.title || ""); setTicketOrigin(ticket.origin || ""); setTicketChannel(ticket.channel || ""); setTicketCampanha(ticket.campanha || ""); if (clientProfile) setEditClient({ name: clientProfile.name || "", phone: clientProfile.phone || "", whatsapp: clientProfile.whatsapp || "", email: clientProfile.email || "", contact_person: clientProfile.contact_person || "", city: clientProfile.city || "", state: clientProfile.state || "", address: clientProfile.address || "", document: clientProfile.document || "", document_type: clientProfile.document_type || "" }); }}>
                             <X className="h-3 w-3" />
                           </Button>
                           <Button size="sm" className="h-7 px-2.5 text-xs gap-1.5" onClick={handleSaveInfo} disabled={updateTicketField.isPending || updateClientProfile.isPending}>
@@ -1669,7 +1676,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
                       <div className="col-span-2 md:col-span-4">
                         <EditableInfoRow icon={FileText} label="Nome do card" value={ticketTitle} onChange={setTicketTitle} editing={isEditingInfo} />
                       </div>
-                      <InfoRow icon={User} label="Cliente" value={ticket.clients?.name} />
+                      <EditableInfoRow icon={User} label="Cliente" value={editClient.name ?? ticket.clients?.name ?? ""} onChange={(v) => setEditClient((p) => ({ ...p, name: v }))} editing={isEditingInfo} />
                       <div className="flex flex-col gap-1">
                         <div className="flex items-center gap-1.5 text-muted-foreground">
                           <Tag className="h-3.5 w-3.5" />
