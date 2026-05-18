@@ -21,6 +21,48 @@ function normalizePhone(raw: string): string {
   return digits;
 }
 
+// Registra a conversão no RD Station Marketing via API de Conversões.
+// A chave fica em RD_MARKETING_API_KEY (secret do Supabase) — nunca no código.
+async function sendToRdMarketing(lead: {
+  name: string;
+  email: string;
+  phone: string;
+  hasStudio: boolean;
+}): Promise<void> {
+  const apiKey = Deno.env.get("RD_MARKETING_API_KEY");
+  if (!apiKey) {
+    console.warn("[lp-studio-lead] RD_MARKETING_API_KEY não configurada — RD ignorado");
+    return;
+  }
+
+  const resp = await fetch(
+    `https://api.rd.services/platform/conversions?api_key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event_type: "CONVERSION",
+        event_family: "CDP",
+        payload: {
+          conversion_identifier: "lp-combo-studio-classic",
+          name: lead.name,
+          email: lead.email,
+          mobile_phone: "+" + lead.phone,
+          tags: [
+            "lp-combo-studio-classic",
+            lead.hasStudio ? "possui-studio-sim" : "possui-studio-nao",
+          ],
+        },
+      }),
+    },
+  );
+
+  if (!resp.ok) {
+    const txt = await resp.text().catch(() => "");
+    throw new Error(`RD ${resp.status}: ${txt}`);
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "Método não permitido" }, 405);
@@ -157,6 +199,17 @@ Deno.serve(async (req) => {
     if (te || !ticket) throw new Error(`Criar ticket: ${te?.message ?? "falha"}`);
 
     console.log(`[lp-studio-lead] OK — client=${clientId} ticket=${ticket.id}`);
+
+    // Envia a conversão para o RD Station Marketing.
+    // Isolado: se o RD falhar, o lead NÃO se perde — já está salvo no CRM acima.
+    try {
+      await sendToRdMarketing({ name, email, phone, hasStudio });
+      console.log("[lp-studio-lead] RD Marketing OK");
+    } catch (rdErr) {
+      const m = rdErr instanceof Error ? rdErr.message : String(rdErr);
+      console.error("[lp-studio-lead] RD Marketing falhou (lead salvo no CRM):", m);
+    }
+
     return json({ success: true, ticket_id: ticket.id });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
