@@ -371,6 +371,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
   const [ticketOrigin, setTicketOrigin] = useState("");
   const [ticketChannel, setTicketChannel] = useState("");
   const [ticketCampanha, setTicketCampanha] = useState("");
+  const [ticketTitle, setTicketTitle] = useState("");
   const [ticketStatus, setTicketStatus] = useState("");
   const prevTicketStatusRef = useRef("");
   const [isEditingInfo, setIsEditingInfo] = useState(false);
@@ -648,6 +649,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
     setTicketOrigin(ticket.origin || "");
     setTicketChannel(ticket.channel || "");
     setTicketCampanha(ticket.campanha || "");
+    setTicketTitle(ticket.title || "");
     setTicketStatus(ticket.status || "aberto");
     setIsEditingInfo(false);
     setLocalPipelineId(ticket.pipeline_id ?? null);
@@ -797,7 +799,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
   });
 
   const updateTicketField = useMutation({
-    mutationFn: async ({ field, value }: { field: "description" | "internal_notes" | "objecao" | "ticket_type" | "origin" | "channel" | "campanha" | "status"; value: string }) => {
+    mutationFn: async ({ field, value }: { field: "description" | "internal_notes" | "objecao" | "ticket_type" | "origin" | "channel" | "campanha" | "title" | "status"; value: string }) => {
       const { error } = await supabase.from("tickets").update({ [field]: value, updated_at: new Date().toISOString() }).eq("id", ticketId!);
       if (error) throw error;
 
@@ -1162,6 +1164,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
   };
 
   const handleSaveInfo = () => {
+    const trimmedTitle = ticketTitle.trim();
+    if (trimmedTitle && trimmedTitle !== (ticket.title || "")) updateTicketField.mutate({ field: "title", value: trimmedTitle });
     if (ticketOrigin !== (ticket.origin || "")) updateTicketField.mutate({ field: "origin", value: ticketOrigin });
     if (ticketChannel !== (ticket.channel || "")) updateTicketField.mutate({ field: "channel", value: ticketChannel });
     if (ticketCampanha !== (ticket.campanha || "")) updateTicketField.mutate({ field: "campanha", value: ticketCampanha });
@@ -1532,7 +1536,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
                   </DropdownMenu>
                 )}
               </div>
-              <DialogTitle className="text-lg">{ticket.title}</DialogTitle>
+              <DialogTitle className="text-lg">{ticketTitle || ticket.title}</DialogTitle>
               <DialogDescription className="flex items-center gap-4 text-sm">
                 <span className="font-medium">{ticket.clients?.name || "—"}</span>
                 {ticket.equipments && (
@@ -1652,7 +1656,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
                         </Button>
                       ) : (
                         <div className="flex gap-1.5">
-                          <Button variant="ghost" size="sm" className="h-7 px-2.5 text-xs" onClick={() => { setIsEditingInfo(false); setTicketOrigin(ticket.origin || ""); setTicketChannel(ticket.channel || ""); setTicketCampanha(ticket.campanha || ""); if (clientProfile) setEditClient({ phone: clientProfile.phone || "", whatsapp: clientProfile.whatsapp || "", email: clientProfile.email || "", contact_person: clientProfile.contact_person || "", city: clientProfile.city || "", state: clientProfile.state || "", address: clientProfile.address || "", document: clientProfile.document || "", document_type: clientProfile.document_type || "" }); }}>
+                          <Button variant="ghost" size="sm" className="h-7 px-2.5 text-xs" onClick={() => { setIsEditingInfo(false); setTicketTitle(ticket.title || ""); setTicketOrigin(ticket.origin || ""); setTicketChannel(ticket.channel || ""); setTicketCampanha(ticket.campanha || ""); if (clientProfile) setEditClient({ phone: clientProfile.phone || "", whatsapp: clientProfile.whatsapp || "", email: clientProfile.email || "", contact_person: clientProfile.contact_person || "", city: clientProfile.city || "", state: clientProfile.state || "", address: clientProfile.address || "", document: clientProfile.document || "", document_type: clientProfile.document_type || "" }); }}>
                             <X className="h-3 w-3" />
                           </Button>
                           <Button size="sm" className="h-7 px-2.5 text-xs gap-1.5" onClick={handleSaveInfo} disabled={updateTicketField.isPending || updateClientProfile.isPending}>
@@ -1662,6 +1666,9 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, initialTab }: P
                       )}
                     </div>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div className="col-span-2 md:col-span-4">
+                        <EditableInfoRow icon={FileText} label="Nome do card" value={ticketTitle} onChange={setTicketTitle} editing={isEditingInfo} />
+                      </div>
                       <InfoRow icon={User} label="Cliente" value={ticket.clients?.name} />
                       <div className="flex flex-col gap-1">
                         <div className="flex items-center gap-1.5 text-muted-foreground">
