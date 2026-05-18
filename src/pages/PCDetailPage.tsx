@@ -10,6 +10,7 @@ import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
+import { notifySquad } from "@/lib/squadNotify";
 
 import {
   usePurchaseOrder,
@@ -387,6 +388,13 @@ export default function PCDetailPage() {
       }
       if (data?.ok) {
         toast.success(`Pedido criado no Nomus: ${data.codigoPedido}`);
+        // Notifica o SquadOS — cria card no Fluxo de Pedidos (fire-and-forget)
+        void notifySquad({
+          recordType: "pc",
+          recordId: po.id,
+          reference: po.order_number,
+          target: "pedido-acessorios",
+        });
         qc.invalidateQueries({ queryKey: ["purchase-order", po.id] });
       } else {
         toast.error(data?.error ?? "Erro ao criar no Nomus");

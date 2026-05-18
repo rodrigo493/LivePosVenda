@@ -2,7 +2,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
 type NotifySquadParams = {
-  recordType: "pa" | "pd" | "pg";
+  recordType: "pa" | "pd" | "pg" | "pc";
   recordId: string;
   reference: string;
   message?: string;

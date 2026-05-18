@@ -8,7 +8,7 @@ const corsHeaders = {
 const SQUAD_BASE = 'https://squad.liveuni.com.br';
 const POSVENDA_BASE = 'https://posvenda.liveuni.com.br';
 
-type RecordType = 'pa' | 'pd' | 'pg';
+type RecordType = 'pa' | 'pd' | 'pg' | 'pc';
 type Target = 'pos-venda' | 'gerar-op' | 'pedido-acessorios';
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {
@@ -32,6 +32,7 @@ function pathFor(recordType: RecordType, recordId: string): string {
     pa: 'pedidos-acessorios',
     pd: 'pedidos-direto',
     pg: 'pedidos-garantia',
+    pc: 'pedidos-compras',
   };
   const segment = segments[recordType] ?? 'pedidos-acessorios';
   return `${POSVENDA_BASE}/${segment}/${recordId}`;
@@ -42,6 +43,7 @@ function tableFor(recordType: RecordType): string {
     pa: 'service_requests',
     pd: 'service_requests',
     pg: 'warranty_claims',
+    pc: 'purchase_orders',
   };
   return tables[recordType] ?? 'service_requests';
 }
@@ -67,8 +69,8 @@ Deno.serve(async (req) => {
       target?: Target;
     };
 
-    if (record_type !== 'pa' && record_type !== 'pd' && record_type !== 'pg') {
-      return jsonResponse({ error: 'record_type must be "pa", "pd" or "pg"' }, 400);
+    if (record_type !== 'pa' && record_type !== 'pd' && record_type !== 'pg' && record_type !== 'pc') {
+      return jsonResponse({ error: 'record_type must be "pa", "pd", "pg" or "pc"' }, 400);
     }
     if (!record_id || !reference) {
       return jsonResponse({ error: 'record_id and reference are required' }, 400);
@@ -81,7 +83,8 @@ Deno.serve(async (req) => {
 
     // Usa message passado ou busca squad_notes no banco (pos-venda e pedido-acessorios)
     let notes: string | null = message ?? null;
-    if (!notes && (resolvedTarget === 'pos-venda' || resolvedTarget === 'pedido-acessorios')) {
+    // pc (purchase_orders) não tem coluna squad_notes — pula a leitura
+    if (!notes && record_type !== 'pc' && (resolvedTarget === 'pos-venda' || resolvedTarget === 'pedido-acessorios')) {
       const { data: record } = await supabase
         .from(table)
         .select('squad_notes')
