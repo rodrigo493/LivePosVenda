@@ -29,6 +29,7 @@ import { useAllUsers } from "@/hooks/useUserAccess";
 import { warrantyStatusLabels, itemTypeLabels } from "@/constants/statusLabels";
 import { ExternalLink } from "lucide-react";
 import { CreateNomusClientDialog } from "@/components/nomus/CreateNomusClientDialog";
+import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
 
 const partTypes = [
   { value: "peca_cobrada", label: "Peça (Cobrada)" },
@@ -83,6 +84,8 @@ const PGDetailPage = () => {
   // Edit mode state
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [showExitDialog, setShowExitDialog] = useState(false);
+  const [savingExit, setSavingExit] = useState(false);
 
   const [defect, setDefect] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<string | null>(null);
@@ -508,6 +511,25 @@ const PGDetailPage = () => {
     qc.invalidateQueries({ queryKey: ["pg_linked_quote", id] });
   };
 
+  // isDirty: true only when in edit mode AND at least one field differs from the saved value
+  const isDirty =
+    editing &&
+    (defect !== (wc.defect_description ?? "") ||
+      analysis !== (wc.technical_analysis ?? "") ||
+      parts !== (wc.covered_parts ?? "") ||
+      squadNotes !== ((wc as any).squad_notes ?? "") ||
+      costVal !== String(wc.internal_cost || 0));
+
+  function navigateBack() {
+    if (fromTicketId) navigate(`/crm?open_ticket=${fromTicketId}`);
+    else navigate("/pedidos-garantia");
+  }
+
+  function handleBackClick() {
+    if (isDirty) setShowExitDialog(true);
+    else navigateBack();
+  }
+
   const handleEnterEdit = () => {
     setEditing(true);
     setDefect(wc.defect_description ?? "");
@@ -836,10 +858,7 @@ const PGDetailPage = () => {
     <div className="max-w-6xl mx-auto">
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
-        <Button variant="ghost" size="sm" onClick={() => {
-          if (fromTicketId) navigate(`/crm?open_ticket=${fromTicketId}`);
-          else navigate("/pedidos-garantia");
-        }}><ArrowLeft className="h-4 w-4 mr-1" /> {fromTicketId ? "Voltar ao Card" : "Voltar"}</Button>
+        <Button variant="ghost" size="sm" onClick={handleBackClick}><ArrowLeft className="h-4 w-4 mr-1" /> {fromTicketId ? "Voltar ao Card" : "Voltar"}</Button>
         <div className="flex-1">
           <h1 className="font-display font-bold text-lg flex items-center gap-2">
             <Shield className="h-5 w-5 text-primary" /> {claimNumber}
@@ -1558,13 +1577,31 @@ const PGDetailPage = () => {
 
       {/* Actions bar */}
       <div className="flex flex-wrap gap-2 border-t pt-4">
-        <Button size="sm" variant="outline" className="gap-1.5" onClick={() => {
-          if (fromTicketId) navigate(`/crm?open_ticket=${fromTicketId}`);
-          else navigate("/pedidos-garantia");
-        }}>
+        <Button size="sm" variant="outline" className="gap-1.5" onClick={handleBackClick}>
           <ArrowLeft className="h-3.5 w-3.5" /> {fromTicketId ? "Voltar ao Card" : "Voltar para Pedidos de Garantia"}
         </Button>
       </div>
+
+      <UnsavedChangesDialog
+        open={showExitDialog}
+        saving={savingExit}
+        onCancel={() => setShowExitDialog(false)}
+        onDiscardAndExit={() => {
+          setShowExitDialog(false);
+          handleCancelEdit();
+          navigateBack();
+        }}
+        onSaveAndExit={async () => {
+          setSavingExit(true);
+          try {
+            await handleSaveAll();
+            setShowExitDialog(false);
+            navigateBack();
+          } finally {
+            setSavingExit(false);
+          }
+        }}
+      />
     </div>
   );
 };
