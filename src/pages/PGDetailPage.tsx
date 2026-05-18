@@ -518,7 +518,16 @@ const PGDetailPage = () => {
       analysis !== (wc.technical_analysis ?? "") ||
       parts !== (wc.covered_parts ?? "") ||
       squadNotes !== ((wc as any).squad_notes ?? "") ||
-      costVal !== String(wc.internal_cost || 0));
+      costVal !== String(wc.internal_cost || 0) ||
+      items.some((item: any) => {
+        const ed = editableItems[item.id];
+        if (!ed) return false;
+        return (
+          ed.quantity !== String(item.quantity || 1) ||
+          ed.unit_price !== Number(item.unit_price || 0).toFixed(2) ||
+          ed.description !== (item.description || "")
+        );
+      }));
 
   function navigateBack() {
     if (fromTicketId) navigate(`/crm?open_ticket=${fromTicketId}`);
