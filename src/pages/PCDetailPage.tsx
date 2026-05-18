@@ -30,6 +30,7 @@ import { PURCHASE_ORDER_STATUS_LABELS } from "@/types/purchaseOrder";
 import type { PurchaseOrderStatus } from "@/types/purchaseOrder";
 import { SupplierQuoteReviewDialog } from "@/components/compras/SupplierQuoteReviewDialog";
 import { normalizeQuoteExtraction, type QuoteExtraction, type QuoteApplyPlan } from "@/lib/quoteExtraction";
+import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog";
 
 // ─── Tipo Movimentação autocomplete ─────────────────────────────────────────
 
@@ -79,54 +80,23 @@ function TipoMovimentacaoSearch({
   );
 }
 
-// ─── Campo de texto com persistência no blur ─────────────────────────────────
+// ─── Draft type ──────────────────────────────────────────────────────────────
 
-function FieldInput({
-  defaultValue,
-  onBlurSave,
-  placeholder,
-  className,
-}: {
-  defaultValue: string;
-  onBlurSave: (val: string) => void;
-  placeholder?: string;
-  className?: string;
-}) {
-  const [val, setVal] = useState(defaultValue);
-  return (
-    <Input
-      value={val}
-      onChange={(e) => setVal(e.target.value)}
-      onBlur={() => onBlurSave(val)}
-      placeholder={placeholder}
-      className={className ?? "h-9 text-xs"}
-    />
-  );
-}
-
-function FieldTextarea({
-  defaultValue,
-  onBlurSave,
-  placeholder,
-  rows,
-}: {
-  defaultValue: string;
-  onBlurSave: (val: string) => void;
-  placeholder?: string;
-  rows?: number;
-}) {
-  const [val, setVal] = useState(defaultValue);
-  return (
-    <Textarea
-      value={val}
-      onChange={(e) => setVal(e.target.value)}
-      onBlur={() => onBlurSave(val)}
-      placeholder={placeholder}
-      rows={rows ?? 3}
-      className="text-xs"
-    />
-  );
-}
+type PCDraft = {
+  nomus_empresa_label: string | null;
+  nomus_fornecedor_id: number | null;
+  nomus_fornecedor_nome: string | null;
+  nomus_tipo_movimentacao_id: number | null;
+  nomus_tipo_movimentacao_label: string | null;
+  data_emissao: string | null;
+  data_entrega_padrao: string | null;
+  nomus_contato_label: string | null;
+  nomus_comprador_id: number | null;
+  nomus_comprador_nome: string | null;
+  condicao_pagamento: string | null;
+  observacoes: string | null;
+  status: PurchaseOrderStatus;
+};
 
 // ─── Page ────────────────────────────────────────────────────────────────────
 
@@ -146,6 +116,14 @@ export default function PCDetailPage() {
   useEffect(() => {
     setSupplierEmail(supplier?.email ?? "");
   }, [supplier?.email]);
+
+  // Edit mode states
+  // Invariante: handleEnterEdit sempre define `draft` antes de `editing = true`
+  // (atualizações em lote no React 18), então `draft` é não-nulo sempre que `editing` é true.
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<PCDraft | null>(null);
+  const [showExitDialog, setShowExitDialog] = useState(false);
+  const [savingExit, setSavingExit] = useState(false);
 
   const updatePO = useUpdatePurchaseOrder();
   const addItem = useAddPurchaseOrderItem();
@@ -182,6 +160,78 @@ export default function PCDetailPage() {
         Pedido de compra não encontrado.
       </div>
     );
+  }
+
+  // ─── Edit mode helpers ────────────────────────────────────────────────────
+
+  function buildDraft(): PCDraft {
+    return {
+      nomus_empresa_label: po!.nomus_empresa_label ?? null,
+      nomus_fornecedor_id: po!.nomus_fornecedor_id ?? null,
+      nomus_fornecedor_nome: po!.nomus_fornecedor_nome ?? null,
+      nomus_tipo_movimentacao_id: po!.nomus_tipo_movimentacao_id ?? null,
+      nomus_tipo_movimentacao_label: po!.nomus_tipo_movimentacao_label ?? null,
+      data_emissao: po!.data_emissao ?? null,
+      data_entrega_padrao: po!.data_entrega_padrao ?? null,
+      nomus_contato_label: po!.nomus_contato_label ?? null,
+      nomus_comprador_id: po!.nomus_comprador_id ?? null,
+      nomus_comprador_nome: po!.nomus_comprador_nome ?? null,
+      condicao_pagamento: po!.condicao_pagamento ?? null,
+      observacoes: po!.observacoes ?? null,
+      status: po!.status,
+    };
+  }
+
+  function handleEnterEdit() {
+    setDraft(buildDraft());
+    setEditing(true);
+  }
+
+  function handleCancelEdit() {
+    setDraft(null);
+    setEditing(false);
+  }
+
+  const isDirty =
+    editing && draft != null &&
+    (Object.keys(draft) as (keyof PCDraft)[]).some(
+      (k) => draft[k] !== buildDraft()[k],
+    );
+
+  function setField<K extends keyof PCDraft>(key: K, value: PCDraft[K]) {
+    setDraft((d) => (d ? { ...d, [key]: value } : d));
+  }
+
+  function handleSave(onDone?: () => void) {
+    if (!po || !draft) { setSavingExit(false); return; }
+    updatePO.mutate(
+      { id: po.id, ...draft } as any,
+      {
+        onSuccess: () => {
+          toast.success("Pedido de compra salvo!");
+          setEditing(false);
+          setDraft(null);
+          onDone?.();
+        },
+        onError: () => {
+          toast.error("Falha ao salvar o pedido de compra");
+          setSavingExit(false);
+        },
+      },
+    );
+  }
+
+  function navigateBack() {
+    if (fromTicketId) navigate(`/crm?open_ticket=${fromTicketId}`);
+    else navigate("/pedidos-compras");
+  }
+
+  function handleBackClick() {
+    if (editing && isDirty) {
+      setShowExitDialog(true);
+    } else {
+      navigateBack();
+    }
   }
 
   // ─── Actions ──────────────────────────────────────────────────────────────
@@ -374,10 +424,7 @@ export default function PCDetailPage() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => {
-            if (fromTicketId) navigate(`/crm?open_ticket=${fromTicketId}`);
-            else navigate("/pedidos-compras");
-          }}
+          onClick={handleBackClick}
         >
           <ArrowLeft className="h-4 w-4 mr-1" />
           {fromTicketId ? "Voltar ao Card" : "Voltar"}
@@ -398,8 +445,9 @@ export default function PCDetailPage() {
         {/* Status select */}
         <div className="w-44">
           <Select
-            value={po.status}
-            onValueChange={(val) => update({ status: val as PurchaseOrderStatus })}
+            value={editing ? draft!.status : po.status}
+            onValueChange={(val) => setField("status", val as PurchaseOrderStatus)}
+            disabled={!editing}
           >
             <SelectTrigger className="h-8 text-xs">
               <SelectValue />
@@ -415,6 +463,22 @@ export default function PCDetailPage() {
             </SelectContent>
           </Select>
         </div>
+
+        {/* Editar / Salvar / Cancelar */}
+        {editing ? (
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={handleCancelEdit}>
+              Cancelar
+            </Button>
+            <Button size="sm" onClick={() => handleSave()} disabled={updatePO.isPending}>
+              {updatePO.isPending ? "Salvando..." : "Salvar"}
+            </Button>
+          </div>
+        ) : (
+          <Button variant="outline" size="sm" onClick={handleEnterEdit}>
+            Editar
+          </Button>
+        )}
       </div>
 
       {/* ── Informações gerais ─────────────────────────────────────────────── */}
@@ -446,11 +510,12 @@ export default function PCDetailPage() {
               Empresa
             </Label>
             <div className="mt-1">
-              <FieldInput
-                key={`empresa-${po.id}`}
-                defaultValue={po.nomus_empresa_label ?? ""}
-                onBlurSave={(val) => update({ nomus_empresa_label: val || null })}
+              <Input
+                value={editing ? (draft!.nomus_empresa_label ?? "") : (po.nomus_empresa_label ?? "")}
+                onChange={(e) => setField("nomus_empresa_label", e.target.value || null)}
+                readOnly={!editing}
                 placeholder="Ex: TS"
+                className={`h-9 text-xs ${!editing ? "bg-muted/40 cursor-default" : ""}`}
               />
             </div>
           </div>
@@ -461,18 +526,27 @@ export default function PCDetailPage() {
               Fornecedor
             </Label>
             <div className="mt-1">
-              <NomusPessoaSearch
-                categoria="fornecedor"
-                value={po.nomus_fornecedor_nome}
-                onSelect={(p) =>
-                  update({ nomus_fornecedor_id: p.id, nomus_fornecedor_nome: p.nome })
-                }
-                placeholder="Buscar fornecedor..."
-              />
+              {editing ? (
+                <NomusPessoaSearch
+                  categoria="fornecedor"
+                  value={draft!.nomus_fornecedor_nome}
+                  onSelect={(p) => {
+                    setField("nomus_fornecedor_id", p.id);
+                    setField("nomus_fornecedor_nome", p.nome);
+                  }}
+                  placeholder="Buscar fornecedor..."
+                />
+              ) : (
+                <Input
+                  value={po.nomus_fornecedor_nome ?? ""}
+                  readOnly
+                  className="h-9 text-xs bg-muted/40 cursor-default"
+                />
+              )}
             </div>
           </div>
 
-          {/* 3b. E-mail do fornecedor */}
+          {/* 3b. E-mail do fornecedor — local state only, not in draft */}
           <div>
             <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
               E-mail do fornecedor
@@ -494,12 +568,21 @@ export default function PCDetailPage() {
               Tipo de movimentação
             </Label>
             <div className="mt-1">
-              <TipoMovimentacaoSearch
-                value={po.nomus_tipo_movimentacao_label}
-                onSelect={(codigo, nome) =>
-                  update({ nomus_tipo_movimentacao_id: codigo, nomus_tipo_movimentacao_label: nome })
-                }
-              />
+              {editing ? (
+                <TipoMovimentacaoSearch
+                  value={draft!.nomus_tipo_movimentacao_label}
+                  onSelect={(codigo, nome) => {
+                    setField("nomus_tipo_movimentacao_id", codigo);
+                    setField("nomus_tipo_movimentacao_label", nome);
+                  }}
+                />
+              ) : (
+                <Input
+                  value={po.nomus_tipo_movimentacao_label ?? ""}
+                  readOnly
+                  className="h-9 text-xs bg-muted/40 cursor-default"
+                />
+              )}
             </div>
           </div>
 
@@ -510,10 +593,10 @@ export default function PCDetailPage() {
             </Label>
             <input
               type="date"
-              key={`emissao-${po.id}`}
-              defaultValue={po.data_emissao ?? ""}
-              onBlur={(e) => update({ data_emissao: e.target.value || null })}
-              className="mt-1 w-full px-3 py-2 text-xs rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring h-9"
+              value={editing ? (draft!.data_emissao ?? "") : (po.data_emissao ?? "")}
+              onChange={(e) => setField("data_emissao", e.target.value || null)}
+              disabled={!editing}
+              className="mt-1 w-full px-3 py-2 text-xs rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring h-9 disabled:bg-muted/40"
             />
           </div>
 
@@ -524,10 +607,10 @@ export default function PCDetailPage() {
             </Label>
             <input
               type="date"
-              key={`entrega-${po.id}`}
-              defaultValue={po.data_entrega_padrao ?? ""}
-              onBlur={(e) => update({ data_entrega_padrao: e.target.value || null })}
-              className="mt-1 w-full px-3 py-2 text-xs rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring h-9"
+              value={editing ? (draft!.data_entrega_padrao ?? "") : (po.data_entrega_padrao ?? "")}
+              onChange={(e) => setField("data_entrega_padrao", e.target.value || null)}
+              disabled={!editing}
+              className="mt-1 w-full px-3 py-2 text-xs rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring h-9 disabled:bg-muted/40"
             />
           </div>
 
@@ -537,11 +620,12 @@ export default function PCDetailPage() {
               Contato
             </Label>
             <div className="mt-1">
-              <FieldInput
-                key={`contato-${po.id}`}
-                defaultValue={po.nomus_contato_label ?? ""}
-                onBlurSave={(val) => update({ nomus_contato_label: val || null })}
+              <Input
+                value={editing ? (draft!.nomus_contato_label ?? "") : (po.nomus_contato_label ?? "")}
+                onChange={(e) => setField("nomus_contato_label", e.target.value || null)}
+                readOnly={!editing}
                 placeholder="Nome do contato..."
+                className={`h-9 text-xs ${!editing ? "bg-muted/40 cursor-default" : ""}`}
               />
             </div>
           </div>
@@ -552,14 +636,23 @@ export default function PCDetailPage() {
               Comprador
             </Label>
             <div className="mt-1">
-              <NomusPessoaSearch
-                categoria="comprador"
-                value={po.nomus_comprador_nome}
-                onSelect={(p) =>
-                  update({ nomus_comprador_id: p.id, nomus_comprador_nome: p.nome })
-                }
-                placeholder="Buscar comprador..."
-              />
+              {editing ? (
+                <NomusPessoaSearch
+                  categoria="comprador"
+                  value={draft!.nomus_comprador_nome}
+                  onSelect={(p) => {
+                    setField("nomus_comprador_id", p.id);
+                    setField("nomus_comprador_nome", p.nome);
+                  }}
+                  placeholder="Buscar comprador..."
+                />
+              ) : (
+                <Input
+                  value={po.nomus_comprador_nome ?? ""}
+                  readOnly
+                  className="h-9 text-xs bg-muted/40 cursor-default"
+                />
+              )}
             </div>
           </div>
 
@@ -569,11 +662,12 @@ export default function PCDetailPage() {
               Condição de pagamento
             </Label>
             <div className="mt-1">
-              <FieldInput
-                key={`condicao-${po.id}`}
-                defaultValue={po.condicao_pagamento ?? ""}
-                onBlurSave={(val) => update({ condicao_pagamento: val || null })}
+              <Input
+                value={editing ? (draft!.condicao_pagamento ?? "") : (po.condicao_pagamento ?? "")}
+                onChange={(e) => setField("condicao_pagamento", e.target.value || null)}
+                readOnly={!editing}
                 placeholder="Ex: 30/60/90 dias..."
+                className={`h-9 text-xs ${!editing ? "bg-muted/40 cursor-default" : ""}`}
               />
             </div>
           </div>
@@ -584,12 +678,13 @@ export default function PCDetailPage() {
               Observações
             </Label>
             <div className="mt-1">
-              <FieldTextarea
-                key={`obs-${po.id}`}
-                defaultValue={po.observacoes ?? ""}
-                onBlurSave={(val) => update({ observacoes: val || null })}
+              <Textarea
+                value={editing ? (draft!.observacoes ?? "") : (po.observacoes ?? "")}
+                onChange={(e) => setField("observacoes", e.target.value || null)}
+                readOnly={!editing}
                 placeholder="Observações gerais do pedido de compra..."
                 rows={3}
+                className={`text-xs ${!editing ? "bg-muted/40 cursor-default" : ""}`}
               />
             </div>
           </div>
@@ -751,6 +846,17 @@ export default function PCDetailPage() {
           onApply={handleApplyExtraction}
         />
       )}
+
+      <UnsavedChangesDialog
+        open={showExitDialog}
+        saving={savingExit}
+        onCancel={() => setShowExitDialog(false)}
+        onDiscardAndExit={() => { setShowExitDialog(false); handleCancelEdit(); navigateBack(); }}
+        onSaveAndExit={() => {
+          setSavingExit(true);
+          handleSave(() => { setSavingExit(false); setShowExitDialog(false); navigateBack(); });
+        }}
+      />
     </div>
   );
 }
