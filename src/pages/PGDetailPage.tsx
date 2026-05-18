@@ -702,7 +702,7 @@ const PGDetailPage = () => {
     if (!nomusFields.cliente.trim()) { toast.error("Preencha o nome do cliente."); return; }
 
     setApproving(true);
-    void notifySquad({ recordType: "pg", recordId: id!, reference: claimNumber });
+    void notifySquad({ recordType: "pg", recordId: id!, reference: claimNumber, target: "pedido-acessorios" });
     try {
       let idPessoaCliente = nomusClientId;
       if (!idPessoaCliente) {
