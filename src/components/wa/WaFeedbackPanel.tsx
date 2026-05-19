@@ -107,7 +107,7 @@ export function WaFeedbackPanel({ clientId, canAnalyze = true }: WaFeedbackPanel
       }
     },
     onSuccess: () => {
-      toast.success("Análise iniciada — resultado em ~20s");
+      toast.success("Análise concluída");
       qc.invalidateQueries({ queryKey: ["wa-feedback", clientId] });
     },
     onError: (err: unknown) => {
@@ -208,7 +208,7 @@ export function WaFeedbackPanel({ clientId, canAnalyze = true }: WaFeedbackPanel
               disabled={analyze.isPending}
             >
               {analyze.isPending
-                ? <><Loader2 className="h-3 w-3 animate-spin" /> Iniciando...</>
+                ? <><Loader2 className="h-3 w-3 animate-spin" /> Analisando...</>
                 : isStuckPending
                 ? <><Brain className="h-3 w-3" /> Re-analisar</>
                 : <><Brain className="h-3 w-3" /> Analisar agora</>}

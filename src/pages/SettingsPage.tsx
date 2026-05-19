@@ -191,15 +191,15 @@ function WaIaSettingsTab() {
         </p>
       </div>
 
-      {/* Agent ID */}
+      {/* Modelos de IA */}
       <div className="space-y-2">
-        <p className="text-sm font-medium">Agente IA em uso</p>
+        <p className="text-sm font-medium">Modelos de IA em uso</p>
         <input
           readOnly
-          value={settings?.agent_id ?? "agente-feedback-wa"}
+          value="Claude Sonnet 4.6 (feedback) · Claude Haiku 4.5 (copiloto) — via OpenRouter"
           className="w-full border rounded-lg px-3 py-1.5 text-sm bg-muted text-muted-foreground"
         />
-        <p className="text-xs text-muted-foreground">Identificador do agente responsável pela análise de conversas.</p>
+        <p className="text-xs text-muted-foreground">Modelos usados na análise de qualidade das conversas e no copiloto de respostas.</p>
       </div>
 
       {/* Botão salvar */}
