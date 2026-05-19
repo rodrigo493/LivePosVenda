@@ -4,9 +4,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANON_KEY     = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-const OPENCLAW_URL   = Deno.env.get("OPENCLAW_URL")!;
-const OPENCLAW_TOKEN = Deno.env.get("OPENCLAW_HOOKS_TOKEN")!;
-const WEBHOOK_SECRET = Deno.env.get("OPENCLAW_WEBHOOK_SECRET") ?? "";
+const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY")!;
+
+// Slug do modelo no OpenRouter — confirmar contra https://openrouter.ai/models
+const MODEL = "anthropic/claude-sonnet-4.6";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -29,15 +30,20 @@ function formatThread(messages: { direction: string; message_text: string; creat
   }).join("\n");
 }
 
+// Parser defensivo — o modelo pode devolver JSON dentro de markdown
+function parseAgentOutput(raw: string) {
+  const match = raw.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try { return JSON.parse(match[0]); } catch { return null; }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
-  // Validação de env vars obrigatórias
-  if (!OPENCLAW_URL || !OPENCLAW_TOKEN) {
-    console.error("[analyze-wa] OPENCLAW_URL ou OPENCLAW_HOOKS_TOKEN não configurados");
-    return json({ error: "Configuração incompleta: OPENCLAW_URL ou OPENCLAW_HOOKS_TOKEN ausente" }, 500);
+  if (!OPENROUTER_API_KEY) {
+    console.error("[analyze-wa] OPENROUTER_API_KEY não configurado");
+    return json({ error: "Configuração incompleta: OPENROUTER_API_KEY ausente" }, 500);
   }
-  console.log("[analyze-wa] OPENCLAW_URL:", OPENCLAW_URL.slice(0, 30) + "...");
 
   // Extrai usuário quando disponível (JWT na sessão do browser).
   // Não rejeita se null — função usa service_role para todas as ops de banco.
@@ -62,15 +68,13 @@ Deno.serve(async (req) => {
   console.log("[analyze-wa] client_id:", client_id, "user_id:", user_id, "userId:", userId);
   if (!client_id) return json({ error: "client_id obrigatório" }, 400);
 
-  // 1. Buscar settings
+  // 1. Buscar settings (threshold de alerta)
   const { data: settings } = await sbAdmin
     .from("wa_analysis_settings")
     .select("*")
     .eq("id", "00000000-0000-0000-0000-000000000001")
     .single();
-  const agentId = settings?.agent_id ?? "agente-feedback-wa";
   const threshold = settings?.alert_threshold ?? 5.0;
-  console.log("[analyze-wa] agentId:", agentId, "threshold:", threshold);
 
   // 2. Buscar thread
   const { data: messages, error: msgErr } = await sbAdmin
@@ -80,18 +84,14 @@ Deno.serve(async (req) => {
     .order("created_at", { ascending: true })
     .limit(100);
 
-  console.log("[analyze-wa] client_id usado:", client_id, "messages count:", messages?.length ?? 0, "error:", msgErr?.message ?? null);
   if (msgErr) return json({ error: `DB error: ${msgErr.message}` }, 500);
   if (!messages || messages.length === 0) {
-    // Diagnóstico extra: contar total de mensagens na tabela (sem filtro)
-    const { count } = await sbAdmin.from("whatsapp_messages").select("*", { count: "exact", head: true });
-    console.log("[analyze-wa] total messages na tabela:", count);
-    return json({ error: `Nenhuma mensagem para client_id=${client_id} (total na tabela: ${count})` }, 404);
+    return json({ error: `Nenhuma mensagem para client_id=${client_id}` }, 404);
   }
 
   const instanceId = (messages[0] as any).instance_id ?? null;
 
-  // Busca user_id da instância separadamente se tiver instance_id
+  // Resolve o user_id responsável: body > JWT > instância WhatsApp
   let instanceUserId: string | null = user_id ?? userId ?? null;
   if (instanceId) {
     const { data: inst } = await sbAdmin
@@ -103,85 +103,130 @@ Deno.serve(async (req) => {
   }
   const thread = formatThread(messages);
 
-  // 3. Montar prompt
-  const prompt = `Você é um analista de qualidade de atendimento. Analise a conversa de WhatsApp abaixo entre um atendente e um cliente.
+  // 3. Montar prompts
+  const systemPrompt = `Você é um analista de qualidade de atendimento da Live Equipamentos, fabricante brasileira de equipamentos de Pilates. Sua função é avaliar conversas de WhatsApp entre um atendente da Live e um cliente/lead.
 
-Retorne APENAS um objeto JSON válido, sem markdown, sem texto antes ou depois:
+Avalie a conversa segundo três dimensões, cada uma de 0 a 10:
+- score_response_time: velocidade e consistência das respostas do atendente.
+- score_tone: educação, clareza e profissionalismo do atendente.
+- score_commercial: avanço no funil de vendas e aproveitamento da oportunidade comercial.
+
+Calcule score_overall como a média ponderada com os pesos canônicos: tone 40%, commercial 35%, response_time 25%.
+
+Defina alert_level assim: "critical" se score_overall < ${threshold}; "warning" se score_overall < ${threshold + 2}; "ok" caso contrário.
+
+Escreva summary como um resumo objetivo da conversa em no máximo 2 frases, em português. Escreva recommendations como uma lista de 2 a 3 recomendações práticas e acionáveis para o atendente melhorar, em português.
+
+Responda APENAS com um objeto JSON válido, sem markdown, sem texto antes ou depois, exatamente neste formato:
 {
   "score_overall": <número 0-10>,
   "score_response_time": <número 0-10>,
   "score_tone": <número 0-10>,
   "score_commercial": <número 0-10>,
   "alert_level": "<ok|warning|critical>",
-  "summary": "<resumo em 2 frases>",
+  "summary": "<resumo em até 2 frases>",
   "recommendations": ["<rec1>", "<rec2>"]
-}
+}`;
 
-Critérios:
-- score_response_time: velocidade e consistência das respostas do atendente
-- score_tone: educação, clareza e profissionalismo
-- score_commercial: avanço no funil, aproveitamento de oportunidade comercial
-- score_overall: média ponderada (tone 40%, commercial 35%, response_time 25%)
-- alert_level: "critical" se score_overall < ${threshold}, "warning" se < ${threshold + 2}, "ok" caso contrário
+  const userPrompt = `CONVERSA:\n${thread}`;
 
-CONVERSA:
-${thread}`;
-
-  const webhookUrl = WEBHOOK_SECRET
-    ? `${SUPABASE_URL}/functions/v1/wa-feedback-webhook?secret=${WEBHOOK_SECRET}`
-    : `${SUPABASE_URL}/functions/v1/wa-feedback-webhook`;
-  const runName = `feedback-wa-${client_id.slice(0, 8)}-${Date.now()}`;
-
-  // 4. Chamar OpenClaw
-  console.log("[analyze-wa] chamando OpenClaw, agentId:", agentId, "to:", webhookUrl.slice(0, 50));
-  let hookRes: Response;
+  // 4. Chamar o OpenRouter (síncrono)
+  let orRes: Response;
   try {
-    hookRes = await fetch(`${OPENCLAW_URL}/hooks/agent`, {
+    orRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${OPENCLAW_TOKEN}`,
+        "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
         "Content-Type": "application/json",
+        "X-Title": "LivePosVenda - Analise WA",
       },
       body: JSON.stringify({
-        message: prompt,
-        agentId,
-        deliver: "webhook",
-        to: webhookUrl,
-        thinking: "low",
-        timeoutSeconds: 120,
-        name: runName,
+        model: MODEL,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.3,
+        max_tokens: 1024,
       }),
     });
   } catch (fetchErr) {
-    console.error("[analyze-wa] fetch OpenClaw falhou:", fetchErr);
-    return json({ error: `OpenClaw inacessível: ${String(fetchErr)}` }, 502);
+    console.error("[analyze-wa] fetch OpenRouter falhou:", fetchErr);
+    return json({ error: `OpenRouter inacessível: ${String(fetchErr)}` }, 502);
   }
 
-  if (!hookRes.ok) {
-    const err = await hookRes.text();
-    console.error("[analyze-wa] OpenClaw status:", hookRes.status, "body:", err);
-    return json({ error: `OpenClaw error ${hookRes.status}: ${err}` }, 502);
+  if (!orRes.ok) {
+    const err = await orRes.text();
+    console.error("[analyze-wa] OpenRouter status:", orRes.status, "body:", err);
+    return json({ error: `OpenRouter error ${orRes.status}: ${err}` }, 502);
   }
 
-  const rawText = await hookRes.text();
-  console.log("[analyze-wa] OpenClaw raw (200chars):", rawText.slice(0, 200));
-  let hookBody: any;
-  try {
-    hookBody = JSON.parse(rawText);
-  } catch {
-    return json({ error: `OpenClaw retornou não-JSON (status ${hookRes.status}): ${rawText.slice(0, 150)}` }, 502);
-  }
-  console.log("[analyze-wa] OpenClaw parsed runId:", hookBody?.runId);
-  const { runId } = hookBody;
+  const orBody = await orRes.json();
+  const rawText: string = orBody?.choices?.[0]?.message?.content ?? "";
+  const runId: string | null = orBody?.id ?? null;
+  console.log("[analyze-wa] OpenRouter raw (200chars):", rawText.slice(0, 200));
 
-  // 5. Inserir wa_feedbacks pending
-  await sbAdmin.from("wa_feedbacks").insert({
+  // 5. Parsear e gravar wa_feedbacks
+  const parsed = parseAgentOutput(rawText);
+  if (!parsed) {
+    const { data: errRow } = await sbAdmin.from("wa_feedbacks").insert({
+      client_id,
+      user_id: instanceUserId,
+      instance_id: instanceId,
+      status: "error",
+      run_id: runId,
+      raw_response: rawText,
+    }).select("id").single();
+    return json({ error: "Resposta da IA não pôde ser interpretada", feedback_id: errRow?.id }, 502);
+  }
+
+  const {
+    score_overall, score_response_time, score_tone, score_commercial,
+    alert_level, summary, recommendations,
+  } = parsed;
+
+  const { data: fb } = await sbAdmin.from("wa_feedbacks").insert({
     client_id,
     user_id: instanceUserId,
     instance_id: instanceId,
-    status: "pending",
+    score_overall, score_response_time, score_tone, score_commercial,
+    alert_level, summary,
+    recommendations: JSON.stringify(recommendations ?? []),
+    status: "done",
     run_id: runId,
-  });
+    raw_response: rawText,
+  }).select("id").single();
 
-  return json({ ok: true, run_id: runId });
+  // 6. Disparar notificações se a conversa for crítica
+  if (alert_level === "critical" && instanceUserId) {
+    const { data: clientRow } = await sbAdmin
+      .from("clients")
+      .select("name, phone")
+      .eq("id", client_id)
+      .maybeSingle();
+    const clientName = clientRow?.name ?? clientRow?.phone ?? "cliente";
+
+    const notifBase = {
+      type: "wa_feedback_alert",
+      title: "⚠️ Conversa crítica detectada",
+      body: `A conversa com ${clientName} foi avaliada abaixo do threshold. Nota: ${score_overall}`,
+      link: "/minhas-conversas-wa",
+    };
+
+    await sbAdmin.from("notifications").insert({ ...notifBase, user_id: instanceUserId });
+
+    const { data: admins } = await sbAdmin
+      .from("user_roles")
+      .select("user_id")
+      .eq("role", "admin");
+
+    const adminNotifs = (admins ?? [])
+      .filter((a: { user_id: string }) => a.user_id !== instanceUserId)
+      .map((a: { user_id: string }) => ({ ...notifBase, user_id: a.user_id, link: "/admin/conversas" }));
+    if (adminNotifs.length > 0) {
+      await sbAdmin.from("notifications").insert(adminNotifs);
+    }
+  }
+
+  return json({ ok: true, feedback_id: fb?.id, score_overall, alert_level });
 });
