@@ -1,13 +1,13 @@
 // supabase/functions/suggest-wa-response/index.ts
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const SUPABASE_URL    = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_KEY     = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const ANON_KEY        = Deno.env.get("SUPABASE_ANON_KEY")!;
-const OPENCLAW_URL           = Deno.env.get("OPENCLAW_URL")!;
-const OPENCLAW_TOKEN         = Deno.env.get("OPENCLAW_HOOKS_TOKEN")!;
-const OPENCLAW_GATEWAY_TOKEN = Deno.env.get("OPENCLAW_GATEWAY_TOKEN")!;
-const WEBHOOK_SECRET         = Deno.env.get("OPENCLAW_WEBHOOK_SECRET") ?? "";
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const ANON_KEY     = Deno.env.get("SUPABASE_ANON_KEY")!;
+const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY")!;
+
+// Slug do modelo no OpenRouter — confirmar contra https://openrouter.ai/models
+const MODEL = "anthropic/claude-haiku-4.5";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -25,6 +25,11 @@ function json(body: unknown, status = 200) {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
+  if (!OPENROUTER_API_KEY) {
+    console.error("[suggest-wa] OPENROUTER_API_KEY não configurado");
+    return json({ error: "Configuração incompleta: OPENROUTER_API_KEY ausente" }, 500);
+  }
+
   const authHeader = req.headers.get("Authorization") ?? "";
   const sbUser = createClient(SUPABASE_URL, ANON_KEY, {
     global: { headers: { Authorization: authHeader } },
@@ -37,7 +42,7 @@ Deno.serve(async (req) => {
     return json({ error: "client_id e inbound_text são obrigatórios" }, 400);
   }
 
-  // Buscar instância ativa do usuário
+  // Instância WhatsApp ativa do usuário
   const { data: instance } = await sbAdmin
     .from("pipeline_whatsapp_instances")
     .select("id")
@@ -45,7 +50,7 @@ Deno.serve(async (req) => {
     .eq("active", true)
     .maybeSingle();
 
-  // Buscar últimas 10 mensagens do cliente (ordem cronológica)
+  // Últimas 10 mensagens do cliente, em ordem cronológica
   const { data: history } = await sbAdmin
     .from("whatsapp_messages")
     .select("direction, message_text, created_at")
@@ -54,68 +59,84 @@ Deno.serve(async (req) => {
     .limit(10);
 
   const chronological = (history ?? []).reverse();
-
   const historyText = chronological.map(m => {
     const time = new Date(m.created_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
     const dir  = m.direction === "inbound" ? "CLIENTE" : "ATENDENTE";
     return `${time} [${dir}] ${m.message_text}`;
   }).join("\n");
 
-  // O sistema prompt do agente-copiloto-vendas no OpenClaw já define tom, produtos e regras.
-  // Aqui enviamos apenas o contexto da conversa para manter a sessão leve.
-  const message = `HISTÓRICO (últimas mensagens):
+  const systemPrompt = `Você é um copiloto de vendas consultivas da Live Equipamentos, fabricante brasileira de equipamentos de Pilates com inteligência artificial embarcada. Você ajuda um vendedor da Live sugerindo a próxima resposta a ser enviada para um lead no WhatsApp.
+
+Diretrizes:
+- Tom consultivo, cordial e profissional, em português do Brasil. Nunca agressivo ou insistente.
+- Foque em entender a necessidade do lead, gerar valor e avançar a conversa no funil de vendas.
+- Seja objetivo: a sugestão deve ser uma mensagem pronta para enviar, curta o suficiente para WhatsApp.
+- Se o lead pedir algo que exige decisão humana (preço final, condição especial de pagamento, prazo de entrega, reclamação) ou demonstrar irritação, sugira que o vendedor assuma a conversa pessoalmente.
+- Não invente informações sobre produtos, preços ou prazos que não estejam no histórico.
+
+Responda APENAS com o texto da mensagem sugerida, sem aspas, sem markdown, sem comentários antes ou depois.`;
+
+  const userPrompt = `HISTÓRICO (últimas mensagens):
 ${historyText}
 
 MENSAGEM DO LEAD:
 ${inbound_text}`;
 
-  const webhookUrl = WEBHOOK_SECRET
-    ? `${SUPABASE_URL}/functions/v1/wa-feedback-webhook?secret=${WEBHOOK_SECRET}`
-    : `${SUPABASE_URL}/functions/v1/wa-feedback-webhook`;
-  const runName = `copiloto-${client_id.slice(0, 8)}-${Date.now()}`;
-
-  // sessionKey garante sessão persistente por lead — o agente lembra o histórico da conversa
-  const sessionKey = `copiloto-${client_id}`;
-
-  const hookRes = await fetch(`${OPENCLAW_URL}/hooks/agent`, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${OPENCLAW_GATEWAY_TOKEN}`,
-      "x-openclaw-token": OPENCLAW_TOKEN,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      message,
-      agentId: "agente-copiloto-vendas",
-      sessionKey,
-      deliver: "webhook",
-      to: webhookUrl,
-      thinking: "low",
-      timeoutSeconds: 30,
-      name: runName,
-    }),
-  });
-
-  if (!hookRes.ok) {
-    const err = await hookRes.text();
-    return json({ error: `OpenClaw error: ${err}` }, 502);
+  // Chamar o OpenRouter (síncrono)
+  let suggestionText = "";
+  let runId: string | null = null;
+  let callOk = true;
+  try {
+    const orRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+        "Content-Type": "application/json",
+        "X-Title": "LivePosVenda - Copiloto WA",
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.6,
+        max_tokens: 500,
+      }),
+    });
+    if (!orRes.ok) {
+      console.warn("[suggest-wa] OpenRouter status:", orRes.status, await orRes.text());
+      callOk = false;
+    } else {
+      const orBody = await orRes.json();
+      suggestionText = (orBody?.choices?.[0]?.message?.content ?? "").trim();
+      runId = orBody?.id ?? null;
+    }
+  } catch (e) {
+    console.warn("[suggest-wa] OpenRouter fetch error:", String(e));
+    callOk = false;
   }
 
-  const { runId } = await hookRes.json();
+  const status = callOk && suggestionText ? "done" : "error";
 
-  // Inserir suggestion pending
-  const { data: suggestion } = await sbAdmin
+  // Grava o resultado já finalizado — a extensão faz polling e acha pronto no 1º poll
+  const { data: suggestion, error: insErr } = await sbAdmin
     .from("wa_suggestions")
     .insert({
       client_id,
       user_id: user.id,
       instance_id: instance?.id ?? null,
       inbound_message: inbound_text,
-      status: "pending",
+      suggested_response: suggestionText || null,
+      status,
       run_id: runId,
     })
     .select("id")
     .single();
+  if (insErr) {
+    console.error("[suggest-wa] insert wa_suggestions falhou:", insErr.message);
+    return json({ error: `Falha ao gravar sugestão: ${insErr.message}` }, 500);
+  }
 
-  return json({ ok: true, suggestion_id: suggestion?.id, run_id: runId });
+  return json({ ok: status === "done", suggestion_id: suggestion?.id });
 });
