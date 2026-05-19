@@ -111,6 +111,7 @@ ${inbound_text}`;
       const orBody = await orRes.json();
       suggestionText = (orBody?.choices?.[0]?.message?.content ?? "").trim();
       runId = orBody?.id ?? null;
+      if (!suggestionText) console.warn("[suggest-wa] OpenRouter retornou content vazio; status=error");
     }
   } catch (e) {
     console.warn("[suggest-wa] OpenRouter fetch error:", String(e));
