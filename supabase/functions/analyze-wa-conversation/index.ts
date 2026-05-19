@@ -169,7 +169,8 @@ Responda APENAS com um objeto JSON válido, sem markdown, sem texto antes ou dep
   // 5. Parsear e gravar wa_feedbacks
   const parsed = parseAgentOutput(rawText);
   if (!parsed) {
-    const { data: errRow } = await sbAdmin.from("wa_feedbacks").insert({
+    console.error("[analyze-wa] parse falhou — rawText length:", rawText.length);
+    const { data: errRow, error: errInsErr } = await sbAdmin.from("wa_feedbacks").insert({
       client_id,
       user_id: instanceUserId,
       instance_id: instanceId,
@@ -177,6 +178,7 @@ Responda APENAS com um objeto JSON válido, sem markdown, sem texto antes ou dep
       run_id: runId,
       raw_response: rawText,
     }).select("id").single();
+    if (errInsErr) console.error("[analyze-wa] insert wa_feedbacks (error) falhou:", errInsErr.message);
     return json({ error: "Resposta da IA não pôde ser interpretada", feedback_id: errRow?.id }, 502);
   }
 
@@ -185,17 +187,21 @@ Responda APENAS com um objeto JSON válido, sem markdown, sem texto antes ou dep
     alert_level, summary, recommendations,
   } = parsed;
 
-  const { data: fb } = await sbAdmin.from("wa_feedbacks").insert({
+  const { data: fb, error: fbErr } = await sbAdmin.from("wa_feedbacks").insert({
     client_id,
     user_id: instanceUserId,
     instance_id: instanceId,
     score_overall, score_response_time, score_tone, score_commercial,
     alert_level, summary,
-    recommendations: JSON.stringify(recommendations ?? []),
+    recommendations: JSON.stringify(Array.isArray(recommendations) ? recommendations : []),
     status: "done",
     run_id: runId,
     raw_response: rawText,
   }).select("id").single();
+  if (fbErr) {
+    console.error("[analyze-wa] insert wa_feedbacks falhou:", fbErr.message);
+    return json({ error: `Falha ao gravar feedback: ${fbErr.message}` }, 500);
+  }
 
   // 6. Disparar notificações se a conversa for crítica
   if (alert_level === "critical" && instanceUserId) {
