@@ -78,12 +78,15 @@ const ClientsPage = () => {
     if (!clients) return [];
     const term = searchTerm.toLowerCase().trim();
     if (!term) return clients;
+    const termDigits = term.replace(/\D/g, "");
     return clients.filter((c) => {
       const name = (c.name || "").toLowerCase();
       const doc = (c.document || "").toLowerCase();
       const email = (c.email || "").toLowerCase();
       const city = (c.city || "").toLowerCase();
-      return name.includes(term) || doc.includes(term) || email.includes(term) || city.includes(term);
+      const phoneDigits = `${(c as any).whatsapp || ""}${c.phone || ""}`.replace(/\D/g, "");
+      const matchPhone = termDigits.length > 0 && phoneDigits.includes(termDigits);
+      return name.includes(term) || doc.includes(term) || email.includes(term) || city.includes(term) || matchPhone;
     });
   }, [clients, searchTerm]);
 
@@ -123,7 +126,7 @@ const ClientsPage = () => {
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <input
           type="text"
-          placeholder="Buscar por nome, documento, email ou cidade..."
+          placeholder="Buscar por nome, telefone, documento, email ou cidade..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-input bg-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
@@ -140,7 +143,7 @@ const ClientsPage = () => {
             <table className="w-full">
               <thead>
                 <tr className="border-b bg-muted/50">
-                  {["Código", "Nome", "CPF/CNPJ", "Cidade", "Estado", "Email", "Status",
+                  {["Código", "Nome", "Telefone", "CPF/CNPJ", "Cidade", "Estado", "Email", "Status",
                     ...(isAdmin ? ["Responsável"] : []),
                     ""].map((h) => (
                     <th key={h} className="text-left text-[11px] uppercase tracking-wider text-muted-foreground font-medium px-4 py-3">{h}</th>
@@ -152,6 +155,7 @@ const ClientsPage = () => {
                   <tr key={client.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-3 text-sm font-mono text-muted-foreground">{(client as any).client_code || "—"}</td>
                     <td className="px-4 py-3 text-sm font-medium">{client.name}</td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground">{(client as any).whatsapp || client.phone || "—"}</td>
                     <td className="px-4 py-3 text-sm text-muted-foreground">{client.document || "—"}</td>
                     <td className="px-4 py-3 text-sm">{client.city || "—"}</td>
                     <td className="px-4 py-3 text-sm">{client.state || "—"}</td>

@@ -29,16 +29,18 @@ quatro coisas; a investigação mostrou que duas já funcionam.
 
 ### Parte 2 — Limpeza de clientes sem telefone
 
-Script único `scripts/cleanup-clients-sem-telefone.mjs`:
+Arquivo SQL `scripts/cleanup-clients-sem-telefone.sql`, executado no SQL Editor
+do Supabase. (O `.env` local só tem a chave pública/anon — sem service role
+key, um script Node não consegue deletar em massa por causa do RLS. O SQL
+Editor roda com privilégio total e é mais transparente.)
 
-- **Critério de exclusão:** `phone` vazio/nulo **E** `whatsapp` vazio/nulo
-  **E** sem nenhum registro em `tickets` (clientes com card são pulados).
-- **Modo `--dry-run` (padrão):** lista os candidatos (código, nome, criado em,
-  contagem de cards) sem deletar.
-- **Modo `--apply`:** executa a exclusão dos candidatos.
-- O script lê credenciais do `.env`/`.env.local` por conta própria (usa
-  `SUPABASE_URL` + service role key). Executado pelo usuário via
-  `!node scripts/cleanup-clients-sem-telefone.mjs`.
+- **Critério de exclusão:** `phone` sem nenhum dígito **E** `whatsapp` sem
+  nenhum dígito **E** sem nenhum registro em `tickets` (clientes com card são
+  pulados).
+- **Passo 1 — preview:** `SELECT` lista os candidatos (código, nome, email,
+  criado em) sem deletar.
+- **Passo 2 — exclusão:** `DELETE` (comentado no arquivo) executado só após
+  conferir o preview.
 
 ### Fora de escopo
 
